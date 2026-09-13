@@ -1,0 +1,13 @@
+[package]
+name = "vime-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C ABI FFI boundary for the Vime Vietnamese input engine"
+license = "MIT"
+
+[lib]
+name = "vime"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+vime-engine = { path = "../engine" }
