@@ -25,9 +25,12 @@ this library and do not depend on the Rust toolchain.
 ## Public API
 
 - `vime_create` / `vime_destroy` — engine lifecycle
-- `vime_process_key` — feed keystrokes, get preedit/commit directives
+- `vime_process_key` — feed keystrokes, get a `VimeAction` plus preedit/commit text
 - `vime_reset` — clear engine state
 - `vime_set_input_method` — select Telex / VNI
-- `vime_free_string` — free Rust-allocated strings
+
+`VimeOutput` carries a `VimeAction` (`Forward`, `Noop`, `UpdatePreedit`,
+`Commit`) and `rendered`/`commit` C strings owned by the engine handle — valid
+until the next call on that handle or `vime_destroy` (no manual free needed).
 
 See `ffi/include/vime_engine.h` for the full ABI contract.

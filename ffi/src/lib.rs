@@ -1,18 +1,23 @@
-use std::ffi::{c_char, CString};
+#[cfg(test)]
+use std::ffi::CStr;
 
 use vime_engine::{ConfiguredRuleEngine, Engine, KeyEvent};
 
 pub mod convert;
 pub mod types;
 
-pub use types::{VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput};
+pub use types::{
+    VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
+};
 
-use convert::to_vime_output;
+use convert::KeyEventConversionError;
 
 #[no_mangle]
 pub extern "C" fn vime_create() -> *mut VimeEngineHandle {
     Box::into_raw(Box::new(VimeEngineHandle {
         engine: Engine::default(),
+        rendered: None,
+        commit: None,
     }))
 }
 
@@ -26,10 +31,10 @@ pub unsafe extern "C" fn vime_destroy(engine: *mut VimeEngineHandle) {
 #[no_mangle]
 pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> VimeOutput {
     let Some(engine) = engine.as_mut() else {
-        return VimeOutput::empty();
+        return VimeOutput::default();
     };
     let result = engine.engine.reset();
-    to_vime_output(&engine.engine, result)
+    engine.output(result)
 }
 
 #[no_mangle]
@@ -38,15 +43,16 @@ pub unsafe extern "C" fn vime_process_key(
     event: VimeKeyEvent,
 ) -> VimeOutput {
     let Some(engine) = engine.as_mut() else {
-        return VimeOutput::empty();
+        return VimeOutput::default();
     };
 
-    let Ok(key_event) = KeyEvent::try_from(event) else {
-        return VimeOutput::empty();
+    let key_event: Result<KeyEvent, KeyEventConversionError> = event.try_into();
+    let Ok(key_event) = key_event else {
+        return VimeOutput::default();
     };
 
     let result = engine.engine.process_key(key_event);
-    to_vime_output(&engine.engine, result)
+    engine.output(result)
 }
 
 #[no_mangle]
@@ -66,17 +72,9 @@ pub unsafe extern "C" fn vime_set_input_method(
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn vime_free_string(value: *mut c_char) {
-    if !value.is_null() {
-        drop(CString::from_raw(value));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CStr;
 
     #[test]
     fn test_lifecycle_and_telex_typing() {
@@ -98,23 +96,19 @@ mod tests {
                         states: 0,
                     },
                 );
-                assert!(out.consumed);
+                assert_eq!(out.action, VimeAction::UpdatePreedit);
                 if !out.rendered.is_null() {
                     last_rendered = CStr::from_ptr(out.rendered).to_str().unwrap().to_string();
-                    vime_free_string(out.rendered);
                 }
             }
 
             assert_eq!(last_rendered, "việt");
 
-            // Reset
+            // Reset clears the buffer and updates the preedit (to empty).
             let reset_out = vime_reset(handle);
-            if !reset_out.rendered.is_null() {
-                vime_free_string(reset_out.rendered);
-            }
-            if !reset_out.commit.is_null() {
-                vime_free_string(reset_out.commit);
-            }
+            assert_eq!(reset_out.action, VimeAction::UpdatePreedit);
+            assert!(!reset_out.rendered.is_null());
+            assert_eq!(CStr::from_ptr(reset_out.rendered).to_str().unwrap(), "");
 
             vime_destroy(handle);
         }

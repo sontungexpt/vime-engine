@@ -33,6 +33,16 @@ typedef struct VimeEngineHandle VimeEngineHandle;
 /* ========================================================================= */
 
 /**
+ * High-level action directive returned to native frontends.
+ */
+typedef enum VimeAction {
+    VIME_ACTION_FORWARD        = 0, /* key ignored by IME; forward it to the app */
+    VIME_ACTION_NOOP           = 1, /* key consumed; nothing visibly changed     */
+    VIME_ACTION_UPDATE_PREEDIT = 2, /* preedit updated; refresh the window       */
+    VIME_ACTION_COMMIT         = 3, /* text committed; clear preedit, insert it  */
+} VimeAction;
+
+/**
  * Exclusive input-method selection. Values reflect the ABI agreement with Rust backend.
  */
 typedef enum VimeInputMethod {
@@ -66,10 +76,13 @@ typedef struct VimeKeyEvent {
 } VimeKeyEvent;
 
 typedef struct VimeOutput {
-    bool consumed;  /* true if the IME consumed the key (call filterAndAccept) */
-    bool changed;   /* true if rendered or commit differ from the previous call */
-    char *rendered; /* Preedit text (UTF-8); NULL if unchanged; must be freed via vime_free_string */
-    char *commit;   /* Finished text to commit (UTF-8); NULL if none; must be freed via vime_free_string */
+    VimeAction action;      /* high-level action for the frontend state machine */
+    const char *rendered;   /* preedit text (UTF-8), NULL if empty/unchanged;
+                             * owned by the handle, valid until the next call on
+                             * the same handle or vime_destroy */
+    const char *commit;     /* text to commit (UTF-8), NULL if none; owned by the
+                             * handle, valid until the next call on the same
+                             * handle or vime_destroy */
 } VimeOutput;
 
 /* ========================================================================= */
@@ -94,9 +107,6 @@ VimeOutput vime_reset(VimeEngineHandle *engine);
 
 /** Processes a key event and returns output directives for the frontend adapter. */
 VimeOutput vime_process_key(VimeEngineHandle *engine, VimeKeyEvent event);
-
-/** Frees C strings dynamically allocated by Rust (rendered / commit buffers). */
-void vime_free_string(char *str);
 
 #ifdef __cplusplus
 }

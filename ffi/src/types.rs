@@ -1,11 +1,42 @@
-use std::ffi::c_char;
+use std::ffi::{c_char, CString};
 use std::ptr;
 
-use vime_engine::{ConfiguredRuleEngine, DefaultRenderer, Engine};
+use vime_engine::{ConfiguredRuleEngine, DefaultRenderer, Engine, Result};
 
 #[repr(C)]
 pub struct VimeEngineHandle {
     pub(crate) engine: Engine<DefaultRenderer, ConfiguredRuleEngine<'static>>,
+    pub(crate) rendered: Option<CString>,
+    pub(crate) commit: Option<CString>,
+}
+
+impl VimeEngineHandle {
+    /// Builds a `VimeOutput` view whose text lives in buffers owned by this
+    /// handle. Any previously returned pointers become invalidated by this call.
+    pub(crate) fn output(&mut self, result: Result) -> VimeOutput {
+        self.rendered = None;
+        self.commit = None;
+
+        let action = match result {
+            Result::Forward => return VimeOutput::empty(VimeAction::Forward),
+            Result::Noop => return VimeOutput::empty(VimeAction::Noop),
+            Result::Changed => {
+                self.rendered =
+                    Some(CString::new(self.engine.rendered()).expect("rendered text cannot contain NUL"));
+                VimeAction::UpdatePreedit
+            }
+            Result::Commit(text) => {
+                self.commit = Some(CString::new(text).expect("committed text cannot contain NUL"));
+                VimeAction::Commit
+            }
+        };
+
+        VimeOutput {
+            action,
+            rendered: self.rendered.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
+            commit: self.commit.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
+        }
+    }
 }
 
 #[repr(u32)]
@@ -47,23 +78,40 @@ pub struct VimeKeyEvent {
     pub states: u32,
 }
 
+/// Action directive returned to native frontends (Fcitx5, IBus, macOS).
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VimeAction {
+    /// Key was ignored by IME; frontend must forward key to active application.
+    Forward = 0,
+    /// Key was consumed by IME, but preedit/commit state did not change.
+    Noop = 1,
+    /// Preedit text was updated; update the client preedit window.
+    UpdatePreedit = 2,
+    /// Text was committed; clear the preedit window and insert committed text.
+    Commit = 3,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VimeOutput {
-    pub consumed: bool,
-    pub changed: bool,
-    pub rendered: *mut c_char,
-    pub commit: *mut c_char,
+    /// High-level action for the frontend state machine.
+    pub action: VimeAction,
+    /// Preedit display text (UTF-8, null-terminated). NULL if empty/unchanged.
+    /// Owned by the engine handle; valid until the next call or vime_destroy.
+    pub rendered: *const c_char,
+    /// Text to commit to the input context (UTF-8, null-terminated). NULL if none.
+    /// Owned by the engine handle; valid until the next call or vime_destroy.
+    pub commit: *const c_char,
 }
 
 impl VimeOutput {
     #[inline]
-    pub const fn empty() -> Self {
+    pub const fn empty(action: VimeAction) -> Self {
         Self {
-            consumed: false,
-            changed: false,
-            rendered: ptr::null_mut(),
-            commit: ptr::null_mut(),
+            action,
+            rendered: ptr::null(),
+            commit: ptr::null(),
         }
     }
 }
@@ -71,6 +119,6 @@ impl VimeOutput {
 impl Default for VimeOutput {
     #[inline]
     fn default() -> Self {
-        Self::empty()
+        Self::empty(VimeAction::Forward)
     }
 }
