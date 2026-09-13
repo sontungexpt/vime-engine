@@ -1,5 +1,5 @@
 [package]
-name = "vime-ffi"
+name = "vime-engine-ffi"
 version = "0.1.0"
 edition = "2021"
 description = "C ABI FFI boundary for the Vime Vietnamese input engine"

@@ -8,7 +8,7 @@ Pure Rust Vietnamese input-method engine, packaged with its C ABI boundary.
 vime-engine/
 ├── core/     # vime-engine — pure logic (Engine, Buffer, Parser, phonology,
 │             #   Telex/VNI/VIQR rule engines, renderer)
-└── ffi/      # vime-ffi — C ABI boundary (vime_engine.h, libvime.so / libvime.a)
+└── ffi/      # vime-engine-ffi — C ABI boundary (vime_engine.h, libvime.so / libvime.a)
 ```
 
 ## Build

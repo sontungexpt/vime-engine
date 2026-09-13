@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vime-ffi"
+name = "vime-engine-ffi"
 version = "0.1.0"
 dependencies = [
  "vime-engine",
