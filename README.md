@@ -8,7 +8,7 @@ Pure Rust Vietnamese input-method engine, packaged with its C ABI boundary.
 vime-engine/
 ├── core/     # vime-engine — pure logic (Engine, Buffer, Parser, phonology,
 │             #   Telex/VNI/VIQR rule engines, renderer)
-└── ffi/      # vime-ffi — C ABI boundary (vime.h, libvime.so / libvime.a)
+└── ffi/      # vime-ffi — C ABI boundary (vime_engine.h, libvime.so / libvime.a)
 ```
 
 ## Build
@@ -19,8 +19,9 @@ cargo test --workspace
 ```
 
 The FFI crate emits `libvime.so` (shared), `libvime.a` (static), and a
-`vime.h` header (in `ffi/include/`) for C/C++ frontends. Adapters link this
-library and do not depend on the Rust toolchain.
+`vime_engine.h` header (in `ffi/include/`) for C/C++ frontends. Adapters link
+this library and do not depend on the Rust toolchain. In C++ the public
+surface lives in the `vime::engine` namespace; in C it stays global.
 
 ## Public API
 
@@ -30,4 +31,4 @@ library and do not depend on the Rust toolchain.
 - `vime_set_input_method` — select Telex / VNI
 - `vime_free_string` — free Rust-allocated strings
 
-See `ffi/include/vime.h` for the full ABI contract.
+See `ffi/include/vime_engine.h` for the full ABI contract.

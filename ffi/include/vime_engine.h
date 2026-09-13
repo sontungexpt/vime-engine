@@ -1,30 +1,18 @@
 #pragma once
 
 /* C ABI boundary between native frontend adapters (Fcitx5, IBus, macOS, Windows)
- * and the pure Rust Vietnamese IME engine. */
+ * and the pure Rust Vietnamese IME engine.
+ *
+ * In C++ the whole public surface lives inside the vime::engine namespace; in C
+ * every symbol stays in the global namespace. Symbols have "C" linkage either
+ * way, so names are unmangled and match the Rust #[no_mangle] exports. */
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* ========================================================================= */
-/* Opaque Handles & Forward Declarations                                     */
-/* ========================================================================= */
-
-typedef struct VimeEngineHandle VimeEngineHandle;
-
-/* ========================================================================= */
-/* Macros & Bitmasks                                                         */
-/* ========================================================================= */
-
-/**
- * Key event state — vime-engine's canonical KeyState bitmask.
+/* Key event state — vime-engine's canonical KeyState bitmask.
  * Bitmask ORed into VimeKeyEvent.state. Frontends must translate native
- * modifier states into these exact values.
- */
+ * modifier states into these exact values. (Macros are not namespaced.) */
 #define VIME_KEY_STATE_CTRL      (1u << 0)
 #define VIME_KEY_STATE_ALT       (1u << 1)
 #define VIME_KEY_STATE_SHIFT     (1u << 2)
@@ -33,6 +21,17 @@ typedef struct VimeEngineHandle VimeEngineHandle;
 #define VIME_KEY_STATE_NUM_LOCK   (1u << 5)
 #define VIME_KEY_STATE_HYPER     (1u << 6)
 #define VIME_KEY_STATE_META      (1u << 7)
+
+#ifdef __cplusplus
+namespace vime::engine {
+extern "C" {
+#endif
+
+/* ========================================================================= */
+/* Opaque Handles & Forward Declarations                                     */
+/* ========================================================================= */
+
+typedef struct VimeEngineHandle VimeEngineHandle;
 
 /* ========================================================================= */
 /* Enumerations                                                              */
@@ -105,5 +104,6 @@ VimeOutput vime_process_key(VimeEngineHandle *engine, VimeKeyEvent event);
 void vime_free_string(char *str);
 
 #ifdef __cplusplus
-}
+} /* extern "C" */
+} /* namespace vime::engine */
 #endif
