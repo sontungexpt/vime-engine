@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "engine",
+    "core",
     "ffi",
 ]
 resolver = "2"

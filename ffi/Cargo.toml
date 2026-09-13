@@ -10,4 +10,4 @@ name = "vime"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-vime-engine = { path = "../engine" }
+vime-engine = { path = "../core" }
