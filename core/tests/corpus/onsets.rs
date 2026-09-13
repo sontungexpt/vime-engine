@@ -96,4 +96,14 @@ pub const CASES: &[TestCase] = &[
     case!(['c', 'a', 'y'], "cay"),
     case!(['b', 'o', 'i'], "boi"),
     case!(['m', 'i', 'e'], "mie"),
+    // ── expansion: newly-valid nuclei (rule.rs) ──
+    case!(['o', 'a', 'i'], "oai"),
+    case!(['o', 'a', 'o'], "oao"),
+    case!(['o', 'a', 'u'], "oau"),
+    case!(['o', 'a', 'y'], "oay"),
+    case!(['o', 'e', 'o'], "oeo"),
+    case!(['u', 'i'], "ui"),
+    case!(['u', 'a', 'o'], "uao"),
+    case!(['u', 'y', 'u'], "uyu"),
+    case!(['u', 'y', 'a'], "uya"),
 ];

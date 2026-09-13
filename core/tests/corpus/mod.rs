@@ -45,6 +45,7 @@
 //! | `uppercase`      | uppercase input                               |
 //! | `toggles`       | toggle / revert behaviour                     |
 //! | `dead_cases`     | inputs that leave the parse in a dead status  |
+//! | `incomplete`     | inputs that leave the parse incomplete        |
 //! | `syllables`      | real Vietnamese syllables (regression corpus) |
 //!
 //! The `#[test]` entry points live in the crate root integration test
@@ -54,6 +55,7 @@
 use vime_engine::{ConfiguredRuleEngine, DefaultRenderer, ParseStatus, Parser, Renderer};
 
 pub mod dead_cases;
+pub mod incomplete;
 pub mod onsets;
 pub mod precomposed;
 pub mod syllables;
@@ -98,8 +100,20 @@ macro_rules! dead_case {
     };
 }
 
+/// A `dead_case!`-style entry for any `ParseStatus` checkpoint (incomplete,
+/// valid, …). Runs through `run_all_status` / `run_dead`.
+macro_rules! status_case {
+    ([$($ch:expr),* $(,)?], $expected:expr) => {
+        DeadCase {
+            input: &[$($ch),*],
+            expected: $expected,
+        }
+    };
+}
+
 pub(crate) use case;
 pub(crate) use dead_case;
+pub(crate) use status_case;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runner helpers
@@ -160,6 +174,15 @@ pub fn run_all<'a>(cases: &'a [TestCase], mapping: &ConfiguredRuleEngine<'a>) ->
 
 /// Runs every dead case in a corpus slice and returns how many were executed.
 pub fn run_all_dead<'a>(cases: &'a [DeadCase], mapping: &ConfiguredRuleEngine<'a>) -> usize {
+    for case in cases {
+        run_dead(case, mapping);
+    }
+    cases.len()
+}
+
+/// Runs every status checkpoint in a corpus slice; same checker as
+/// `run_all_dead`, kept as a distinct name so callers express intent.
+pub fn run_all_status<'a>(cases: &'a [DeadCase], mapping: &ConfiguredRuleEngine<'a>) -> usize {
     for case in cases {
         run_dead(case, mapping);
     }

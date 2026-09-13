@@ -12,8 +12,8 @@
 mod corpus;
 
 use corpus::{
-    dead_cases, onsets, precomposed, run_all, run_all_dead, syllables, telex_shapes, telex_tones,
-    toggles, tones_shapes, uo_sequences, uppercase, viqr, vni,
+    dead_cases, incomplete, onsets, precomposed, run_all, run_all_dead, run_all_status, syllables,
+    telex_shapes, telex_tones, toggles, tones_shapes, uo_sequences, uppercase, viqr, vni,
 };
 
 use vime_engine::ConfiguredRuleEngine;
@@ -29,7 +29,8 @@ fn telex_corpus() {
         + run_all(precomposed::CASES, &telex)
         + run_all(uppercase::CASES, &telex)
         + run_all(toggles::CASES, &telex)
-        + run_all(syllables::CASES, &telex);
+        + run_all(syllables::CASES, &telex)
+        + run_all_status(incomplete::TELEX, &telex);
     assert!(
         n >= 430,
         "expected the telex corpus to stay large; got {n} cases"
@@ -39,7 +40,7 @@ fn telex_corpus() {
 #[test]
 fn vni_corpus() {
     let vni = ConfiguredRuleEngine::vni();
-    let n = run_all(vni::CASES, &vni);
+    let n = run_all(vni::CASES, &vni) + run_all_status(incomplete::VNI, &vni);
     assert!(n >= 55, "expected at least 55 VNI cases; got {n}");
 }
 

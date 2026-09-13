@@ -61,4 +61,9 @@ pub const CASES: &[TestCase] = &[
     // ── expansion: shaped nuclei with codas ──
     case!(['n', 'g', 'a', 'a', 'n'], "ngân"),
     case!(['t', 'h', 'a', 'a', 'n'], "thân"),
+    // ── expansion: newly-valid shaped nuclei (rule.rs) ──
+    case!(['u', 'a', 'a'], "uâ"),
+    case!(['u', 'a', 'a', 'y'], "uây"),
+    case!(['u', 'y', 'e', 'e'], "uyê"),
+    case!(['u', 'w', 'i'], "ưi"),
 ];

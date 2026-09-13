@@ -51,6 +51,9 @@ pub const CASES: &[TestCase] = &[
     case!(['d', 'd'], "đ"),
     case!(['D', 'D'], "Đ"),
     case!(['d', 'd', 'a'], "đa"),
+    // ── d-stroke revert: the stroke key spills as a literal ──
+    case!(['d', 'd', 'd'], "dd"),
+    case!(['D', 'D', 'D'], "DD"),
     // ── uo/ươ revert cycles (see section E) ──
     case!(['u', 'o', 'w'], "uơ"),
     case!(['u', 'o', 'w', 'w'], "ươ"),

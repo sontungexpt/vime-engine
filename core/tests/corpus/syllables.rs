@@ -158,4 +158,26 @@ pub const CASES: &[TestCase] = &[
     case!(['q', 'u', 'y', 'e', 'e', 'n', 'r'], "quyển"),
     case!(['q', 'u', 'y', 'e', 'e', 't', 'j'], "quyệt"),
     case!(['n', 'h', 'u', 'y', 'e', 'e', 'n', 'x'], "nhuyễn"),
+    // ── expansion: ieu / iu words ──
+    case!(['r', 'i', 'e', 'e', 'u'], "riêu"),
+    case!(['t', 'r', 'e', 'e', 'u'], "trêu"),
+    case!(['r', 'i', 'u', 's'], "ríu"),
+    // ── expansion: oi / ôi / ơi words ──
+    case!(['b', 'o', 'w', 'i'], "bơi"),
+    case!(['n', 'o', 'o', 'i', 'r'], "nổi"),
+    case!(['m', 'o', 'i', 'f'], "mòi"),
+    // ── expansion: ui words ──
+    case!(['c', 'u', 'i', 'f'], "cùi"),
+    case!(['v', 'u', 'i'], "vui"),
+    // ── expansion: oa / oă / oay words ──
+    case!(['o', 'a', 'i', 'r'], "oải"),
+    case!(['x', 'o', 'a', 'y'], "xoay"),
+    case!(['t', 'h', 'o', 'a', 'i', 'r'], "thoải"),
+    case!(['o', 'a', 'w', 'c', 'j'], "oặc"),
+    // ── expansion: uôi words ──
+    case!(['b', 'u', 'o', 'o', 'i', 'f'], "buồi"),
+    case!(['r', 'u', 'o', 'o', 'i', 'f'], "ruồi"),
+    // ── expansion: ư + coda, uyê + coda ──
+    case!(['m', 'u', 'w', 'c', 's'], "mức"),
+    case!(['u', 'y', 'e', 'e', 'n', 'r'], "uyển"),
 ];

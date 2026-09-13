@@ -119,13 +119,17 @@ pub const VNI: &[DeadCase] = &[
     // ── expansion ──
     // shape key leads the slot → neither consonant nor vowel
     dead_case!(['7', 'a'], ParseStatus::Dead(DeadReason::InvalidCharacter)),
-    // second stroke with no `d` to revert → literal kills the syllable
-    dead_case!(['d', '9', '9'], ParseStatus::Dead(DeadReason::InvalidCharacter)),
-    // ── expansion ──
+    //   ── expansion ──
     // InvalidOnset: invalid consonant clusters in the VNI layout too
     dead_case!(['b', 'c', 'a'], ParseStatus::Dead(DeadReason::InvalidOnset)),
     dead_case!(['w', 'a'], ParseStatus::Dead(DeadReason::InvalidOnset)),
     // InvalidCoda: doubled consonant codas
     dead_case!(['a', 't', 't'], ParseStatus::Dead(DeadReason::InvalidCoda)),
     dead_case!(['a', 'k', 'k'], ParseStatus::Dead(DeadReason::InvalidCoda)),
+    // repeated stroke key spills as a literal instead of killing the parse:
+    // d,9 → đ, then 9 reverts and lands as ['d', '9'] // d9 now considered as dead case may be in the future we allow abbrevation đ9 work
+    dead_case!(
+        ['d', '9', '9'],
+        ParseStatus::Dead(DeadReason::InvalidCharacter)
+    ),
 ];

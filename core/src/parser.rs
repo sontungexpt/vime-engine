@@ -198,8 +198,8 @@ impl<KM: RuleEngine> Parser<KM> {
 
     #[inline(always)]
     fn push_onset(&mut self, input: char) -> ParseStatus {
-        if self.mapping.is_rule_key(input) {
-            return self.push_onset_transform(input);
+        if self.mapping.stroke(input) {
+            return self.push_onset_stroke_transform(input);
         }
 
         self.push_onset_literal(input)
@@ -208,17 +208,6 @@ impl<KM: RuleEngine> Parser<KM> {
     #[inline(always)]
     fn push_onset_literal(&mut self, input: char) -> ParseStatus {
         if is_ascii_consonant(input) {
-            // A stroke key that is also a consonant (telex `d`) toggles the
-            // D-stroke instead of extending the onset.
-            if self.mapping.stroke(input) {
-                let effect = self.try_d_stroke();
-                if effect == TransformEffect::Applied {
-                    return self.status;
-                }
-                // Reverted (đ -> d) or NotApplicable falls through to append `ch`,
-                // so an extra stroke key is kept as a literal. e.g. "ddd" -> ['d','d'].
-            }
-
             // Do not check len here because i want it be satilize
             // For example when i type 'đk' is a abbreviation
             self.syllable.onset_chars.push(input);
@@ -258,15 +247,15 @@ impl<KM: RuleEngine> Parser<KM> {
     /// Only the D-stroke is meaningful here; every other key falls back to the
     /// literal handlers.
     #[inline]
-    fn push_onset_transform(&mut self, input: char) -> ParseStatus {
-        // Any key that is not a stroke key is treated as an ordinary letter.
-        if !self.mapping.stroke(input) {
-            return self.push_onset_literal(input);
-        }
-
+    fn push_onset_stroke_transform(&mut self, input: char) -> ParseStatus {
         match self.try_d_stroke() {
             TransformEffect::Applied => self.status,
-            TransformEffect::Reverted | TransformEffect::NotApplicable => {
+            TransformEffect::Reverted => {
+                // After reverting, the stroke key is treated as a literal.
+                self.push_onset_literal(input)
+            }
+            TransformEffect::NotApplicable => {
+                // Any key that is not a stroke key is treated as an ordinary letter.
                 self.push_onset_literal(input)
             }
         }
