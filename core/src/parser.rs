@@ -75,42 +75,25 @@ pub enum ParseStatus {
     Dead(DeadReason),
 }
 
-/// A point-in-time copy of the parser state, for undo / commit workflows.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct ParseSnapshot {
-    phase: ParsePhase,
-    syllable: Syllable,
-    status: ParseStatus,
-}
-
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parser<KM: RuleEngine> {
+    rule_engine: KM,
+
     syllable: Syllable,
     phase: ParsePhase,
     status: ParseStatus,
-    mapping: KM,
 }
 
 impl<KM: RuleEngine> Parser<KM> {
     /// Creates a parser backed by `mapping`, starting in the `Onset` phase.
     #[inline(always)]
-    pub fn new(mapping: KM) -> Self {
+    pub fn new(rule_engine: KM) -> Self {
         Self {
             syllable: Syllable::default(),
             phase: ParsePhase::Onset,
             status: ParseStatus::Incomplete,
-            mapping,
-        }
-    }
-
-    /// Returns a copy of the current parser state.
-    #[inline(always)]
-    pub fn snapshot(&self) -> ParseSnapshot {
-        ParseSnapshot {
-            phase: self.phase,
-            syllable: self.syllable.clone(),
-            status: self.status,
+            rule_engine: rule_engine,
         }
     }
 
@@ -198,7 +181,7 @@ impl<KM: RuleEngine> Parser<KM> {
 
     #[inline(always)]
     fn push_onset(&mut self, input: char) -> ParseStatus {
-        if self.mapping.stroke(input) {
+        if self.rule_engine.stroke(input) {
             return self.push_onset_stroke_transform(input);
         }
 
@@ -207,12 +190,7 @@ impl<KM: RuleEngine> Parser<KM> {
 
     #[inline(always)]
     fn push_onset_literal(&mut self, input: char) -> ParseStatus {
-        if is_ascii_consonant(input) {
-            // Do not check len here because i want it be satilize
-            // For example when i type 'đk' is a abbreviation
-            self.syllable.onset_chars.push(input);
-            return self.status;
-        } else if let Some((base, tone, case)) = decode_vowel(input) {
+        if let Some((base, tone, case)) = decode_vowel(input) {
             let onset_chars = &self.syllable.onset_chars;
             let onset_len = onset_chars.len();
 
@@ -236,10 +214,13 @@ impl<KM: RuleEngine> Parser<KM> {
             }
 
             self.set_phase(ParsePhase::Vowel);
-            return self.push_vowel_value(base, tone, case);
+            return self.push_decoded_vowel(base, tone, case);
         }
 
-        self.kill(DeadReason::InvalidCharacter)
+        // Do not check len here because i want it be satilize
+        // For example when i type 'đk' is a abbreviation
+        self.syllable.onset_chars.push(input);
+        return self.status;
     }
 
     /// Handles a transform key while in the `Onset` phase.
@@ -250,11 +231,9 @@ impl<KM: RuleEngine> Parser<KM> {
     fn push_onset_stroke_transform(&mut self, input: char) -> ParseStatus {
         match self.try_d_stroke() {
             TransformEffect::Applied => self.status,
-            TransformEffect::Reverted => {
+            TransformEffect::Reverted | TransformEffect::NotApplicable => {
                 // After reverting, the stroke key is treated as a literal.
-                self.push_onset_literal(input)
-            }
-            TransformEffect::NotApplicable => {
+
                 // Any key that is not a stroke key is treated as an ordinary letter.
                 self.push_onset_literal(input)
             }
@@ -268,33 +247,11 @@ impl<KM: RuleEngine> Parser<KM> {
         // Telex/VNI doubling keys (`aa`, `oo`, `ee`, ...) and tone keys
         // (`s`, `f`, `r`, `x`, `j`, digits) are themselves vowels or ASCII
         // consonants, so the transform check must come first here.
-        if self.mapping.is_rule_key(input) {
+        if self.rule_engine.is_rule_key(input) {
             return self.push_vowel_transform(input);
         }
 
         self.push_vowel_literal(input)
-    }
-
-    /// Appends a precomposed vowel to the nucleus if it does not clash with
-    /// the tone already held by the syllable.
-    #[inline(always)]
-    fn push_vowel_precomposed(&mut self, base: BaseVowel, tone: Tone, case: Case) -> bool {
-        let syllable = &mut self.syllable;
-
-        // A precomposed vowel carrying a tone must not conflict with the tone
-        // already on the syllable. e.g. "á" is already typed and a raw "ắ" is
-        // pushed straight into the buffer - the two tones would collide.
-        if tone != Tone::Flat && syllable.tone != Tone::Flat {
-            return false; // push failed
-        }
-
-        syllable.vowels.push(Cased { value: base, case });
-
-        if tone != Tone::Flat {
-            syllable.tone = tone;
-        }
-
-        true // push succeeded
     }
 
     /// With "gi" followed by another vowel, the 'i' leaves the vowel
@@ -317,7 +274,7 @@ impl<KM: RuleEngine> Parser<KM> {
 
     /// Handles a vowel in the `Vowel` phase — adds it to the nucleus.
     #[inline]
-    fn push_vowel_value(&mut self, base: BaseVowel, tone: Tone, case: Case) -> ParseStatus {
+    fn push_decoded_vowel(&mut self, base: BaseVowel, tone: Tone, case: Case) -> ParseStatus {
         let vowels_len = self.syllable.vowels.len();
 
         if vowels_len == 0 {
@@ -347,14 +304,24 @@ impl<KM: RuleEngine> Parser<KM> {
         }
 
         // Append the new vowel to the sequence.
-        if !self.push_vowel_precomposed(base, tone, case) {
+
+        // A pretoned vowel carrying a tone must not conflict with the tone
+        // already on the syllable. e.g. "á" is already typed and a raw "ắ" is
+        // pushed straight into the buffer - the two tones would collide (áắ)
+        if self.syllable.tone == Tone::Flat {
+            // If the tone is currently flat, a pretoned vowel can be used.
+            // For example `i` can be contiued typed with an pretoned vowel `ế`. to `iế`
+            self.syllable.tone = tone;
+        } else if tone != Tone::Flat {
             return self.kill(DeadReason::InvalidVowelSequence);
         }
+
+        self.syllable.vowels.push(Cased { value: base, case });
 
         // `normalize_uo` validates the length itself and only acts once
         // there are at least two vowels - which is exactly when a third
         // vowel is being pushed here.
-        self.normalize_uo();
+        self.normalize_uo_prefix();
 
         self.status
     }
@@ -362,7 +329,7 @@ impl<KM: RuleEngine> Parser<KM> {
     #[inline(always)]
     fn push_vowel_literal(&mut self, input: char) -> ParseStatus {
         if let Some((base, tone, case)) = decode_vowel(input) {
-            return self.push_vowel_value(base, tone, case);
+            return self.push_decoded_vowel(base, tone, case);
         } else if is_ascii_consonant(input) {
             // An already-dead vowel sequence cannot be rescued once the coda has
             // started, since the sequence has fused with the coda.
@@ -374,7 +341,7 @@ impl<KM: RuleEngine> Parser<KM> {
             // `normalize_uo` validates the length itself and only acts once there
             // are at least two vowels - which is exactly when a coda character is
             // being pushed here.
-            self.normalize_uo();
+            self.normalize_uo_prefix();
 
             self.set_phase(ParsePhase::Coda);
             return self.push_coda_consonant(input);
@@ -413,7 +380,7 @@ impl<KM: RuleEngine> Parser<KM> {
     fn push_coda(&mut self, input: char) -> ParseStatus {
         // Telex tone keys (`s`, `f`, `r`, `x`, `j`) and the `d` stroke are
         // ASCII consonants, so the transform check must come first here.
-        if self.mapping.is_rule_key(input) {
+        if self.rule_engine.is_rule_key(input) {
             return self.push_coda_transform(input);
         }
 
@@ -479,14 +446,14 @@ impl<KM: RuleEngine> Parser<KM> {
         // ---------------------------------------------------------
         // 1. Tone
         // ---------------------------------------------------------
-        if let Some(tone) = self.mapping.tone(key) {
+        if let Some(tone) = self.rule_engine.tone(key) {
             return Some(self.try_tone(tone));
         }
 
         // ---------------------------------------------------------
         // 2. D-stroke
         // ---------------------------------------------------------
-        if self.mapping.stroke(key) {
+        if self.rule_engine.stroke(key) {
             return Some(self.try_d_stroke());
         }
 
@@ -645,7 +612,7 @@ impl<KM: RuleEngine> Parser<KM> {
         for index in (0..vseq_len).rev() {
             let base = self.syllable.vowels[index].value;
 
-            let Some(shape) = self.mapping.shape(key, base.root()) else {
+            let Some(shape) = self.rule_engine.shape(key, base.root()) else {
                 continue;
             };
 
@@ -718,18 +685,18 @@ impl<KM: RuleEngine> Parser<KM> {
     ///
     /// `uơ → ươ` and `ưo → ươ` are folded once at least two vowels are present.
     #[inline]
-    fn normalize_uo(&mut self) {
-        let vowels = &self.syllable.vowels;
+    fn normalize_uo_prefix(&mut self) {
+        let vowels = &mut self.syllable.vowels;
         if vowels.len() < 2 {
             return;
         }
 
         match (vowels[0].value, vowels[1].value) {
             (BaseVowel::U, BaseVowel::OHorn) => {
-                self.syllable.vowels[0].value = BaseVowel::UHorn;
+                vowels[0].value = BaseVowel::UHorn;
             }
             (BaseVowel::UHorn, BaseVowel::O) => {
-                self.syllable.vowels[1].value = BaseVowel::OHorn;
+                vowels[1].value = BaseVowel::OHorn;
             }
             _ => {}
         }

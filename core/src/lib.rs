@@ -19,9 +19,9 @@
 mod config;
 mod engine;
 mod event;
-mod rule_engine;
 mod parser;
 mod result;
+mod rule_engine;
 
 pub mod composition;
 pub mod phonology;
@@ -31,12 +31,10 @@ pub use composition::{Buffer, Cased, Syllable};
 pub use config::Config;
 pub use engine::Engine;
 pub use event::{Key, KeyEvent, KeyState};
-pub use rule_engine::{
-    ConfiguredRuleEngine, RuleEngine, ShapeRule, ToneRule, TypingRules,
-};
 pub use parser::{DeadReason, ParsePhase, ParseStatus, Parser};
 pub use phonology::{
     decode_vowel, encode_vowel, is_vowel, BaseVowel, Case, RootVowel, Shape, Tone,
 };
-pub use renderer::{DefaultRenderer, Orthography, Renderer};
+pub use renderer::{analyze, DefaultRenderer, Orthography, Renderer};
 pub use result::Result;
+pub use rule_engine::{ConfiguredRuleEngine, RuleEngine, ShapeRule, ToneRule, TypingRules};

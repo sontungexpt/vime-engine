@@ -30,6 +30,11 @@ impl Syllable {
     pub const fn len(&self) -> usize {
         self.onset_chars.len() + self.vowels.len() + self.coda_chars.len()
     }
+
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.onset_chars.is_empty() && self.vowels.is_empty() && self.coda_chars.is_empty()
+    }
 }
 
 impl Default for Syllable {

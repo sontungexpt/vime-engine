@@ -1,10 +1,29 @@
-use std::fmt::{self, Write};
+use std::{
+    fmt::{self, Write},
+    ops::{Index, IndexMut},
+};
 
 /// An editable list of raw input characters with a cursor.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct Buffer {
     chars: Vec<char>,
     cursor: usize,
+}
+
+impl Index<usize> for Buffer {
+    type Output = char;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.chars[index]
+    }
+}
+
+impl IndexMut<usize> for Buffer {
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.chars[index]
+    }
 }
 
 impl fmt::Display for Buffer {
@@ -44,7 +63,7 @@ impl Buffer {
 
     /// Inserts `ch` at the cursor and moves the cursor forward.
     #[inline]
-    pub(crate) fn insert(&mut self, ch: char) {
+    pub(crate) fn push(&mut self, ch: char) {
         self.chars.insert(self.cursor, ch);
         self.cursor += 1;
     }

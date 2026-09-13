@@ -1,0 +1,19 @@
+For the best UX:
+
+1. Tone modifier should be allowed anywhere inside the current vowel sequence, not only on the right side of the current tone position.
+
+2. The tone modifier should update the syllable tone, then renderer should recalculate the tone position.
+
+3. Deleting any vowel should also recalculate tone placement.
+
+4. Do not use the current visual tone position as the condition for whether a tone key is accepted.
+
+5. For arbitrary cursor editing, separate:
+
+raw text editing;
+
+semantic syllable parsing;
+
+tone selection;
+
+tone rendering.

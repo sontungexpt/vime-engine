@@ -33,6 +33,14 @@ pub const TELEX: &[DeadCase] = &[
     // ── the `w` cycle: uơ / ươ stay incomplete until a tone or coda arrives ──
     status_case!(['u', 'o', 'w'], ParseStatus::Incomplete), // uơ
     status_case!(['u', 'o', 'w', 'w'], ParseStatus::Incomplete), // ươ
+    // ── any key before a vowel is a literal custom onset ──
+    // `push_onset_literal` accepts whatever leads the slot until the first
+    // vowel arrives, so symbols survive as Incomplete instead of dying.
+    status_case!(['?'], ParseStatus::Incomplete),
+    status_case!(['!'], ParseStatus::Incomplete),
+    status_case!(['#'], ParseStatus::Incomplete),
+    status_case!(['c', 'h', '?'], ParseStatus::Incomplete),
+    status_case!(['c', 'h', '0'], ParseStatus::Incomplete),
 ];
 
 pub const VNI: &[DeadCase] = &[
@@ -40,4 +48,8 @@ pub const VNI: &[DeadCase] = &[
     status_case!(['o', 'o'], ParseStatus::Incomplete),
     status_case!(['u', 'u'], ParseStatus::Incomplete),
     status_case!(['i', 'e', 'u'], ParseStatus::Incomplete),
+    // a repeated stroke key spills as a literal custom onset: d,9 → đ, the
+    // second 9 reverts it and lands as ['d', '9'] (rendered "d9"), so the
+    // parse stays Incomplete rather than dying.
+    status_case!(['d', '9', '9'], ParseStatus::Incomplete),
 ];
