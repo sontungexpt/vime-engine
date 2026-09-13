@@ -27,10 +27,7 @@ pub const TELEX: &[DeadCase] = &[
         ParseStatus::Dead(DeadReason::InvalidOnset)
     ),
     // ── InvalidVowelSequence ──
-    dead_case!(
-        ['i', 'e', 'u', 'n'],
-        ParseStatus::Dead(DeadReason::InvalidVowelSequence)
-    ),
+    // `ieu` is now a valid (incomplete) nucleus: `ieun` parses Incomplete.
     dead_case!(
         ['a', 'i', 'u', 'n'],
         ParseStatus::Dead(DeadReason::InvalidVowelSequence)

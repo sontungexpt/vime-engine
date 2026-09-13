@@ -76,13 +76,16 @@ typedef struct VimeKeyEvent {
 } VimeKeyEvent;
 
 typedef struct VimeOutput {
-    VimeAction action;      /* high-level action for the frontend state machine */
-    const char *rendered;   /* preedit text (UTF-8), NULL if empty/unchanged;
-                             * owned by the handle, valid until the next call on
-                             * the same handle or vime_destroy */
-    const char *commit;     /* text to commit (UTF-8), NULL if none; owned by the
-                             * handle, valid until the next call on the same
-                             * handle or vime_destroy */
+    /* high-level action for the frontend state machine */
+    VimeAction action;
+    /* preedit text (UTF-8), NULL if empty/unchanged;
+     * owned by the handle, valid until the next call on
+     * the same handle or vime_destroy */
+    const char *rendered;
+    /* text to commit (UTF-8), NULL if none; owned by the
+     * handle, valid until the next call on the same
+     * handle or vime_destroy */
+    const char *commit;
 } VimeOutput;
 
 /* ========================================================================= */

@@ -400,7 +400,7 @@ impl<KM: RuleEngine> Parser<KM> {
     #[inline]
     fn push_vowel_transform(&mut self, input: char) -> ParseStatus {
         // `Some` means the key resolved into a tone or a stroke.
-        if let Some(effect) = self.try_tone_or_stroke(input) {
+        if let Some(effect) = self.try_tone_or_stroke_transform(input) {
             return match effect {
                 TransformEffect::Applied => self.status,
                 TransformEffect::Reverted | TransformEffect::NotApplicable => {
@@ -465,7 +465,7 @@ impl<KM: RuleEngine> Parser<KM> {
     /// handlers; anything else falls back to the literal handlers.
     #[inline]
     fn push_coda_transform(&mut self, input: char) -> ParseStatus {
-        if let Some(effect) = self.try_tone_or_stroke(input) {
+        if let Some(effect) = self.try_tone_or_stroke_transform(input) {
             return match effect {
                 TransformEffect::Applied => self.status,
                 TransformEffect::Reverted | TransformEffect::NotApplicable => {
@@ -486,7 +486,7 @@ impl<KM: RuleEngine> Parser<KM> {
 
     /// Resolves a tone or D-stroke transform key.
     #[inline(always)]
-    fn try_tone_or_stroke(&mut self, key: char) -> Option<TransformEffect> {
+    fn try_tone_or_stroke_transform(&mut self, key: char) -> Option<TransformEffect> {
         // ---------------------------------------------------------
         // 1. Tone
         // ---------------------------------------------------------
