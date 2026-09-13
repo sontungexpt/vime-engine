@@ -20,8 +20,7 @@ cargo test --workspace
 
 The FFI crate emits `libvime.so` (shared), `libvime.a` (static), and a
 `vime_engine.h` header (in `ffi/include/`) for C/C++ frontends. Adapters link
-this library and do not depend on the Rust toolchain. In C++ the public
-surface lives in the `vime::engine` namespace; in C it stays global.
+this library and do not depend on the Rust toolchain.
 
 ## Public API
 
