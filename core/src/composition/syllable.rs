@@ -31,6 +31,20 @@ impl Syllable {
         self.onset_chars.len() + self.vowels.len() + self.coda_chars.len()
     }
 
+    // Returns the number of characters in each part of the syllable.
+    #[inline(always)]
+    pub const fn len_parts(&self) -> (usize, usize, usize, usize) {
+        let onset_len = self.onset_chars.len();
+        let vowel_len = self.vowels.len();
+        let coda_len = self.coda_chars.len();
+        (
+            onset_len,
+            vowel_len,
+            coda_len,
+            onset_len + vowel_len + coda_len,
+        )
+    }
+
     #[inline(always)]
     pub const fn is_empty(&self) -> bool {
         self.onset_chars.is_empty() && self.vowels.is_empty() && self.coda_chars.is_empty()

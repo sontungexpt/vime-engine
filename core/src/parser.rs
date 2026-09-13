@@ -158,6 +158,109 @@ impl<KM: RuleEngine> Parser<KM> {
         }
     }
 
+    pub fn insert_at(&mut self, index: usize, input: char) -> ParseStatus {
+        let (onset_len, vowel_len, coda_len, len) = self.syllable.len_parts();
+
+        // If the index is beyond the end of the syllable, push the input as-is.
+        if index > len {
+            return self.push(input);
+        }
+
+        // Example: "trường"
+        //
+        // chars: ['t', 'r', 'ư', 'ờ', 'n', 'g']
+        //        [0]  [1]  [2]  [3]  [4]  [5]
+        //
+        // onset: ['t', 'r']
+        // vowels: ['ư', 'ờ']
+        // coda: ['n', 'g']
+        //
+        // Vowel range is between onset end and coda start:
+        //
+        // "tr|ườ|ng"
+        //     ^   ^
+        //     2   4
+        //
+        // onset_end = 2
+        // coda_start = 4
+
+        // Onset insertion positions: 0..=1 in example
+        if index < onset_len {
+            // Only one effect can happens that is stroke d
+        }
+        // Vowel insertion positions: 2..=4 in example
+        else if index < onset_len + vowel_len + 1 {
+            // 1. Stroke modifiers:
+            //    Any position in the vowel sequence may update/revert the stroke.
+            //
+            // 2. Tone modifiers:
+            //    Any position in the vowel sequence may update/revert the tone.
+            //    Tone is stored at syllable level; the renderer recalculates
+            //    the tone position.
+            //
+            // 3. Shape modifiers:
+            //    Apply/revert only when the modifier is immediately after
+            //    a compatible vowel.
+        }
+        // Coda insertion positions: 5.. in example
+        else {
+            // 1. Any stroke modifier key typed in any position in coda sequence will update or revert the stroke
+            // 2. Any tone modifier key typed in any position in coda sequence will update or revert the tone
+            // 3. Any shape modifier key typed in any position in coda sequence will update or revert the shape
+        }
+
+        ParseStatus::Incomplete
+    }
+
+    pub fn remove_at(&mut self, index: usize) -> ParseStatus {
+        let (onset_len, vowel_len, coda_len, len) = self.syllable.len_parts();
+
+        // Example: "trường"
+        //
+        // chars: ['t', 'r', 'ư', 'ờ', 'n', 'g']
+        //        [0]  [1]  [2]  [3]  [4]  [5]
+        //
+        // onset: ['t', 'r']
+        // vowels: ['ư', 'ờ']
+        // coda: ['n', 'g']
+        //
+        // Vowel range is between onset end and coda start:
+        //
+        // "tr|ườ|ng"
+        //     ^   ^
+        //     2   4
+        //
+        // onset_end = 2
+        // coda_start = 4
+
+        // Onset removal positions: 0..=1 in example
+        if index < onset_len {
+            // Just allow remove of onset characters
+            // Need to revalidate the onset after removal
+            // May be need to revalidate all syllable
+        }
+        // Vowel removal positions: 2..=4 in example
+        else if index < onset_len + vowel_len + 1 {
+            // If the syllable had tone. And the removal position is not the tone position after caculated.
+            // the tone needs to be recalculated position after removal (May be do in another method)
+
+            // May need to revalidate the nucleus after removal
+            // May be need to revalidate all syllable
+
+            // NOTE: Do not recaculate `uo` because it is hard to predict
+            // For example `ư ơ o` and we remove the `ơ` at position 2
+            // then should we change the o at position 3 to `ơ`?
+            // Because current nucleus is `ưo`?
+        }
+        // Coda removal positions: 5.. in example
+        else {
+            // Just allow remove of coda characters
+            // Need to revalidate the coda after removal
+            // May be need to revalidate all syllable
+        }
+        return ParseStatus::Incomplete;
+    }
+
     /// Pushes a sequence of input characters.
     ///
     /// Returns the resulting status and, when the parse is dead, the index of
