@@ -20,6 +20,7 @@ pub const CASES: &[TestCase] = &[
     case!(['c', 'o', 'o'], "cô"),
     case!(['b', 'u', 'w'], "bư"),
     case!(['t', 'h', 'o', 'w'], "thơ"),
+    case!(['t', 'o', 'i', 'o'], "tôi"),
     // ── shape on plain a after a coda already started ──
     case!(['a', 'n', 'w'], "ăn"),
     case!(['a', 'n', 'a'], "ân"),
