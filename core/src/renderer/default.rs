@@ -1,4 +1,7 @@
-use super::{api::Renderer, tone::{self, Orthography}};
+use super::{
+    api::Renderer,
+    tone::{self, Orthography},
+};
 
 use crate::{encode_vowel, phonology::Tone, Syllable};
 
@@ -33,21 +36,21 @@ impl Renderer for DefaultRenderer {
     fn render(&self, syllable: &Syllable) -> String {
         let mut output = String::with_capacity(syllable.len());
 
-        output.extend(syllable.onset_chars.iter().copied());
+        // output.extend(syllable.onset_chars.iter().copied());
 
-        let tone_position = tone::analyze(syllable, self.orthography);
+        // let tone_position = tone::analyze(syllable, self.orthography);
 
-        for (index, vowel) in syllable.vowels.iter().enumerate() {
-            let tone = if Some(index) == tone_position {
-                syllable.tone
-            } else {
-                Tone::Flat
-            };
+        // for (index, vowel) in syllable.vowels.iter().enumerate() {
+        //     let tone = if Some(index) == tone_position {
+        //         syllable.tone
+        //     } else {
+        //         Tone::Flat
+        //     };
 
-            output.push(encode_vowel(vowel.value, tone, vowel.case));
-        }
+        //     output.push(encode_vowel(vowel.value, tone, vowel.case));
+        // }
 
-        output.extend(syllable.coda_chars.iter().copied());
+        // output.extend(syllable.coda_chars.iter().copied());
 
         output
     }

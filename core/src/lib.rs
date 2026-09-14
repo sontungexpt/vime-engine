@@ -19,7 +19,6 @@
 mod config;
 mod engine;
 mod event;
-mod parser;
 mod result;
 mod rule_engine;
 
@@ -27,11 +26,10 @@ pub mod composition;
 pub mod phonology;
 pub mod renderer;
 
-pub use composition::{Buffer, Cased, Syllable};
+pub use composition::{Buffer, Cased, Composition, Syllable, SyllableParseIssue};
 pub use config::Config;
 pub use engine::Engine;
 pub use event::{Key, KeyEvent, KeyState};
-pub use parser::{DeadReason, ParsePhase, ParseStatus, Parser};
 pub use phonology::{
     decode_vowel, encode_vowel, is_vowel, BaseVowel, Case, RootVowel, Shape, Tone,
 };

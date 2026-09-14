@@ -1,7 +1,7 @@
 use crate::{
     event::{Key, KeyEvent},
-    parser::ParseStatus,
-    Buffer, Config, ConfiguredRuleEngine, DefaultRenderer, Parser, Renderer, Result, RuleEngine,
+    Buffer, Composition, Config, ConfiguredRuleEngine, DefaultRenderer, Renderer, Result,
+    RuleEngine,
 };
 
 const SUFFIX_SPACE: &str = " ";
@@ -10,12 +10,8 @@ const SUFFIX_SPACE: &str = " ";
 /// them into Vietnamese text.
 pub struct Engine<R: Renderer, RE: RuleEngine> {
     config: Config,
-
-    raw: Buffer,
-    parsed: Buffer,
-
+    composition: Composition<RE>,
     renderer: R,
-    rule_engine: RE,
 }
 
 impl<R, RE> Engine<R, RE>
@@ -28,44 +24,23 @@ where
         &self.config
     }
 
-    /// The raw keystroke buffer.
-    pub fn keystrokes(&self) -> &Buffer {
-        &self.raw
-    }
-
-    /// The parsed buffer.
-    pub fn parsed(&self) -> &Buffer {
-        &self.parsed
-    }
-
     /// Renders the current buffer as Vietnamese text, or as the raw ASCII
     /// keystrokes when the buffer cannot form a valid syllable.
     pub fn rendered(&self) -> String {
-        let mut parser = Parser::new(self.rule_engine);
-        let (status, _) = parser.parse(self.raw.chars());
+        // let mut parser = Composition::new(self.rule_engine);
+        // let (status, _) = parser.parse(self.raw.chars());
 
-        if let ParseStatus::Dead(_) = status {
-            return self.raw.to_string();
-        }
+        // if let ParseStatus::Dead(_) = status {
+        //     return self.raw.to_string();
+        // }
 
-        self.renderer.render(parser.syllable())
-    }
-
-    /// The input layout the engine is currently using.
-    #[inline(always)]
-    pub const fn layout(&self) -> RE {
-        self.rule_engine
-    }
-
-    /// Switches the engine to `layout` for subsequent renders and commits.
-    #[inline(always)]
-    pub fn set_layout(&mut self, layout: RE) {
-        self.rule_engine = layout;
+        // self.renderer.render(parser.syllable())
+        String::new()
     }
 
     /// Clears the buffer.
     pub fn reset(&mut self) -> Result {
-        self.raw.clear();
+        // self.raw.clear();
         Result::Changed
     }
 
@@ -96,18 +71,18 @@ where
     }
 
     fn commit_with_suffix(&mut self, suffix: &str) -> Result {
-        if self.raw.is_empty() {
+        if self.composition.is_empty() {
             return Result::Forward;
         }
 
         let mut text = self.rendered();
         text.push_str(suffix);
-        self.raw.clear();
+        // self.composition.clear();
         Result::Commit(text)
     }
 
     fn insert(&mut self, character: char) -> Result {
-        self.raw.push(character);
+        self.composition.append(character);
         Result::Changed
     }
 
@@ -127,12 +102,12 @@ where
         self.apply(Buffer::move_right)
     }
 
-    fn apply(&mut self, operation: fn(&mut Buffer)) -> Result {
-        if self.raw.is_empty() {
+    fn apply(&mut self, operation: fn(&mut Buffer<char>)) -> Result {
+        if self.composition.is_empty() {
             return Result::Forward;
         }
 
-        operation(&mut self.raw);
+        // operation(&mut self.composition);
         Result::Changed
     }
 }
@@ -143,23 +118,8 @@ impl Engine<DefaultRenderer, ConfiguredRuleEngine<'static>> {
         Self {
             config,
 
-            raw: Buffer::new(),
-            parsed: Buffer::new(),
-
             renderer: DefaultRenderer::default(),
-            rule_engine: ConfiguredRuleEngine::telex(),
-        }
-    }
-
-    /// Creates an engine using `layout` with the default configuration.
-    #[inline(always)]
-    pub fn with_layout(layout: ConfiguredRuleEngine<'static>) -> Self {
-        Self {
-            config: Config::default(),
-            raw: Buffer::new(),
-            parsed: Buffer::new(),
-            renderer: DefaultRenderer::default(),
-            rule_engine: layout,
+            composition: Composition::new(ConfiguredRuleEngine::telex()),
         }
     }
 }

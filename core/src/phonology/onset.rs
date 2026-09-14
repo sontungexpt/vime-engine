@@ -7,31 +7,47 @@ pub enum Onset {
     #[default]
     None = 0,
     B,
+
     C,
     Ch,
+
     D,
     Đ,
+
     G,
     Gh,
     Gi,
+
     H,
+
     K,
     Kh,
+
     L,
+
     M,
+
     N,
     Nh,
     Ng,
     Ngh,
+
     P,
     Ph,
+
+    // Special case need considered when implement logic
     Qu,
+
     R,
+
     S,
+
     T,
     Th,
     Tr,
+
     V,
+
     X,
 }
 
@@ -119,6 +135,44 @@ impl Onset {
             }
             _ => Err(()),
         }
+    }
+
+    #[inline(always)]
+    pub const fn is_possible_first_char(ch: char) -> bool {
+        matches!(ch, 'đ' | 'Đ')
+            || matches!(
+                ch as u32 | 0x20,
+                0x62 // b
+                        | 0x63 // c
+                        | 0x64 // d
+                        | 0x67 // g
+                        | 0x68 // h
+                        | 0x6B // k
+                        | 0x6C // l
+                        | 0x6D // m
+                        | 0x6E // n
+                        | 0x70 // p
+                        | 0x71 // q
+                        | 0x72 // r
+                        | 0x73 // s
+                        | 0x74 // t
+                        | 0x76 // v
+                        | 0x78 // x
+            )
+    }
+
+    /// Ký tự có thể xuất hiện trong quá trình parse onset.
+    #[inline(always)]
+    pub const fn is_possible_char(ch: char) -> bool {
+        Self::is_possible_first_char(ch)
+            || matches!(
+                ch as u32 | 0x20,
+                0x68 // h
+                        | 0x69 // i
+                        | 0x67 // g
+                        | 0x75 // u
+                        | 0x72 // r
+            )
     }
 }
 

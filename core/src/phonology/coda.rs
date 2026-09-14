@@ -32,6 +32,36 @@ impl Coda {
         }
     }
 
+    #[inline(always)]
+    pub const fn is_possible_first_char(ch: char) -> bool {
+        let ch = ch as u32 | 0x20;
+
+        matches!(
+            ch,
+            0x63 // c
+                | 0x67 // g
+                | 0x6D // m
+                | 0x6E // n
+                | 0x70 // p
+                | 0x74 // t
+        )
+    }
+
+    #[inline(always)]
+    pub const fn is_possible_char(ch: char) -> bool {
+        let ch = ch as u32 | 0x20;
+        matches!(
+            ch,
+            0x63 // c
+                   | 0x6D // m
+                   | 0x6E // n
+                   | 0x70 // p
+                   | 0x74 // t
+                   | 0x67 // g // can not at first char
+                   | 0x68 // h // can not at first char
+        )
+    }
+
     /// Returns the coda for the given ASCII bytes, or `Err` for an invalid cluster.
     #[inline(always)]
     pub const fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
