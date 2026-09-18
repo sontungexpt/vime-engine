@@ -12,7 +12,7 @@ use super::Keymap;
 /// Configuration-driven key mapping implementation.
 ///
 /// This is used by input methods whose behavior can be described
-/// declaratively through a [`TypingRules`].
+/// declaratively through a [`Rules`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DefaultKeymap<'a> {
     rules: &'a Rules<'a>,
