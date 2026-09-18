@@ -113,7 +113,7 @@ where
 
         // Defensive fallback. A nucleus never holds more than three vowels, so
         // this is reached only by non-compliant `VowelSequence` impls.
-        _ => lowest_priority_index(vowels),
+        _ => highest_priority_index(vowels),
     }
 }
 
@@ -164,7 +164,7 @@ where
         3 => Some(1),
 
         // Defensive fallback. A nucleus never holds more than three vowels.
-        _ => lowest_priority_index(vowels),
+        _ => highest_priority_index(vowels),
     }
 }
 
@@ -180,7 +180,7 @@ where
     while index > 0 {
         index -= 1;
 
-        if vowels.get(index).is_some_and(|v| v.shape() != Shape::None) {
+        if vowels.get(index).is_some_and(|v| v.is_shaped()) {
             return Some(index);
         }
     }
@@ -189,11 +189,11 @@ where
 }
 
 /// Defensive fallback: the vowel with the highest placement priority, i.e. the
-/// lowest [`BaseVowel::id`]. Only reachable with >3 vowels — a nucleus never
+/// highest [`BaseVowel::id`]. Only reachable with >3 vowels — a nucleus never
 /// holds more than three. [`BaseVowel`] ids are unique, so the result never
 /// depends on scan order.
 #[inline]
-fn lowest_priority_index<V>(vowels: &V) -> Option<usize>
+fn highest_priority_index<V>(vowels: &V) -> Option<usize>
 where
     V: VowelSequence + ?Sized,
 {
@@ -204,7 +204,8 @@ where
         let Some(v) = vowels.get(index) else {
             continue;
         };
-        if v.id() < best.id() {
+
+        if v > best {
             best = v;
             at = index;
         }

@@ -28,6 +28,8 @@ impl CharStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadSyllableBuilder {
     previous: SyllableBuilder,
+    recoverable: bool,
+
     chars: Vec<CharStatus>,
 }
 
@@ -52,6 +54,7 @@ impl DeadSyllableBuilder {
 
         Self {
             previous: valid,
+            recoverable: true,
             chars,
         }
     }
@@ -67,7 +70,7 @@ impl DeadSyllableBuilder {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub fn reset(&mut self) {
         self.chars.clear();
     }
 
