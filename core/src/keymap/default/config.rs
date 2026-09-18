@@ -16,13 +16,13 @@ pub struct ShapeRule {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TypingRules<'a> {
+pub struct Rules<'a> {
     pub tones: &'a [ToneRule],
     pub shapes: &'a [ShapeRule],
     pub strokes: &'a [char],
 }
 
-impl<'a> TypingRules<'a> {
+impl<'a> Rules<'a> {
     /// Creates a config, validating the key maps against these rules:
     ///
     /// 1. **Tone key uniqueness** — a tone key must be unique across all

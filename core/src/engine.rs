@@ -1,46 +1,37 @@
 use crate::{
     event::{Key, KeyEvent},
-    Buffer, Composition, Config, ConfiguredRuleEngine, DefaultRenderer, Renderer, Result,
-    RuleEngine,
+    Composition, Config, DefaultKeymap, DefaultRenderer, Keymap, Renderer, Result,
 };
 
 const SUFFIX_SPACE: &str = " ";
 
 /// The core input method state machine: buffers raw keystrokes and renders
 /// them into Vietnamese text.
-pub struct Engine<R: Renderer, RE: RuleEngine> {
+pub struct Engine<R: Renderer, KM: Keymap> {
     config: Config,
-    composition: Composition<RE>,
+    composition: Composition<KM>,
     renderer: R,
 }
 
 impl<R, RE> Engine<R, RE>
 where
     R: Renderer,
-    RE: RuleEngine + Copy,
+    RE: Keymap + Copy,
 {
     /// The engine configuration.
     pub fn config(&self) -> &Config {
         &self.config
     }
 
-    /// Renders the current buffer as Vietnamese text, or as the raw ASCII
-    /// keystrokes when the buffer cannot form a valid syllable.
+    /// Renders the current buffer as Vietnamese text, or as the raw
+    /// characters when the composition can no longer form a valid syllable.
     pub fn rendered(&self) -> String {
-        // let mut parser = Composition::new(self.rule_engine);
-        // let (status, _) = parser.parse(self.raw.chars());
-
-        // if let ParseStatus::Dead(_) = status {
-        //     return self.raw.to_string();
-        // }
-
-        // self.renderer.render(parser.syllable())
-        String::new()
+        self.renderer.render(&self.composition)
     }
 
-    /// Clears the buffer.
+    /// Resets the engine's composition to its initial empty state.
     pub fn reset(&mut self) -> Result {
-        // self.raw.clear();
+        self.composition.reset();
         Result::Changed
     }
 
@@ -82,49 +73,55 @@ where
     }
 
     fn insert(&mut self, character: char) -> Result {
-        self.composition.append(character);
+        self.composition.push(character);
         Result::Changed
     }
 
     fn backspace(&mut self) -> Result {
-        self.apply(Buffer::backspace)
+        self.apply(Composition::backspace)
     }
 
     fn delete(&mut self) -> Result {
-        self.apply(Buffer::delete)
+        self.apply(Composition::delete)
     }
 
     fn move_left(&mut self) -> Result {
-        self.apply(Buffer::move_left)
+        self.apply(Composition::move_left)
     }
 
     fn move_right(&mut self) -> Result {
-        self.apply(Buffer::move_right)
+        self.apply(Composition::move_right)
     }
 
-    fn apply(&mut self, operation: fn(&mut Buffer<char>)) -> Result {
+    fn apply(&mut self, operation: fn(&mut Composition<RE>)) -> Result {
         if self.composition.is_empty() {
             return Result::Forward;
         }
 
-        // operation(&mut self.composition);
+        operation(&mut self.composition);
         Result::Changed
     }
 }
 
-impl Engine<DefaultRenderer, ConfiguredRuleEngine<'static>> {
+impl Engine<DefaultRenderer, DefaultKeymap<'static>> {
     /// Creates a Telex engine with the given configuration.
     pub fn new(config: Config) -> Self {
         Self {
             config,
 
             renderer: DefaultRenderer::default(),
-            composition: Composition::new(ConfiguredRuleEngine::telex()),
+            composition: Composition::new(DefaultKeymap::telex()),
         }
+    }
+
+    /// Switches the active input keymap (Telex, VNI, …), resetting the
+    /// composition to its initial empty state.
+    pub fn set_layout(&mut self, keymap: DefaultKeymap<'static>) {
+        self.composition = Composition::new(keymap);
     }
 }
 
-impl Default for Engine<DefaultRenderer, ConfiguredRuleEngine<'static>> {
+impl Default for Engine<DefaultRenderer, DefaultKeymap<'static>> {
     fn default() -> Self {
         Self::new(Config::default())
     }

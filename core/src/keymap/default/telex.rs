@@ -1,66 +1,66 @@
-use super::{ShapeRule, ToneRule, TypingRules};
+use super::{ShapeRule, ToneRule, Rules};
 use crate::{RootVowel, Shape, Tone};
 
-/// VNI layout: shapes on `6` (circumflex), `7` (breve/horn), `8` (horn),
-/// `9` (stroke); tones on `1-5` and `0`.
-pub(crate) const CONFIG: &TypingRules = &TypingRules::new(
+/// Telex layout: shapes on `a/e/o` (circumflex), `w` (breve/horn), `d`
+/// (stroke); tones on `s/f/r/x/j/z`.
+pub(crate) const CONFIG: &Rules = &Rules::new(
     &[
         ToneRule {
-            key: '1',
+            key: 's',
             tone: Tone::Acute,
         },
         ToneRule {
-            key: '2',
+            key: 'f',
             tone: Tone::Grave,
         },
         ToneRule {
-            key: '3',
+            key: 'r',
             tone: Tone::Hook,
         },
         ToneRule {
-            key: '4',
+            key: 'x',
             tone: Tone::Tilde,
         },
         ToneRule {
-            key: '5',
+            key: 'j',
             tone: Tone::Dot,
         },
         ToneRule {
-            key: '0',
+            key: 'z',
             tone: Tone::Flat,
         },
     ],
     &[
         ShapeRule {
-            key: '6',
+            key: 'a',
             on: RootVowel::A,
             shape: Shape::Circumflex,
         },
         ShapeRule {
-            key: '7',
+            key: 'w',
             on: RootVowel::A,
             shape: Shape::Breve,
         },
         ShapeRule {
-            key: '6',
+            key: 'e',
             on: RootVowel::E,
             shape: Shape::Circumflex,
         },
         ShapeRule {
-            key: '6',
+            key: 'o',
             on: RootVowel::O,
             shape: Shape::Circumflex,
         },
         ShapeRule {
-            key: '7',
+            key: 'w',
             on: RootVowel::O,
             shape: Shape::Horn,
         },
         ShapeRule {
-            key: '8',
+            key: 'w',
             on: RootVowel::U,
             shape: Shape::Horn,
         },
     ],
-    &['9'],
+    &['d'],
 );

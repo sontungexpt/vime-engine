@@ -1,11 +1,11 @@
 use std::ffi::{c_char, CString};
 use std::ptr;
 
-use vime_engine::{ConfiguredRuleEngine, DefaultRenderer, Engine, Result};
+use vime_engine::{DefaultKeymap, DefaultRenderer, Engine, Result};
 
 #[repr(C)]
 pub struct VimeEngineHandle {
-    pub(crate) engine: Engine<DefaultRenderer, ConfiguredRuleEngine<'static>>,
+    pub(crate) engine: Engine<DefaultRenderer, DefaultKeymap<'static>>,
     pub(crate) rendered: Option<CString>,
     pub(crate) commit: Option<CString>,
 }
@@ -21,8 +21,9 @@ impl VimeEngineHandle {
             Result::Forward => return VimeOutput::empty(VimeAction::Forward),
             Result::Noop => return VimeOutput::empty(VimeAction::Noop),
             Result::Changed => {
-                self.rendered =
-                    Some(CString::new(self.engine.rendered()).expect("rendered text cannot contain NUL"));
+                self.rendered = Some(
+                    CString::new(self.engine.rendered()).expect("rendered text cannot contain NUL"),
+                );
                 VimeAction::UpdatePreedit
             }
             Result::Commit(text) => {

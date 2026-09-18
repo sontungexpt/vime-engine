@@ -1,7 +1,20 @@
 use std::str::FromStr;
 
+// ------------------- Error -------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnsetParseError;
+
+impl std::fmt::Display for OnsetParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("invalid onset")
+    }
+}
+
+impl std::error::Error for OnsetParseError {}
+
 /// Syllable Onset — the initial consonant cluster of a Vietnamese syllable.
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Onset {
     #[default]
@@ -57,17 +70,17 @@ impl Onset {
     pub const MAX_ID: usize = Self::COUNT - 1;
 
     #[inline(always)]
-    pub const fn from_id(id: usize) -> Result<Self, ()> {
+    pub const fn from_id(id: usize) -> Result<Self, OnsetParseError> {
         // Safety: real discriminants are contiguous from 0 through MAX_ID.
         if id < Self::COUNT {
             Ok(unsafe { std::mem::transmute::<u8, Self>(id as u8) })
         } else {
-            Err(())
+            Err(OnsetParseError)
         }
     }
 
     #[inline(always)]
-    pub const fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
+    pub const fn from_bytes(bytes: &[u8]) -> Result<Self, OnsetParseError> {
         match bytes {
             [] => Ok(Self::None),
 
@@ -88,7 +101,7 @@ impl Onset {
                 b't' => Ok(Self::T),
                 b'v' => Ok(Self::V),
                 b'x' => Ok(Self::X),
-                _ => Err(()),
+                _ => Err(OnsetParseError),
             },
 
             // UTF-8 for 'đ' / 'Đ'.
@@ -106,21 +119,21 @@ impl Onset {
                 [b'q', b'u'] => Ok(Self::Qu),
                 [b't', b'h'] => Ok(Self::Th),
                 [b't', b'r'] => Ok(Self::Tr),
-                _ => Err(()),
+                _ => Err(OnsetParseError),
             },
 
             // Three-byte onset ("ngh").
             &[first, second, third] => match [first | 0x20, second | 0x20, third | 0x20] {
                 [b'n', b'g', b'h'] => Ok(Self::Ngh),
-                _ => Err(()),
+                _ => Err(OnsetParseError),
             },
 
-            _ => Err(()),
+            _ => Err(OnsetParseError),
         }
     }
 
     #[inline(always)]
-    pub const fn from_chars(chars: &[char]) -> Result<Self, ()> {
+    pub const fn from_chars(chars: &[char]) -> Result<Self, OnsetParseError> {
         match chars {
             [] => Ok(Self::None),
             &['đ'] | &['Đ'] => Ok(Self::Đ),
@@ -133,51 +146,51 @@ impl Onset {
             {
                 Self::from_bytes(&[first as u8, second as u8, third as u8])
             }
-            _ => Err(()),
+            _ => Err(OnsetParseError),
         }
     }
 
     #[inline(always)]
     pub const fn is_possible_first_char(ch: char) -> bool {
-        matches!(ch, 'đ' | 'Đ')
-            || matches!(
-                ch as u32 | 0x20,
-                0x62 // b
-                        | 0x63 // c
-                        | 0x64 // d
-                        | 0x67 // g
-                        | 0x68 // h
-                        | 0x6B // k
-                        | 0x6C // l
-                        | 0x6D // m
-                        | 0x6E // n
-                        | 0x70 // p
-                        | 0x71 // q
-                        | 0x72 // r
-                        | 0x73 // s
-                        | 0x74 // t
-                        | 0x76 // v
-                        | 0x78 // x
-            )
+        let code = ch as u32;
+        matches!(
+            code,
+            0x0110 // Đ
+            | 0x0111 // đ
+        ) || matches!(
+            code | 0x20,
+            0x62 // b
+            | 0x63 // c
+            | 0x64 // d
+            | 0x67 // g
+            | 0x68 // h
+            | 0x6B // k
+            | 0x6C // l
+            | 0x6D // m
+            | 0x6E // n
+            | 0x70 // p
+            | 0x71 // q
+            | 0x72 // r
+            | 0x73 // s
+            | 0x74 // t
+            | 0x76 // v
+            | 0x78 // x
+        )
     }
 
-    /// Ký tự có thể xuất hiện trong quá trình parse onset.
     #[inline(always)]
     pub const fn is_possible_char(ch: char) -> bool {
         Self::is_possible_first_char(ch)
             || matches!(
                 ch as u32 | 0x20,
-                0x68 // h
-                        | 0x69 // i
-                        | 0x67 // g
-                        | 0x75 // u
-                        | 0x72 // r
+                0x69 // i (in "gi")
+                | 0x75 // u (in "qu")
             )
     }
 }
 
 impl FromStr for Onset {
-    type Err = ();
+    type Err = OnsetParseError;
 
     #[inline(always)]
     fn from_str(s: &str) -> Result<Self, Self::Err> {

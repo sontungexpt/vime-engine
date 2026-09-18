@@ -5,23 +5,23 @@ mod telex;
 mod viqr;
 mod vni;
 
-pub use config::{ShapeRule, ToneRule, TypingRules};
+pub use config::{Rules, ShapeRule, ToneRule};
 
-use super::RuleEngine;
+use super::Keymap;
 
 /// Configuration-driven key mapping implementation.
 ///
 /// This is used by input methods whose behavior can be described
 /// declaratively through a [`TypingRules`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ConfiguredRuleEngine<'a> {
-    config: &'a TypingRules<'a>,
+pub struct DefaultKeymap<'a> {
+    rules: &'a Rules<'a>,
 }
 
-impl<'a> ConfiguredRuleEngine<'a> {
+impl<'a> DefaultKeymap<'a> {
     /// Creates a key mapping from a declarative configuration.
-    pub const fn new(config: &'a TypingRules<'a>) -> Self {
-        Self { config }
+    pub const fn new(config: &'a Rules<'a>) -> Self {
+        Self { rules: config }
     }
 
     /// The Telex input method.
@@ -44,27 +44,27 @@ impl<'a> ConfiguredRuleEngine<'a> {
 
     /// The underlying configuration.
     #[inline(always)]
-    pub const fn config(&self) -> &TypingRules<'a> {
-        self.config
+    pub const fn config(&self) -> &Rules<'a> {
+        self.rules
     }
 }
 
-impl RuleEngine for ConfiguredRuleEngine<'_> {
+impl Keymap for DefaultKeymap<'_> {
     /// Returns whether `key` is configured as a tone, shape, or stroke key.
     #[inline(always)]
-    fn is_rule_key(&self, key: char) -> bool {
+    fn is_transform_key(&self, key: char) -> bool {
         let key = key.to_ascii_lowercase();
 
-        self.config.tones.iter().any(|map| map.key == key)
-            || self.config.strokes.iter().any(|&k| k == key)
-            || self.config.shapes.iter().any(|map| map.key == key)
+        self.rules.tones.iter().any(|map| map.key == key)
+            || self.rules.strokes.iter().any(|&k| k == key)
+            || self.rules.shapes.iter().any(|map| map.key == key)
     }
 
     #[inline(always)]
-    fn tone(&self, input: char) -> Option<Tone> {
+    fn decode_tone(&self, input: char) -> Option<Tone> {
         let loinput = input.to_ascii_lowercase();
 
-        self.config
+        self.rules
             .tones
             .iter()
             .find(|map| map.key == loinput)
@@ -72,16 +72,16 @@ impl RuleEngine for ConfiguredRuleEngine<'_> {
     }
 
     #[inline(always)]
-    fn stroke(&self, input: char) -> bool {
+    fn is_stroke_key(&self, input: char) -> bool {
         let loinput = input.to_ascii_lowercase();
-        self.config.strokes.iter().any(|c| *c == loinput)
+        self.rules.strokes.iter().any(|c| *c == loinput)
     }
 
     #[inline(always)]
-    fn shape(&self, input: char, target: RootVowel) -> Option<Shape> {
+    fn decode_shape(&self, input: char, target: RootVowel) -> Option<Shape> {
         let loinput = input.to_ascii_lowercase();
 
-        self.config
+        self.rules
             .shapes
             .iter()
             .find(|map| map.key == loinput && map.on == target)

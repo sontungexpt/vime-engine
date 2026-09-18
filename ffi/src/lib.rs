@@ -1,14 +1,12 @@
 #[cfg(test)]
 use std::ffi::CStr;
 
-use vime_engine::{ConfiguredRuleEngine, Engine, KeyEvent};
+use vime_engine::{DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;
 pub mod types;
 
-pub use types::{
-    VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
-};
+pub use types::{VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput};
 
 use convert::KeyEventConversionError;
 
@@ -63,10 +61,10 @@ pub unsafe extern "C" fn vime_set_input_method(
     if let Some(engine) = engine.as_mut() {
         match method {
             VimeInputMethod::Telex => {
-                engine.engine.set_layout(ConfiguredRuleEngine::telex());
+                engine.engine.set_layout(DefaultKeymap::telex());
             }
             VimeInputMethod::Vni => {
-                engine.engine.set_layout(ConfiguredRuleEngine::vni());
+                engine.engine.set_layout(DefaultKeymap::vni());
             }
         }
     }

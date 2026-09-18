@@ -1,9 +1,9 @@
-use super::{ShapeRule, ToneRule, TypingRules};
+use super::{ShapeRule, ToneRule, Rules};
 use crate::{RootVowel, Shape, Tone};
 
 /// VIQr layout: shapes on `^` (circumflex), `(` (breve), `+` (horn), `d`
 /// (stroke); tones on `` ` `` `?` `~` `'` `.` and `z`.
-pub(crate) const CONFIG: &TypingRules = &TypingRules::new(
+pub(crate) const CONFIG: &Rules = &Rules::new(
     &[
         ToneRule {
             key: '`',
