@@ -1,11 +1,10 @@
 use super::api::Renderer;
 
 use crate::{
-    analyze_modern, analyze_old,
     composition::{SyllableBuilder, SyllableState},
     encode_vowel,
-    phonology::{BaseVowel, Tone},
-    Composition, Keymap, VowelSequence,
+    phonology::{tone_index_modern, tone_index_old, BaseVowel, Tone, VowelSequence},
+    Composition, Keymap,
 };
 
 /// Tone-placement orthography: the modern standard or the pre-1975 "old style".
@@ -27,8 +26,8 @@ impl VowelSequence for SyllableBuilder {
     }
 
     #[inline(always)]
-    fn get(&self, index: usize) -> Option<BaseVowel> {
-        self.nucleus().get(index).map(|v| v.value)
+    fn at(&self, index: usize) -> BaseVowel {
+        self.nucleus()[index].value
     }
 }
 
@@ -78,8 +77,8 @@ impl DefaultRenderer {
         output.extend(syllable.onset().iter().copied());
 
         let tone_position = match self.orthography {
-            Orthography::Modern => analyze_modern(syllable),
-            Orthography::Old => analyze_old(syllable, syllable.coda().is_empty()),
+            Orthography::Modern => tone_index_modern(syllable),
+            Orthography::Old => tone_index_old(syllable, syllable.coda().is_empty()),
         };
 
         for (index, vowel) in syllable.nucleus().iter().enumerate() {
@@ -89,7 +88,7 @@ impl DefaultRenderer {
                 Tone::Flat
             };
 
-            output.push(encode_vowel(vowel.value, tone, vowel.case));
+            output.push(encode_vowel(vowel.value, tone, vowel.uppercase));
         }
 
         output.extend(syllable.coda().iter().copied());

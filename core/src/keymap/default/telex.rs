@@ -1,4 +1,4 @@
-use super::{ShapeRule, ToneRule, Rules};
+use super::{Rules, ShapeRule, ToneRule};
 use crate::{RootVowel, Shape, Tone};
 
 /// Telex layout: shapes on `a/e/o` (circumflex), `w` (breve/horn), `d`

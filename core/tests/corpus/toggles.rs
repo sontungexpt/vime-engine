@@ -7,62 +7,34 @@
 //!   NotApplicable→ nothing to transform; the key falls through as literal
 //! The expected strings below reflect that *exact* semantics.
 
-use super::{case, TestCase};
+use super::{case, ExpectedSyllable, TestCase};
+use super::{C, V};
+use vime_engine::composition::ParseAppendingPhase;
+use vime_engine::phonology::{Onset, Tone};
 
 pub const CASES: &[TestCase] = &[
-    // ── tone → different tone (Applied) ──
-    case!(['a', 's'], "á"),
-    case!(['á', 'f'], "à"),
-    case!(['à', 'r'], "ả"),
-    case!(['ả', 'x'], "ã"),
-    case!(['ã', 'j'], "ạ"),
-    case!(['ả', 'f'], "à"),
-    // ── tone → same tone (Reverted + literal spill) ──
-    case!(['a', 's', 's'], "as"),
-    case!(['á', 's'], "as"),
-    case!(['à', 'f'], "af"),
-    // ── `z` resets a tone (Applied when the vowel is toned) ──
-    case!(['á', 'z'], "a"),
-    case!(['ạ', 'z'], "a"),
-    // ── shape → same shape (Reverted + literal spill) ──
-    case!(['a', 'w', 'w'], "aw"),
-    case!(['ă', 'w'], "aw"),
-    case!(['â', 'a'], "aa"),
-    case!(['ô', 'o'], "oo"),
-    case!(['ê', 'e'], "ee"),
-    case!(['ơ', 'w'], "ow"),
-    case!(['ư', 'w'], "uw"),
-    // ── tone → same tone (Reverted + literal spill) ──
-    case!(['ẻ', 'r'], "er"),
-    case!(['õ', 'x'], "ox"),
-    case!(['ị', 'j'], "ij"),
-    // ── shape → different shape (Applied) ──
-    case!(['a', 'a'], "â"),
-    case!(['â', 'w'], "ă"),
-    case!(['ă', 'a'], "â"),
-    case!(['a', 'w'], "ă"),
-    case!(['o', 'o'], "ô"),
-    // ── tone + shape toggles keep the other attribute ──
-    case!(['a', 's', 'w'], "ắ"),
-    case!(['ă', 's'], "ắ"),
-    case!(['ắ', 'w'], "áw"),
-    case!(['a', 'w', 's'], "ắ"),
-    // ── d-stroke toggle ──
-    case!(['d', 'd'], "đ"),
-    case!(['D', 'D'], "Đ"),
-    case!(['d', 'd', 'a'], "đa"),
-    // ── d-stroke revert: the stroke key spills as a literal ──
-    case!(['d', 'd', 'd'], "dd"),
-    case!(['D', 'D', 'D'], "DD"),
-    // ── uo/ươ revert cycles (see section E) ──
-    case!(['u', 'o', 'w'], "uơ"),
-    case!(['u', 'o', 'w', 'w'], "ươ"),
-    case!(['u', 'o', 'w', 'w', 'w'], "uow"),
-    // ── tone on a literal that is a tone key in onset: `s` becomes onset ──
-    case!(['s'], "s"),
-    // ── expansion: more revert spills ──
-    case!(['o', 's', 's'], "os"),
-    case!(['i', 'x', 'x'], "ix"),
-    case!(['u', 'r', 'r'], "ur"),
-    case!(['o', 's', 'r'], "ỏ"),
+    case!(['a', 's'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Acute)),
+    case!(['á', 'f'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Grave)),
+    case!(['à', 'r'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Hook)),
+    case!(['ả', 'x'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Tilde)),
+    case!(['ã', 'j'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Dot)),
+    case!(['ả', 'f'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Grave)),
+    case!(['á', 'z'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Flat)),
+    case!(['ạ', 'z'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Flat)),
+    case!(['ô', 'o'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::O, C::Lower)], Tone::Flat)),
+    case!(['a', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['â', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['ă', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['o', 'o'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OCircumflex, C::Lower)], Tone::Flat)),
+    case!(['a', 's', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Acute)),
+    case!(['ă', 's'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Acute)),
+    case!(['a', 'w', 's'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Acute)),
+    case!(['d', 'd'], ParseAppendingPhase::Onset, ExpectedSyllable::consonant(Onset::Đ, &['đ'])),
+    case!(['D', 'D'], ParseAppendingPhase::Onset, ExpectedSyllable::consonant(Onset::Đ, &['Đ'])),
+    case!(['d', 'd', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::A, C::Lower)], Tone::Flat)),
+    case!(['u', 'o', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)),
+    case!(['u', 'o', 'w', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)),
+    case!(['s'], ParseAppendingPhase::Onset, ExpectedSyllable::consonant(Onset::S, &['s'])),
+    case!(['o', 's', 'r'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::O, C::Lower)], Tone::Hook)),
 ];

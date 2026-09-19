@@ -1,4 +1,4 @@
-use super::{ShapeRule, ToneRule, Rules};
+use super::{Rules, ShapeRule, ToneRule};
 use crate::{RootVowel, Shape, Tone};
 
 /// VIQr layout: shapes on `^` (circumflex), `(` (breve), `+` (horn), `d`

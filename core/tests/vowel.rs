@@ -6,7 +6,7 @@
 //!
 //! - 12 [`BaseVowel`]s
 //! - 6 [`Tone`]s
-//! - 2 [`Case`]s
+//! - 2 cases
 //! - 144 precomposed Vietnamese vowel characters in total.
 //!
 //! The tests verify:
@@ -20,7 +20,7 @@
 //! - `is_vowel` consistency with the decoder
 //! - shape replacement consistency
 
-use vime_engine::{decode_vowel, encode_vowel, is_vowel, BaseVowel, Case, Shape, Tone};
+use vime_engine::{decode_vowel, encode_vowel, is_vowel, BaseVowel, CasedBaseVowel, Shape, Tone};
 
 const BASE_COUNT: usize = 12;
 const TONE_COUNT: usize = 6;
@@ -74,7 +74,7 @@ const BASES: [BaseVowel; BASE_COUNT] = [
 
 const TONES: [Tone; TONE_COUNT] = [Tone::Flat, Tone::Acute, Tone::Grave, Tone::Hook, Tone::Tilde, Tone::Dot];
 
-const CASES: [Case; 2] = [Case::Lower, Case::Upper];
+const CASES: [bool; 2] = [false, true];
 
 #[test]
 fn test_base_vowel_is_plain_invariant() {
@@ -152,7 +152,7 @@ fn encode_decode_is_bijective() {
             for &case in &CASES {
                 let ch = encode_vowel(base, tone, case);
 
-                assert_eq!(decode_vowel(ch), Some((base, tone, case)), "decode mismatch for {base:?} {tone:?} {case:?}");
+                assert_eq!(decode_vowel(ch), Some((CasedBaseVowel::new(base, case), tone)), "decode mismatch for {base:?} {tone:?} {case:?}");
 
                 assert!(!seen[..count].contains(&Some(ch)), "duplicate encoded character {ch:?}");
 
@@ -174,9 +174,9 @@ fn expected_lowercase_vowels_match_codec() {
         for (tone_id, &expected) in row.iter().enumerate() {
             let tone = TONES[tone_id];
 
-            assert_eq!(encode_vowel(base, tone, Case::Lower), expected, "unexpected lowercase encoding for {base:?} {tone:?}");
+            assert_eq!(encode_vowel(base, tone, false), expected, "unexpected lowercase encoding for {base:?} {tone:?}");
 
-            assert_eq!(decode_vowel(expected), Some((base, tone, Case::Lower)), "unexpected lowercase decoding for {expected:?}");
+            assert_eq!(decode_vowel(expected), Some((CasedBaseVowel::new(base, false), tone)), "unexpected lowercase decoding for {expected:?}");
         }
     }
 }
@@ -190,9 +190,9 @@ fn expected_uppercase_vowels_match_codec() {
             let tone = TONES[tone_id];
             let upper = lower.to_uppercase().next().unwrap();
 
-            assert_eq!(encode_vowel(base, tone, Case::Upper), upper, "unexpected uppercase encoding for {base:?} {tone:?}");
+            assert_eq!(encode_vowel(base, tone, true), upper, "unexpected uppercase encoding for {base:?} {tone:?}");
 
-            assert_eq!(decode_vowel(upper), Some((base, tone, Case::Upper)), "unexpected uppercase decoding for {upper:?}");
+            assert_eq!(decode_vowel(upper), Some((CasedBaseVowel::new(base, true), tone)), "unexpected uppercase decoding for {upper:?}");
         }
     }
 }
@@ -206,11 +206,11 @@ fn decode_encode_round_trips_every_known_vowel() {
             continue;
         };
 
-        let Some((base, tone, case)) = decode_vowel(ch) else {
+        let Some((cased, tone)) = decode_vowel(ch) else {
             continue;
         };
 
-        assert_eq!(encode_vowel(base, tone, case), ch, "decode/encode round-trip failed for U+{cp:04X} {ch:?}");
+        assert_eq!(encode_vowel(cased.value, tone, cased.uppercase), ch, "decode/encode round-trip failed for U+{cp:04X} {ch:?}");
 
         count += 1;
     }
@@ -249,19 +249,19 @@ fn rejects_non_vowels() {
 #[test]
 fn ascii_vowels_decode_as_flat_lowercase() {
     for (base, ch) in [(BaseVowel::A, 'a'), (BaseVowel::E, 'e'), (BaseVowel::I, 'i'), (BaseVowel::O, 'o'), (BaseVowel::U, 'u'), (BaseVowel::Y, 'y')] {
-        assert_eq!(decode_vowel(ch), Some((base, Tone::Flat, Case::Lower)), "unexpected decoding for {ch:?}");
+        assert_eq!(decode_vowel(ch), Some((CasedBaseVowel::new(base, false), Tone::Flat)), "unexpected decoding for {ch:?}");
 
         assert!(is_vowel(ch));
 
-        assert_eq!(encode_vowel(base, Tone::Flat, Case::Lower), ch);
+        assert_eq!(encode_vowel(base, Tone::Flat, false), ch);
     }
 
     for (base, ch) in [(BaseVowel::A, 'A'), (BaseVowel::E, 'E'), (BaseVowel::I, 'I'), (BaseVowel::O, 'O'), (BaseVowel::U, 'U'), (BaseVowel::Y, 'Y')] {
-        assert_eq!(decode_vowel(ch), Some((base, Tone::Flat, Case::Upper)), "unexpected decoding for {ch:?}");
+        assert_eq!(decode_vowel(ch), Some((CasedBaseVowel::new(base, true), Tone::Flat)), "unexpected decoding for {ch:?}");
 
         assert!(is_vowel(ch));
 
-        assert_eq!(encode_vowel(base, Tone::Flat, Case::Upper), ch);
+        assert_eq!(encode_vowel(base, Tone::Flat, true), ch);
     }
 }
 

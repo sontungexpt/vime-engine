@@ -1,70 +1,65 @@
 //! C. Telex shape keys.
 
-use super::{case, TestCase};
+use super::{case, ExpectedSyllable, TestCase};
+use super::{C, V};
+use vime_engine::composition::ParseAppendingPhase;
+use vime_engine::phonology::{Coda, Onset, Tone};
 
 pub const CASES: &[TestCase] = &[
-    // ── core shapes ──
-    case!(['a', 'w'], "ă"),
-    case!(['a', 'a'], "â"),
-    case!(['e', 'e'], "ê"),
-    case!(['o', 'o'], "ô"),
-    case!(['o', 'w'], "ơ"),
-    case!(['u', 'w'], "ư"),
-    // ── shapes on shaped vowels: replace or revert the shape ──
-    case!(['â', 'w'], "ă"),
-    case!(['ă', 'a'], "â"),
-    case!(['â', 'a'], "aa"), // same shape reverts â → a, key leaks as a vowel
-    // ── shapes after an onset ──
-    case!(['c', 'h', 'a', 'w'], "chă"),
-    case!(['c', 'h', 'a', 'a'], "châ"),
-    case!(['c', 'o', 'o'], "cô"),
-    case!(['b', 'u', 'w'], "bư"),
-    case!(['t', 'h', 'o', 'w'], "thơ"),
-    case!(['t', 'o', 'i', 'o'], "tôi"),
-    // ── shape on plain a after a coda already started ──
-    case!(['a', 'n', 'w'], "ăn"),
-    case!(['a', 'n', 'a'], "ân"),
-    // ── o/w interplay outside uo context (single vowel) ──
-    case!(['o', 'w'], "ơ"),
-    case!(['o', 'w', 'o'], "ô"),
-    // ── o/w interplay: circumflex replaced by the horn on a second key ──
-    case!(['o', 'o', 'w'], "ơ"),
-    // ── shape toggles ──
-    case!(['a', 'w', 'w'], "aw"),
-    case!(['e', 'e', 'e'], "ee"),
-    case!(['o', 'o', 'o'], "oo"),
-    case!(['u', 'w', 'w'], "uw"),
-    case!(['o', 'w', 'w'], "ow"),
-    // ── shapes in front of onsets / codas ──
-    case!(['k', 'e', 'e'], "kê"),
-    case!(['c', 'h', 'e', 'e'], "chê"),
-    case!(['t', 'h', 'e', 'e'], "thê"),
-    case!(['n', 'g', 'a', 'w'], "ngă"),
-    case!(['d', 'd', 'a', 'w'], "đă"),
-    case!(['b', 'u', 'w', 'n'], "bưn"),
-    // ── expansion: shapes with an onset ──
-    case!(['t', 'h', 'a', 'a'], "thâ"),
-    // ── expansion: shaped nuclei with a following vowel ──
-    case!(['e', 'e', 'u'], "êu"),
-    case!(['o', 'o', 'i'], "ôi"),
-    case!(['o', 'w', 'i'], "ơi"),
-    case!(['u', 'w', 'a'], "ưa"),
-    // ── expansion: shaped nuclei with a coda ──
-    case!(['a', 'a', 'n'], "ân"),
-    case!(['b', 'a', 'w', 'n'], "băn"),
-    case!(['u', 'w', 'n'], "ưn"),
-    // ── expansion: shapes on more onsets ──
-    case!(['l', 'a', 'w'], "lă"),
-    case!(['r', 'a', 'a'], "râ"),
-    case!(['h', 'a', 'a'], "hâ"),
-    case!(['y', 'e', 'e'], "yê"),
-    case!(['o', 'a', 'w'], "oă"),
-    // ── expansion: shaped nuclei with codas ──
-    case!(['n', 'g', 'a', 'a', 'n'], "ngân"),
-    case!(['t', 'h', 'a', 'a', 'n'], "thân"),
-    // ── expansion: newly-valid shaped nuclei (rule.rs) ──
-    case!(['u', 'a', 'a'], "uâ"),
-    case!(['u', 'a', 'a', 'y'], "uây"),
-    case!(['u', 'y', 'e', 'e'], "uyê"),
-    case!(['u', 'w', 'i'], "ưi"),
+    case!(['a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['a', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['e', 'e'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ECircumflex, C::Lower)], Tone::Flat)),
+    case!(['o', 'o'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OCircumflex, C::Lower)], Tone::Flat)),
+    case!(['o', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OHorn, C::Lower)], Tone::Flat)),
+    case!(['u', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::UHorn, C::Lower)], Tone::Flat)),
+    case!(['â', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['ă', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['c', 'h', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Ch, &['c', 'h'], &[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['c', 'h', 'a', 'a'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Ch, &['c', 'h'], &[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['c', 'o', 'o'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::C, &['c'], &[(V::OCircumflex, C::Lower)], Tone::Flat)),
+    case!(['b', 'u', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::B, &['b'], &[(V::UHorn, C::Lower)], Tone::Flat)),
+    case!(['t', 'h', 'o', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Th, &['t', 'h'], &[(V::OHorn, C::Lower)], Tone::Flat)),
+    case!(
+        ['t', 'o', 'i', 'o'],
+        ParseAppendingPhase::Vowel,
+        ExpectedSyllable::onset_vowel(Onset::T, &['t'], &[(V::OCircumflex, C::Lower), (V::I, C::Lower)], Tone::Flat)
+    ),
+    case!(['a', 'n', 'w'], ParseAppendingPhase::Coda, ExpectedSyllable::vowel_coda(&[(V::ABreve, C::Lower)], Tone::Flat, Coda::N, &['n'])),
+    case!(['a', 'n', 'a'], ParseAppendingPhase::Coda, ExpectedSyllable::vowel_coda(&[(V::ACircumflex, C::Lower)], Tone::Flat, Coda::N, &['n'])),
+    case!(['o', 'w', 'o'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OCircumflex, C::Lower)], Tone::Flat)),
+    case!(['o', 'o', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OHorn, C::Lower)], Tone::Flat)),
+    case!(['o', 'o', 'o'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::O, C::Lower)], Tone::Flat)),
+    case!(['k', 'e', 'e'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::K, &['k'], &[(V::ECircumflex, C::Lower)], Tone::Flat)),
+    case!(['c', 'h', 'e', 'e'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Ch, &['c', 'h'], &[(V::ECircumflex, C::Lower)], Tone::Flat)),
+    case!(['t', 'h', 'e', 'e'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Th, &['t', 'h'], &[(V::ECircumflex, C::Lower)], Tone::Flat)),
+    case!(['n', 'g', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Ng, &['n', 'g'], &[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['d', 'd', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['b', 'u', 'w', 'n'], ParseAppendingPha ExpectedSyllable::syllable(Onset::B, &['b'], &[(V::UHorn, C::Lower)], Tone::Flat, Coda::N, &['n'])),
+    case!(['t', 'h', 'a', 'a'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Th, &['t', 'h'], &[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['e', 'e', 'u'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ECircumflex, C::Lower), (V::U, C::Lower)], Tone::Flat)),
+    case!(['o', 'o', 'i'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OCircumflex, C::Lower), (V::I, C::Lower)], Tone::Flat)),
+    case!(['o', 'w', 'i'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::OHorn, C::Lower), (V::I, C::Lower)], Tone::Flat)),
+    case!(['u', 'w', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::A, C::Lower)], Tone::Flat)),
+    case!(['a', 'a', 'n'], ParseAppendingPhase::Coda, ExpectedSyllable::vowel_coda(&[(V::ACircumflex, C::Lower)], Tone::Flat, Coda::N, &['n'])),
+    case!(['b', 'a', 'w', 'n'], ParseAppendingPha ExpectedSyllable::syllable(Onset::B, &['b'], &[(V::ABreve, C::Lower)], Tone::Flat, Coda::N, &['n'])),
+    case!(['u', 'w', 'n'], ParseAppendingPhase::Coda, ExpectedSyllable::vowel_coda(&[(V::UHorn, C::Lower)], Tone::Flat, Coda::N, &['n'])),
+    case!(['l', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::L, &['l'], &[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['r', 'a', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::R, &['r'], &[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['h', 'a', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::H, &['h'], &[(V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['y', 'e', 'e'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::Y, C::Lower), (V::ECircumflex, C::Lower)], Tone::Flat)),
+    case!(['o', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::ABreve, C::Lower)], Tone::Flat)),
+    case!(
+        ['n', 'g', 'a', 'a', 'n'],
+        ParseAppendingPhase::Coda,
+        ExpectedSyllable::syllable(Onset::Ng, &['n', 'g'], &[(V::ACircumflex, C::Lower)], Tone::Flat, Coda::N, &['n'])
+    ),
+    case!(
+        ['t', 'h', 'a', 'a', 'n'],
+        ParseAppendingPhase::Coda,
+        ExpectedSyllable::syllable(Onset::Th, &['t', 'h'], &[(V::ACircumflex, C::Lower)], Tone::Flat, Coda::N, &['n'])
+    ),
+    case!(['u', 'a', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::ACircumflex, C::Lower)], Tone::Flat)),
+    case!(['u', 'a', 'a', 'y'], ParseAppendingPhas ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::ACircumflex, C::Lower), (V::Y, C::Lower)], Tone::Flat)),
+    case!(['u', 'y', 'e', 'e'], ParseAppendingPhas ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::Y, C::Lower), (V::ECircumflex, C::Lower)], Tone::Flat)),
+    case!(['u', 'w', 'i'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::I, C::Lower)], Tone::Flat)),
 ];

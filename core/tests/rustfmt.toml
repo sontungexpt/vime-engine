@@ -1,0 +1,6 @@
+# Test-only formatting. The corpus data rows are generated as one logical
+# line per case (see corpus/mod.rs and the replica script in /tmp/opencode);
+# the default 100-col limit would rewrap them into multi-line blocks and
+# destroy the density that makes them readable. This file only affects files
+# under `tests/`; production formatting keeps the defaults.
+max_width = 240

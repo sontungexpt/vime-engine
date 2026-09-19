@@ -1,4 +1,4 @@
-use super::{ShapeRule, ToneRule, Rules};
+use super::{Rules, ShapeRule, ToneRule};
 use crate::{RootVowel, Shape, Tone};
 
 /// VNI layout: shapes on `6` (circumflex), `7` (breve/horn), `8` (horn),

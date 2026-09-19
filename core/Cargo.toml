@@ -6,4 +6,5 @@ description = "Frontend-independent Vietnamese input method engine"
 license = "MIT"
 
 [dependencies]
+arrayvec = "0.7"
 bitflags = "2"

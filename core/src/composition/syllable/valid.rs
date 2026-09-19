@@ -2,17 +2,11 @@ use crate::{
     decode_vowel,
     phonology::{
         rule::{check_nucleus_validity, NucleusStatus},
-        BaseVowel, Case, Coda, Onset, Tone,
+        BaseVowel, Coda, Onset, Tone,
     },
-    Keymap, RootVowel, Shape,
+    CasedBaseVowel, Keymap, RootVowel, Shape,
 };
-
-/// A value paired with the letter case used to render it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cased<T> {
-    pub value: T,
-    pub case: Case,
-}
+use arrayvec::ArrayVec;
 
 /// Outcome of applying a transform key to the current syllable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,12 +45,12 @@ pub enum SyllableError {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SyllableBuilder {
     onset_kind: Onset,
-    onset: Vec<char>,
+    onset: ArrayVec<char, { Onset::MAX_ONSET_LEN }>,
 
-    nucleus: Vec<Cased<BaseVowel>>,
+    nucleus: ArrayVec<CasedBaseVowel, 3>,
 
     coda_kind: Coda,
-    coda: Vec<char>,
+    coda: ArrayVec<char, { Coda::MAX_CODA_LEN }>,
 
     tone: Tone,
 
@@ -90,7 +84,7 @@ impl SyllableBuilder {
     }
 
     #[inline(always)]
-    pub fn nucleus(&self) -> &[Cased<BaseVowel>] {
+    pub fn nucleus(&self) -> &[CasedBaseVowel] {
         &self.nucleus
     }
 
@@ -121,9 +115,8 @@ impl SyllableBuilder {
         if self.nucleus.is_empty() {
             return TransformResult::NotApplicable;
         }
-
         // Same tone -> toggle back to Flat.
-        if self.tone == tone {
+        else if self.tone == tone {
             self.tone = Tone::Flat;
             return TransformResult::Reverted;
         }
@@ -255,12 +248,12 @@ impl SyllableBuilder {
         if onset_len == 0 && (input as u32 | 0x20) == ('q' as u32) {
             self.onset.push(input);
             return Ok(());
-        } else if let Some((base, tone, case)) = decode_vowel(input) {
+        } else if let Some((base_cased, tone)) = decode_vowel(input) {
             // qu
             // A `u` following a lone `q` is kept as the onset of `qu`.
             // Only the plain `u` counts here: a precomposed `ư` is an actual vowel.
             if onset_len == 1 && (self.onset[0] as u32 | 0x20) == ('q' as u32) {
-                if base == BaseVowel::U {
+                if base_cased.value == BaseVowel::U {
                     self.onset.push(input);
                     self.onset_kind = Onset::Qu;
                     return Ok(());
@@ -270,8 +263,8 @@ impl SyllableBuilder {
                 return Err(SyllableError::InvalidOnset);
             }
 
-            self.push_phase = PushPhase::Vowel;
-            if self.push_decoded_vowel(base, tone, case) {
+            if self.push_decoded_vowel(base_cased, tone) {
+                self.push_phase = PushPhase::Vowel;
                 return Ok(());
             }
 
@@ -326,12 +319,12 @@ impl SyllableBuilder {
     /// `gi` as a phoneme boundary). Returns `false` when the nucleus cannot
     /// accept it (too many vowels, tone conflict, or an invalid sequence);
     /// the caller is responsible for reporting the failure.
-    fn push_decoded_vowel(&mut self, base: BaseVowel, tone: Tone, case: Case) -> bool {
+    fn push_decoded_vowel(&mut self, cased_base: CasedBaseVowel, tone: Tone) -> bool {
         let vowels_len = self.nucleus.len();
 
         if vowels_len == 0 {
             // First vowel; add it to the nucleus.
-            self.nucleus.push(Cased { value: base, case });
+            self.nucleus.push(cased_base);
             self.tone = tone;
             return true;
         }
@@ -364,14 +357,11 @@ impl SyllableBuilder {
         // ---------------------------------------------------------
         if vowels_len == 1 && self.nucleus[0].value == BaseVowel::I && self.onset_kind == Onset::G {
             let i = self.nucleus.pop().unwrap();
-            self.onset.push(match i.case {
-                Case::Lower => 'i',
-                Case::Upper => 'I',
-            });
+            self.onset.push(if i.uppercase { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
         }
 
-        self.nucleus.push(Cased { value: base, case });
+        self.nucleus.push(cased_base);
 
         if NucleusStatus::Dead == self.validate_nucleus::<3>() {
             // rollback state
@@ -389,8 +379,8 @@ impl SyllableBuilder {
     /// starter moves the phase into `Coda` and appends the character; anything
     /// else (invalid coda, non-letter) kills the parse.
     fn push_vowel_literal(&mut self, input: char) -> Result<(), SyllableError> {
-        if let Some((base, tone, case)) = decode_vowel(input) {
-            if !self.push_decoded_vowel(base, tone, case) {
+        if let Some((base_cased, tone)) = decode_vowel(input) {
+            if !self.push_decoded_vowel(base_cased, tone) {
                 return Err(SyllableError::InvalidNucleus);
             }
 
@@ -517,7 +507,7 @@ impl SyllableBuilder {
     // ─────────────────────────── Shared ───────────────────────────
 
     /// Resolves a tone or D-stroke transform key.
-    #[inline(always)]
+    #[inline]
     fn handle_tone_or_d_stroke<KM: Keymap>(
         &mut self,
         keymap: &KM,

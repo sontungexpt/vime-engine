@@ -2,12 +2,11 @@ mod invalid;
 mod valid;
 
 pub use invalid::{CharStatus, DeadSyllableBuilder};
-pub use valid::{Cased, PushPhase, SyllableBuilder, SyllableError, TransformResult};
+pub use valid::{PushPhase, SyllableBuilder, SyllableError, TransformResult};
 
 use crate::Keymap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-
 pub enum SyllableState {
     /// Parsing phase: accumulating and validating Vietnamese syllable components.
     Building(SyllableBuilder),
