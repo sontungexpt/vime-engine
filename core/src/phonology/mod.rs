@@ -4,6 +4,7 @@ mod onset;
 mod rule;
 mod tone_scheme;
 mod vowel;
+mod vowel_dfa;
 mod vowel_sequence;
 
 pub use case::Cased;
