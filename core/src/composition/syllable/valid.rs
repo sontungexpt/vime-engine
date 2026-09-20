@@ -1,10 +1,11 @@
 use crate::{
-    decode_vowel,
+    keymap::Keymap,
     phonology::{
+        decode_vowel,
         rule::{check_nucleus_validity, NucleusStatus},
-        BaseVowel, Coda, Onset, Tone,
+        tone_scheme::ToneScheme,
+        BaseVowel, CasedBaseVowel, Coda, Onset, RootVowel, Shape, Tone,
     },
-    CasedBaseVowel, Keymap, RootVowel, Shape,
 };
 use arrayvec::ArrayVec;
 
@@ -138,14 +139,14 @@ impl SyllableBuilder {
             Onset::D => {
                 onset_chars[0] = if onset_chars[0] == 'd' { 'đ' } else { 'Đ' };
                 self.onset_kind = Onset::Đ;
-                return TransformResult::Applied;
+                TransformResult::Applied
             }
             Onset::Đ => {
                 onset_chars[0] = if onset_chars[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
-                return TransformResult::Reverted;
+                TransformResult::Reverted
             }
-            _ => return TransformResult::NotApplicable,
+            _ => TransformResult::NotApplicable,
         }
     }
 
@@ -191,6 +192,11 @@ impl SyllableBuilder {
         }
 
         check_nucleus_validity(&buf[..len])
+    }
+
+    #[inline(always)]
+    pub fn tone_index(&self, tone_scheme: ToneScheme) -> Option<usize> {
+        tone_scheme.tone_index(&self.nucleus, self.coda.is_empty())
     }
 }
 

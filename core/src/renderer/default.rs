@@ -1,10 +1,9 @@
 use super::api::Renderer;
 
 use crate::{
-    composition::{SyllableBuilder, SyllableState},
-    encode_vowel,
-    phonology::{tone_index_modern, tone_index_old, BaseVowel, Tone, VowelSequence},
-    Composition, Keymap,
+    composition::{Composition, SyllableBuilder, SyllableState},
+    keymap::Keymap,
+    phonology::{encode_vowel, tone_index_modern, tone_index_old, BaseVowel, Tone, VowelSequence},
 };
 
 /// Tone-placement orthography: the modern standard or the pre-1975 "old style".

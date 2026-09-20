@@ -1,4 +1,6 @@
-use crate::{composition::SyllableBuilder, encode_vowel, Tone};
+use crate::phonology::{encode_vowel, Tone};
+
+use super::valid::SyllableBuilder;
 
 /// Whether a recorded character belongs to the accepted syllable or to the
 /// rejected input that ended the parse.

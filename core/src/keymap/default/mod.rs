@@ -1,4 +1,4 @@
-use crate::{RootVowel, Shape, Tone};
+use crate::phonology::{RootVowel, Shape, Tone};
 
 mod config;
 mod telex;

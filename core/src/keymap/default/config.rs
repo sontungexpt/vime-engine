@@ -1,4 +1,4 @@
-use crate::{RootVowel, Shape, Tone};
+use crate::phonology::{RootVowel, Shape, Tone};
 
 /// A keyboard key mapped to a Vietnamese tone.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

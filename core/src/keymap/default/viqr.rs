@@ -1,5 +1,5 @@
 use super::{Rules, ShapeRule, ToneRule};
-use crate::{RootVowel, Shape, Tone};
+use crate::phonology::{RootVowel, Shape, Tone};
 
 /// VIQr layout: shapes on `^` (circumflex), `(` (breve), `+` (horn), `d`
 /// (stroke); tones on `` ` `` `?` `~` `'` `.` and `z`.

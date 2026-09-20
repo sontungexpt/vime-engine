@@ -1,49 +1,7 @@
-use super::BaseVowel;
-
-/// A read-only view over a vowel nucleus.
-pub trait VowelSequence {
-    fn len(&self) -> usize;
-    fn at(&self, index: usize) -> BaseVowel;
-}
-
-impl VowelSequence for [BaseVowel] {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        self[index]
-    }
-}
-
-impl VowelSequence for Vec<BaseVowel> {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        self[index]
-    }
-}
-
-impl<const N: usize> VowelSequence for [BaseVowel; N] {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        N
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        self[index]
-    }
-}
+use super::{vowel_sequence::VowelSequence, BaseVowel};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum TonePlacement {
+pub enum ToneScheme {
     /// Modern standard orthography ("học sinh" placement).
     #[default]
     Modern,
@@ -51,7 +9,7 @@ pub enum TonePlacement {
     Old,
 }
 
-impl TonePlacement {
+impl ToneScheme {
     /// Index of the tone-bearing vowel, or `None` for an empty nucleus.
     #[inline]
     pub fn tone_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>

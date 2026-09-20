@@ -1,6 +1,10 @@
 use crate::{
+    composition::Composition,
+    config::Config,
     event::{Key, KeyEvent},
-    Composition, Config, DefaultKeymap, DefaultRenderer, Keymap, Renderer, Result,
+    keymap::{DefaultKeymap, Keymap},
+    renderer::{DefaultRenderer, Renderer},
+    result::Result,
 };
 
 const SUFFIX_SPACE: &str = " ";

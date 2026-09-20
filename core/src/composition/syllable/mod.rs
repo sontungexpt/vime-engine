@@ -4,7 +4,7 @@ mod valid;
 pub use invalid::{CharStatus, DeadSyllableBuilder};
 pub use valid::{PushPhase, SyllableBuilder, SyllableError, TransformResult};
 
-use crate::Keymap;
+use crate::keymap::Keymap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyllableState {
@@ -29,23 +29,17 @@ impl SyllableState {
             Self::Dead(builder) => builder.len(),
         }
     }
-}
 
-impl SyllableState {
     pub fn push<KM: Keymap>(&mut self, keymap: &KM, input: char) {
         match self {
-            // Fast-path: Thử push directly vào Building
             Self::Building(builder) => {
                 if builder.push(keymap, input).is_err() {
-                    // Slow-path: Chỉ khi parse lỗi mới swap state sang Dead
-                    let old_stage = std::mem::replace(self, Self::default());
-                    if let Self::Building(old_builder) = old_stage {
-                        *self = Self::Dead(DeadSyllableBuilder::from_rejected(old_builder, input));
-                    }
+                    let builder = std::mem::take(builder);
+
+                    *self = Self::Dead(DeadSyllableBuilder::from_rejected(builder, input));
                 }
             }
 
-            // Đang ở trạng thái Dead: push trực tiếp ký tự thô
             Self::Dead(builder) => {
                 builder.push(input);
             }

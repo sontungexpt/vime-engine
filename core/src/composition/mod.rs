@@ -7,7 +7,7 @@ pub use syllable::{
     TransformResult,
 };
 
-use crate::Keymap;
+use crate::keymap::Keymap;
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]

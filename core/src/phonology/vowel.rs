@@ -1,7 +1,7 @@
 //! Vietnamese vowels: the [`BaseVowel`] model and the precomposed-character
 //! codec (`encode_vowel` / `decode_vowel` / [`is_vowel`]).
 
-use crate::phonology::Cased;
+use super::case::Cased;
 
 /// Base ASCII vowel letter independent of shape, tone, and case.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -66,24 +66,24 @@ impl Tone {
 #[repr(u16)]
 #[rustfmt::skip]
 pub enum BaseVowel {
-    // ── Priority 0..=2: Khép / Bán nguyên âm (thấp nhất) ──
+    // Priority 0..=2: closed vowels (lowest).
     Y           = (0 << 5)  | ((Shape::None as u16) << 3)        | RootVowel::Y as u16,
     U           = (1 << 5)  | ((Shape::None as u16) << 3)        | RootVowel::U as u16,
     I           = (2 << 5)  | ((Shape::None as u16) << 3)        | RootVowel::I as u16,
 
-    // ── Priority 3..=5: Mở đơn trơn (e, o, a) ──
+    // Priority 3..=5: open plain vowels (e, o, a).
     E           = (3 << 5)  | ((Shape::None as u16) << 3)        | RootVowel::E as u16,
     O           = (4 << 5)  | ((Shape::None as u16) << 3)        | RootVowel::O as u16,
     A           = (5 << 5)  | ((Shape::None as u16) << 3)        | RootVowel::A as u16,
 
-    // ── Priority 6..=9: Có phụ hiệu (ư, â, ô, ă) ──
+    // Priority 6..=9: vowels with a diacritic (ư, â, ô, ă).
     UHorn       = (6 << 5)  | ((Shape::Horn as u16) << 3)        | RootVowel::U as u16,
     ACircumflex = (7 << 5)  | ((Shape::Circumflex as u16) << 3)  | RootVowel::A as u16,
     OCircumflex = (8 << 5)  | ((Shape::Circumflex as u16) << 3)  | RootVowel::O as u16,
     ABreve      = (9 << 5)  | ((Shape::Breve as u16) << 3)       | RootVowel::A as u16,
 
-    // ── Priority 10..=11: Cao nhất (ê, ơ) ──
-    // Trong vần chứa 'ơ' hoặc 'ê' (như ươ, ơi, iê, uê), dấu thanh LUÔN rơi vào Ơ / Ê.
+    // Priority 10..=11: highest (ê, ơ).
+    // The tone always lands on ơ / ê, e.g. ươ, ơi, iê, uê.
     ECircumflex = (10 << 5) | ((Shape::Circumflex as u16) << 3)  | RootVowel::E as u16,
     OHorn       = (11 << 5) | ((Shape::Horn as u16) << 3)        | RootVowel::O as u16,
 }
@@ -94,10 +94,8 @@ impl BaseVowel {
     pub const MAX_ID: u8 = Self::COUNT - 1;
 
     // ─────────────── Bit-field layout ───────────────
-    // Packed `u16`: [Reserved | Priority ID | Shape | Root].
-    // Field widths match the enum discriminants above; the two that shape
-    // the layout are `RootVowel::Y` (0b101 → 3 bits) and `Shape::Horn`
-    // (0b11 → 2 bits).
+    // Packed `u16`: [Reserved | Priority ID | Shape | Root], matching the
+    // enum discriminants: the root takes 3 bits, the shape 2.
 
     // ── field widths ──
     /// Width of the [`RootVowel`] field — 3 bits cover `RootVowel::A..=Y` (0..=5).
@@ -164,9 +162,8 @@ impl BaseVowel {
         *Self::VARIANTS_BY_ID.get_unchecked(id)
     }
 
-    /// The [`BaseVowel`] for a root letter and shape, if that combination
-    /// exists. Returns `None` for [`Shape::Stroke`] (a consonant stroke, never
-    /// a vowel) and for shapes Vietnamese does not attach to that root.
+    /// The [`BaseVowel`] for a root letter and shape, or `Err` for a
+    /// combination Vietnamese has no letter for.
     #[inline(always)]
     pub const fn from_parts(root: RootVowel, shape: Shape) -> Result<Self, ()> {
         match (root, shape) {
@@ -265,11 +262,9 @@ impl CasedBaseVowel {
         encode_vowel(self.value, tone, self.uppercase)
     }
 }
-// All 144 precomposed Vietnamese vowel characters.
-//
-// Layout: one block of 12 entries per base vowel, in priority-ID order.
-// Within each block, the 6 tones come in Lower/Upper order (Lower, Upper,
-// Lower, Upper, ...), so each block is 12 entries long. See `encode`.
+// All 144 precomposed Vietnamese vowel characters, one 12-entry block per
+// base vowel in priority-ID order; within a block the 6 tones run in
+// Lower/Upper order: `(base.id() * 6 + tone) * 2 + uppercase`.
 const ENCODED_VOWELS: [char; 144] = [
     'y', 'Y', 'ý', 'Ý', 'ỳ', 'Ỳ', 'ỷ', 'Ỷ', 'ỹ', 'Ỹ', 'ỵ', 'Ỵ', // ID 0: Y (y)
     'u', 'U', 'ú', 'Ú', 'ù', 'Ù', 'ủ', 'Ủ', 'ũ', 'Ũ', 'ụ', 'Ụ', // ID 1: U (u)
@@ -285,21 +280,18 @@ const ENCODED_VOWELS: [char; 144] = [
     'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ', // ID 11: OHorn (ơ)
 ];
 
-/// Encodes a `(base, tone, uppercase)` triple as the single precomposed character.
+/// Encodes a `(base, tone, uppercase)` triple as a precomposed character.
 ///
-/// The index is: `(block id * 6 tones + tone) * 2 cases + uppercase`. Because
-/// `base.id() <= 11`, `tone <= 5` and `uppercase <= 1`, the index is always in
-/// `0..=143`, so the lookup below can never go out of bounds.
+/// Index = `(base.id() * 6 + tone) * 2 + uppercase`; the bounds guarantee
+/// `0..=143`, so the lookup can't go out of range.
 #[inline(always)]
 pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char {
     let idx = ((base.id() * 6 + tone as usize) << 1) | (uppercase as usize);
     ENCODED_VOWELS[idx]
 }
 
-/// Direct lookup table (LUT) for the precomposed Vietnamese Unicode block (U+1EA0..=U+1EF9).
-///
-/// Maps character offsets directly to `(CasedBaseVowel, Tone)` with $O(1)$ constant-time performance.
-/// Offset formula: `(code - 0x1EA0) as usize`
+/// Direct lookup table (LUT) for the precomposed Vietnamese block (U+1EA0..=U+1EF9).
+/// Index = `(code - 0x1EA0) as usize`, giving O(1) `(CasedBaseVowel, Tone)` lookup.
 const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
     // 0x1EA0 - 0x1EA1 (Ạ, ạ)
     (CasedBaseVowel::upper(BaseVowel::A), Tone::Dot),
@@ -415,7 +407,7 @@ const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
     // 0x1EEA - 0x1EEB (Ừ, ừ)
     (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Grave),
     (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Grave),
-    // 0x1EEC - 0x1EED (Ử, sử)
+    // 0x1EEC - 0x1EED (Ử, ử)
     (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Hook),
     (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Hook),
     // 0x1EEE - 0x1EEF (Ữ, ữ)
@@ -438,22 +430,12 @@ const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
     (CasedBaseVowel::lower(BaseVowel::Y), Tone::Tilde),
 ];
 
-/// Decodes a precomposed Vietnamese vowel character into a `(BaseVowelCased,
-/// Tone)` pair.
+/// Decodes a precomposed Vietnamese vowel into a `(CasedBaseVowel, Tone)` pair,
+/// or `None` if `character` is not a vowel.
 ///
-/// Returns `None` if the character is not a Vietnamese vowel.
-///
-/// # How it works
-///
-/// This is the fastest decoder variant measured: instead of a giant branch-heavy
-/// 144-arm match table, characters are split into four compact, non-overlapping
-/// code-point regions to maximize branch-prediction and cache locality:
-///
-/// 1. **ASCII** (`0x00..=0x7F`) — `a e i o u y` in both cases (12 arms).
-/// 2. **Latin-1 Supplement** (`0x80..=0xFF`) — `â ê ô á à ã...` scattered in Latin-1 (32 arms).
-/// 3. **Latin Extended** (`0x0100..=0x01B0`) — Narrowed bounds for `ă ĩ ũ ơ ư` (10 arms).
-/// 4. **Vietnamese Block** (`0x1EA0..=0x1EF9`) — Continuous 90-element precomposed block
-///    mapped via zero-overhead $O(1)$ direct array index (`code - 0x1EA0`).
+/// Fastest measured variant: four non-overlapping code-point regions keep the
+/// branch tree small — ASCII (match), Latin-1, Latin Extended (match), and the
+/// Vietnamese block (U+1EA0..=U+1EF9) via O(1) direct LUT indexing.
 #[inline(always)]
 pub const fn decode_vowel(character: char) -> Option<(CasedBaseVowel, Tone)> {
     let code = character as u32;
@@ -531,8 +513,7 @@ pub const fn decode_vowel(character: char) -> Option<(CasedBaseVowel, Tone)> {
         // 4. Vietnamese block (U+1EA0..U+1EF9) -> Direct Indexing Table!
         0x1EA0..=0x1EF9 => {
             let offset = (code - 0x1EA0) as usize;
-            let (cased, tone) = DECODED_VIETNAMESE_BLOCK_LUT[offset];
-            Some((cased, tone))
+            Some(DECODED_VIETNAMESE_BLOCK_LUT[offset])
         }
 
         _ => None,

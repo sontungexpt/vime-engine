@@ -1,4 +1,4 @@
-use crate::{Composition, Keymap};
+use crate::{composition::Composition, keymap::Keymap};
 
 /// Renders a canonical parsed syllable into Unicode Vietnamese text.
 pub trait Renderer {
