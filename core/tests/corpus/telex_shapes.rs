@@ -33,7 +33,7 @@ pub const CASES: &[TestCase] = &[
     case!(['c', 'h', 'e', 'e'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Ch, &['c', 'h'], &[(V::ECircumflex, C::Lower)], Tone::Flat)),
     case!(['t', 'h', 'e', 'e'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Th, &['t', 'h'], &[(V::ECircumflex, C::Lower)], Tone::Flat)),
     case!(['n', 'g', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Ng, &['n', 'g'], &[(V::ABreve, C::Lower)], Tone::Flat)),
-    case!(['d', 'd', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ABreve, C::Lower)], Tone::Flat)),
+    case!(['d', 'd', 'a', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::ABreve, C::Lower)], Tone::Flat)),
     case!(['b', 'u', 'w', 'n'], ParseAppendingPha ExpectedSyllable::syllable(Onset::B, &['b'], &[(V::UHorn, C::Lower)], Tone::Flat, Coda::N, &['n'])),
     case!(['t', 'h', 'a', 'a'], ParseAppendingPhas ExpectedSyllable::onset_vowel(Onset::Th, &['t', 'h'], &[(V::ACircumflex, C::Lower)], Tone::Flat)),
     case!(['e', 'e', 'u'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ECircumflex, C::Lower), (V::U, C::Lower)], Tone::Flat)),

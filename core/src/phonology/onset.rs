@@ -7,7 +7,7 @@ pub struct OnsetParseError;
 
 impl std::fmt::Display for OnsetParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid onset")
+        f.write_str("Invalid Vietnamese Onset")
     }
 }
 
@@ -25,7 +25,7 @@ pub enum Onset {
     Ch,
 
     D,
-    Đ,
+    DStroke,
 
     G,
     Gh,
@@ -105,7 +105,7 @@ impl Onset {
             },
 
             // UTF-8 for 'đ' / 'Đ'.
-            [0xC4, 0x91 | 0x90] => Ok(Self::Đ),
+            [0xC4, 0x91 | 0x90] => Ok(Self::DStroke),
 
             // Two-byte ASCII onsets.
             &[first, second] => match [first | 0x20, second | 0x20] {
@@ -136,7 +136,7 @@ impl Onset {
     pub const fn from_chars(chars: &[char]) -> Result<Self, OnsetParseError> {
         match chars {
             [] => Ok(Self::None),
-            &['đ'] | &['Đ'] => Ok(Self::Đ),
+            &['đ'] | &['Đ'] => Ok(Self::DStroke),
             &[character] if character.is_ascii() => Self::from_bytes(&[character as u8]),
             &[first, second] if first.is_ascii() && second.is_ascii() => {
                 Self::from_bytes(&[first as u8, second as u8])

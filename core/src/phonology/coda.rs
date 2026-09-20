@@ -8,7 +8,7 @@ pub struct CodaParseError;
 
 impl std::fmt::Display for CodaParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid coda")
+        f.write_str("Invalid Vietnamese Coda")
     }
 }
 

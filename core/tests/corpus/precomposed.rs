@@ -52,7 +52,7 @@ pub const CASES: &[TestCase] = &[
     case!(['l', 'ũ'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::L, &['l'], &[(V::U, C::Lower)], Tone::Tilde)),
     case!(['h', 'ồ'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::H, &['h'], &[(V::OCircumflex, C::Lower)], Tone::Grave)),
     case!(['c', 'ử'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::C, &['c'], &[(V::UHorn, C::Lower)], Tone::Hook)),
-    case!(['d', 'd', 'ể'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ECircumflex, C::Lower)], Tone::Hook)),
+    case!(['d', 'd', 'ể'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::ECircumflex, C::Lower)], Tone::Hook)),
     case!(['ắ', 'f'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Grave)),
     case!(['ắ', 'r'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Hook)),
     case!(['ấ', 'f'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Lower)], Tone::Grave)),

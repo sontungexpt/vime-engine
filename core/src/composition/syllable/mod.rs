@@ -2,14 +2,14 @@ mod invalid;
 mod valid;
 
 pub use invalid::{CharStatus, DeadSyllableBuilder};
-pub use valid::{PushPhase, SyllableBuilder, SyllableError, TransformResult};
+pub use valid::{PushPhase, SyllableError, TransformResult, ValidSyllableBuilder};
 
-use crate::keymap::Keymap;
+use crate::{keymap::Keymap, phonology::ToneScheme};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyllableState {
     /// Parsing phase: accumulating and validating Vietnamese syllable components.
-    Building(SyllableBuilder),
+    Building(ValidSyllableBuilder),
 
     /// Dead phase: parsing failed; remaining input is collected verbatim.
     Dead(DeadSyllableBuilder),
@@ -18,34 +18,49 @@ pub enum SyllableState {
 impl Default for SyllableState {
     #[inline]
     fn default() -> Self {
-        Self::Building(SyllableBuilder::default())
+        Self::Building(ValidSyllableBuilder::default())
     }
 }
-impl SyllableState {
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Building(builder) => builder.len(),
-            Self::Dead(builder) => builder.len(),
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyllableBuilder<'a, KM: Keymap> {
+    pub keymap: &'a KM,
+    pub tone_scheme: ToneScheme,
+    pub state: SyllableState,
+}
+
+impl<'a, KM: Keymap> SyllableBuilder<'a, KM> {
+    pub fn new(keymap: &'a KM, tone_scheme: ToneScheme) -> Self {
+        Self {
+            keymap,
+            tone_scheme,
+            state: SyllableState::default(),
         }
     }
 
-    pub fn push<KM: Keymap>(&mut self, keymap: &KM, input: char) {
-        match self {
-            Self::Building(builder) => {
-                if builder.push(keymap, input).is_err() {
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        match &self.state {
+            SyllableState::Building(builder) => builder.len(),
+            SyllableState::Dead(builder) => builder.len(),
+        }
+    }
+
+    /// Clean push signature — only needs the character!
+    pub fn push(&mut self, input: char) {
+        match &mut self.state {
+            SyllableState::Building(builder) => {
+                if builder.push(self.keymap, input).is_err() {
                     let builder = std::mem::take(builder);
 
-                    *self = Self::Dead(DeadSyllableBuilder::from_rejected(builder, input));
+                    self.state =
+                        SyllableState::Dead(DeadSyllableBuilder::from_rejected(builder, input));
                 }
             }
 
-            Self::Dead(builder) => {
+            SyllableState::Dead(builder) => {
                 builder.push(input);
             }
         }
     }
-
-    #[inline(always)]
-    pub fn insert<KM: Keymap>(&self, keymap: &KM, index: usize, input: char) {}
 }

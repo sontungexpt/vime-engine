@@ -3,34 +3,33 @@ pub mod syllable;
 
 pub use cursor::Cursor;
 pub use syllable::{
-    CharStatus, DeadSyllableBuilder, PushPhase, SyllableBuilder, SyllableError, SyllableState,
-    TransformResult,
+    CharStatus, DeadSyllableBuilder, PushPhase, SyllableError, SyllableState, TransformResult,
+    ValidSyllableBuilder,
 };
 
-use crate::keymap::Keymap;
+use crate::{
+    composition::syllable::SyllableBuilder, keymap::Keymap, phonology::ToneScheme,
+};
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Composition<KM: Keymap> {
-    keymap: KM,
-
+pub struct Composition<'a, KM: Keymap> {
     raw: Vec<char>,
     raw_cursor: Cursor,
 
-    syllable: SyllableState,
+    syllable: SyllableBuilder<'a, KM>,
     syllable_cursor: Cursor,
 }
 
-impl<KM: Keymap> Composition<KM> {
+impl<'a, KM: Keymap> Composition<'a, KM> {
     /// Creates a parser backed by `mapping`, starting in the `Onset` phase.
     #[inline(always)]
-    pub fn new(keymap: KM) -> Self {
+    pub fn new(keymap: &'a KM) -> Self {
         Self {
-            keymap,
             raw: Vec::new(),
             raw_cursor: Cursor::default(),
 
-            syllable: SyllableState::Building(SyllableBuilder::default()),
+            syllable: SyllableBuilder::new(keymap, ToneScheme::Modern),
             syllable_cursor: Cursor::default(),
         }
     }
@@ -43,7 +42,6 @@ impl<KM: Keymap> Composition<KM> {
         self.raw.clear();
         self.raw_cursor.reset();
 
-        self.syllable = SyllableState::Building(SyllableBuilder::default());
         self.syllable_cursor.reset();
     }
 
@@ -53,7 +51,7 @@ impl<KM: Keymap> Composition<KM> {
     }
 
     #[inline(always)]
-    pub const fn syllable(&self) -> &SyllableState {
+    pub const fn syllable(&self) -> &SyllableBuilder<KM> {
         &self.syllable
     }
 
@@ -189,35 +187,5 @@ impl<KM: Keymap> Composition<KM> {
         // Need to revalidate the coda after removal
         // May be need to revalidate all syllable
         // }
-    }
-
-    pub fn push(&mut self, input: char) {
-        todo!()
-        // self.input.insert(input);
-
-        // // Formed created means that we worked at least one ttime with cursor
-        // // For example move left, right or the parserr is dead
-        // if let Some(formed) = &self.formed {
-        //     // At this time we have to push the input after the cursor position
-
-        //     // Parser dead can not parse anymore
-        //     if self.syllable_parse_issue != ParseError::None {
-        //         self.ensure_formed().insert(CharStatus::Rejected(input));
-        //         return;
-        //     }
-
-        //     // Parser undead, we just have moved cursor
-        //     // Push to that position
-
-        //     return;
-        // }
-
-        // // This must be not need but just ensuree because when parser dead formed
-        // if self.syllable_parse_issue != ParseError::None {
-        //     self.ensure_formed().insert(CharStatus::Rejected(input));
-        //     return;
-        // }
-
-        // self.append(input);
     }
 }

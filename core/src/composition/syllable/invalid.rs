@@ -1,6 +1,6 @@
 use crate::phonology::{encode_vowel, Tone};
 
-use super::valid::SyllableBuilder;
+use super::valid::ValidSyllableBuilder;
 
 /// Whether a recorded character belongs to the accepted syllable or to the
 /// rejected input that ended the parse.
@@ -29,7 +29,7 @@ impl CharStatus {
 /// character is recorded verbatim, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadSyllableBuilder {
-    previous: SyllableBuilder,
+    previous: ValidSyllableBuilder,
     recoverable: bool,
 
     chars: Vec<CharStatus>,
@@ -37,7 +37,7 @@ pub struct DeadSyllableBuilder {
 
 impl DeadSyllableBuilder {
     #[inline]
-    pub fn from_rejected(valid: SyllableBuilder, rejected: char) -> Self {
+    pub fn from_rejected(valid: ValidSyllableBuilder, rejected: char) -> Self {
         let mut chars = Vec::with_capacity(valid.len() + 1);
 
         chars.extend(valid.onset().iter().copied().map(CharStatus::Accepted));

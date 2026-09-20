@@ -14,7 +14,7 @@ pub const CASES: &[TestCase] = &[
     case!(['Y'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Flat)),
     case!(['B', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::B, &['B'], &[(V::A, C::Upper)], Tone::Flat)),
     case!(['C', 'H', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Ch, &['C', 'H'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['D', 'D', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['Đ'], &[(V::A, C::Upper)], Tone::Flat)),
+    case!(['D', 'D', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::A, C::Upper)], Tone::Flat)),
     case!(['Q', 'U', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::A, C::Upper)], Tone::Flat)),
     case!(['Q', 'U', 'Y'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::Y, C::Upper)], Tone::Flat)),
     case!(['Q'], ParseAppendingPhase::Onset, ExpectedSyllable::consonant(Onset::None, &['Q'])),
@@ -57,7 +57,7 @@ pub const CASES: &[TestCase] = &[
     case!(['Ằ'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Grave)),
     case!(['Ấ'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Acute)),
     case!(['Ệ'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ECircumflex, C::Upper)], Tone::Dot)),
-    case!(['Đ'], ParseAppendingPhase::Onset, ExpectedSyllable::consonant(Onset::Đ, &['Đ'])),
+    case!(['Đ'], ParseAppendingPhase::Onset, ExpectedSyllable::consonant(Onset::DStroke, &['Đ'])),
     case!(['Ầ'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Grave)),
     case!(['Ị'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::I, C::Upper)], Tone::Dot)),
     case!(['Ử'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Hook)),
@@ -65,7 +65,7 @@ pub const CASES: &[TestCase] = &[
     case!(['Ắ', 'f'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Grave)),
     case!(['Ấ', 'f'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Grave)),
     case!(['Ạ', 'w'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Dot)),
-    case!(['D', 'D', 'I'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['Đ'], &[(V::I, C::Upper)], Tone::Flat)),
+    case!(['D', 'D', 'I'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::I, C::Upper)], Tone::Flat)),
     case!(['B', 'A', 'Y'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::B, &['B'], &[(V::A, C::Upper), (V::Y, C::Upper)], Tone::Flat)),
     case!(['T', 'R', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Tr, &['T', 'R'], &[(V::A, C::Upper)], Tone::Flat)),
     case!(['N', 'H', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Nh, &['N', 'H'], &[(V::A, C::Upper)], Tone::Flat)),
@@ -88,7 +88,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['D', 'D', 'U', 'O', 'W', 'C', 'J'],
         ParseAppendingPhase::Coda,
-        ExpectedSyllable::syllable(Onset::Đ, &['Đ'], &[(V::UHorn, C::Upper), (V::OHorn, C::Upper)], Tone::Dot, Coda::C, &['C'])
+        ExpectedSyllable::syllable(Onset::DStroke, &['Đ'], &[(V::UHorn, C::Upper), (V::OHorn, C::Upper)], Tone::Dot, Coda::C, &['C'])
     ),
     case!(['Q', 'U', 'A', 'S'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::A, C::Upper)], Tone::Acute)),
     case!(
@@ -109,6 +109,6 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['D', 'D', 'A', 'A', 'S', 'Y'],
         ParseAppendingPhase::Vowel,
-        ExpectedSyllable::onset_vowel(Onset::Đ, &['Đ'], &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)], Tone::Acute)
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)], Tone::Acute)
     ),
 ];

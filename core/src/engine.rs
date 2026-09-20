@@ -72,12 +72,13 @@ where
 
         let mut text = self.rendered();
         text.push_str(suffix);
-        // self.composition.clear();
+
+        self.composition.reset();
         Result::Commit(text)
     }
 
     fn insert(&mut self, character: char) -> Result {
-        self.composition.push(character);
+        self.composition.insert(character);
         Result::Changed
     }
 

@@ -1,13 +1,17 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        decode_vowel,
-        rule::{check_nucleus_validity, NucleusStatus},
-        tone_scheme::ToneScheme,
-        BaseVowel, CasedBaseVowel, Coda, Onset, RootVowel, Shape, Tone,
+        check_nucleus_validity, decode_vowel, BaseVowel, CasedBaseVowel, Coda, NucleusStatus,
+        Onset, RootVowel, Shape, Tone, ToneScheme,
     },
 };
 use arrayvec::ArrayVec;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputResult {
+    Transformed,
+    Inserted,
+}
 
 /// Outcome of applying a transform key to the current syllable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +48,7 @@ pub enum SyllableError {
 
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct SyllableBuilder {
+pub struct ValidSyllableBuilder {
     onset_kind: Onset,
     onset: ArrayVec<char, { Onset::MAX_ONSET_LEN }>,
 
@@ -58,7 +62,7 @@ pub struct SyllableBuilder {
     push_phase: PushPhase,
 }
 
-impl SyllableBuilder {
+impl ValidSyllableBuilder {
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.onset.len() + self.nucleus.len() + self.coda.len()
@@ -94,7 +98,7 @@ impl SyllableBuilder {
         self.tone
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn reset(&mut self) {
         self.onset_kind = Onset::None;
         self.onset.clear();
@@ -106,7 +110,7 @@ impl SyllableBuilder {
     }
 }
 
-impl SyllableBuilder {
+impl ValidSyllableBuilder {
     /// Applies or toggles a tone on the syllable.
     ///
     /// Tapping the same tone again toggles the syllable back to `Flat`;
@@ -138,10 +142,10 @@ impl SyllableBuilder {
         match self.onset_kind {
             Onset::D => {
                 onset_chars[0] = if onset_chars[0] == 'd' { 'đ' } else { 'Đ' };
-                self.onset_kind = Onset::Đ;
+                self.onset_kind = Onset::DStroke;
                 TransformResult::Applied
             }
-            Onset::Đ => {
+            Onset::DStroke => {
                 onset_chars[0] = if onset_chars[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
                 TransformResult::Reverted
@@ -200,9 +204,13 @@ impl SyllableBuilder {
     }
 }
 
-impl SyllableBuilder {
+impl ValidSyllableBuilder {
     #[inline(always)]
-    pub fn push<KM: Keymap>(&mut self, keymap: &KM, input: char) -> Result<(), SyllableError> {
+    pub fn push<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        input: char,
+    ) -> Result<InputResult, SyllableError> {
         match self.push_phase {
             PushPhase::Onset => self.push_onset(keymap, input),
             PushPhase::Vowel => self.push_vowel(keymap, input),
@@ -212,15 +220,16 @@ impl SyllableBuilder {
 
     // ─────────────────────────── Onset ───────────────────────────
     #[inline(always)]
-    fn push_onset<KM: Keymap>(&mut self, keymap: &KM, input: char) -> Result<(), SyllableError> {
-        // Telex/VNI doubling keys (`aa`, `oo`, `ee`, ...) and tone keys
-        // (`s`, `f`, `r`, `x`, `j`, digits) are themselves vowels or ASCII
-        // consonants, so the transform check must come first here.
+    fn push_onset<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        input: char,
+    ) -> Result<InputResult, SyllableError> {
         if keymap.is_stroke_key(input) {
             return self.push_onset_transform(input);
         }
 
-        self.push_onset_literal(input)
+        self.push_onset_literal(input);
     }
 
     #[inline]
@@ -247,13 +256,13 @@ impl SyllableBuilder {
     /// `q` is kept as a transitional prefix waiting for `u` (to form `qu`);
     /// a vowel ends the onset and starts the nucleus; a consonant is appended
     /// if it still forms a valid cluster — otherwise the parse is killed.
-    fn push_onset_literal(&mut self, input: char) -> Result<(), SyllableError> {
+    fn push_onset_literal(&mut self, input: char) -> Result<InputResult, SyllableError> {
         let onset_len = self.onset.len();
 
         // `q` is a transitional onset prefix; wait for `u`.
         if onset_len == 0 && (input as u32 | 0x20) == ('q' as u32) {
             self.onset.push(input);
-            return Ok(());
+            return Ok(InputResult::Inserted);
         } else if let Some((base_cased, tone)) = decode_vowel(input) {
             // qu
             // A `u` following a lone `q` is kept as the onset of `qu`.
@@ -262,7 +271,7 @@ impl SyllableBuilder {
                 if base_cased.value == BaseVowel::U {
                     self.onset.push(input);
                     self.onset_kind = Onset::Qu;
-                    return Ok(());
+                    return Ok(InputResult::Inserted);
                 }
 
                 // `q` cannot start a vowel nucleus by itself.
@@ -271,12 +280,12 @@ impl SyllableBuilder {
 
             if self.push_decoded_vowel(base_cased, tone) {
                 self.push_phase = PushPhase::Vowel;
-                return Ok(());
+                return Ok(InputResult::Inserted);
             }
 
             return Err(SyllableError::InvalidNucleus);
         } else if self.push_onset_char(input) {
-            return Ok(());
+            return Ok(InputResult::Inserted);
         }
 
         Err(SyllableError::InvalidOnset)
@@ -287,10 +296,10 @@ impl SyllableBuilder {
     /// Only the D-stroke is meaningful here; every other key falls back to the
     /// literal handlers.
     #[inline]
-    fn push_onset_transform(&mut self, input: char) -> Result<(), SyllableError> {
+    fn push_onset_transform(&mut self, input: char) -> Result<InputResult, SyllableError> {
         match self.toggle_d_stroke() {
             // Stroke applied in place; the stroke key itself is not stored literally.
-            TransformResult::Applied => Ok(()),
+            TransformResult::Applied => Ok(InputResult::Transformed),
 
             TransformResult::Reverted | TransformResult::NotApplicable => {
                 // - After reverting, the stroke key is treated as a literal.
@@ -308,7 +317,11 @@ impl SyllableBuilder {
     /// transform keys (tones, D-stroke, shapes) before treating it as a
     /// literal character.
     #[inline(always)]
-    fn push_vowel<KM: Keymap>(&mut self, keymap: &KM, input: char) -> Result<(), SyllableError> {
+    fn push_vowel<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        input: char,
+    ) -> Result<InputResult, SyllableError> {
         // Telex/VNI doubling keys (`aa`, `oo`, `ee`, ...) and tone keys
         // (`s`, `f`, `r`, `x`, `j`, digits) are themselves vowels or ASCII
         // consonants, so the transform check must come first here.
@@ -384,7 +397,7 @@ impl SyllableBuilder {
     /// A vowel joins the nucleus (or falls through to kill); a possible coda
     /// starter moves the phase into `Coda` and appends the character; anything
     /// else (invalid coda, non-letter) kills the parse.
-    fn push_vowel_literal(&mut self, input: char) -> Result<(), SyllableError> {
+    fn push_vowel_literal(&mut self, input: char) -> Result<InputResult, SyllableError> {
         if let Some((base_cased, tone)) = decode_vowel(input) {
             if !self.push_decoded_vowel(base_cased, tone) {
                 return Err(SyllableError::InvalidNucleus);
@@ -394,14 +407,14 @@ impl SyllableBuilder {
                 self.finalize_uo_prefix();
             }
 
-            return Ok(());
+            return Ok(InputResult::Inserted);
         } else if self.push_coda_char(input) {
             // `normalize_uo` validates the length itself and only acts once there
             // are at least two vowels - which is exactly when a coda character is
             // being pushed here.
             self.finalize_uo_prefix();
             self.push_phase = PushPhase::Coda;
-            return Ok(());
+            return Ok(InputResult::Inserted);
         }
 
         Err(SyllableError::InvalidCoda)
@@ -415,11 +428,11 @@ impl SyllableBuilder {
         &mut self,
         keymap: &KM,
         input: char,
-    ) -> Result<(), SyllableError> {
+    ) -> Result<InputResult, SyllableError> {
         // `Some` means the key resolved into a tone or a stroke.
         if let Some(effect) = self.handle_tone_or_d_stroke(keymap, input) {
             return match effect {
-                TransformResult::Applied => Ok(()),
+                TransformResult::Applied => Ok(InputResult::Transformed),
                 TransformResult::Reverted | TransformResult::NotApplicable => {
                     self.push_vowel_literal(input)
                 }
@@ -428,7 +441,7 @@ impl SyllableBuilder {
 
         // No tone or stroke effect: try a shape instead.
         match self.try_shape_transform(keymap, input) {
-            TransformResult::Applied => Ok(()),
+            TransformResult::Applied => Ok(InputResult::Transformed),
             TransformResult::Reverted | TransformResult::NotApplicable => {
                 self.push_vowel_literal(input)
             }
@@ -440,7 +453,11 @@ impl SyllableBuilder {
     /// Dispatches one input character to the coda-phase handlers, trying
     /// transform keys before literals.
     #[inline(always)]
-    fn push_coda<KM: Keymap>(&mut self, keymap: &KM, input: char) -> Result<(), SyllableError> {
+    fn push_coda<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        input: char,
+    ) -> Result<InputResult, SyllableError> {
         // Telex tone keys (`s`, `f`, `r`, `x`, `j`) and the `d` stroke are
         // ASCII consonants, so the transform check must come first here.
         if keymap.is_transform_key(input) {
@@ -453,9 +470,9 @@ impl SyllableBuilder {
     /// Handles a literal character while in the `Coda` phase; kills the parse
     /// unless the consonant extends the coda to a valid cluster.
     #[inline(always)]
-    fn push_coda_literal(&mut self, input: char) -> Result<(), SyllableError> {
+    fn push_coda_literal(&mut self, input: char) -> Result<InputResult, SyllableError> {
         if self.push_coda_char(input) {
-            return Ok(());
+            return Ok(InputResult::Inserted);
         }
 
         Err(SyllableError::InvalidCoda)
@@ -492,10 +509,10 @@ impl SyllableBuilder {
         &mut self,
         keymap: &KM,
         input: char,
-    ) -> Result<(), SyllableError> {
+    ) -> Result<InputResult, SyllableError> {
         if let Some(effect) = self.handle_tone_or_d_stroke(keymap, input) {
             return match effect {
-                TransformResult::Applied => Ok(()),
+                TransformResult::Applied => Ok(InputResult::Transformed),
                 TransformResult::Reverted | TransformResult::NotApplicable => {
                     self.push_coda_literal(input)
                 }
@@ -503,7 +520,7 @@ impl SyllableBuilder {
         }
 
         match self.try_shape_transform(keymap, input) {
-            TransformResult::Applied => Ok(()),
+            TransformResult::Applied => Ok(InputResult::Transformed),
             TransformResult::Reverted | TransformResult::NotApplicable => {
                 self.push_coda_literal(input)
             }

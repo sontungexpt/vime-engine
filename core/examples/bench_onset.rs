@@ -9,7 +9,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::onset::{Onset, OnsetParseError};
+use vime_engine::phonology::{Onset, OnsetParseError};
 
 /// The loop variant under test, transcribed verbatim from the proposal.
 ///
@@ -31,7 +31,7 @@ pub fn loop_from_chars(chars: &[char]) -> Result<Onset, OnsetParseError> {
         if !ch.is_ascii() {
             if ch == 'đ' || ch == 'Đ' {
                 return if chars.len() == 1 {
-                    Ok(Onset::Đ)
+                    Ok(Onset::DStroke)
                 } else {
                     Err(OnsetParseError)
                 };
@@ -122,15 +122,25 @@ fn main() {
     let rounds = 40;
     let iters = 200_000;
 
-    let match_time =
-        time(|| for chars in &workload {
-            black_box(Onset::from_chars(black_box(chars)).ok());
-        }, rounds, iters);
+    let match_time = time(
+        || {
+            for chars in &workload {
+                black_box(Onset::from_chars(black_box(chars)).ok());
+            }
+        },
+        rounds,
+        iters,
+    );
 
-    let loop_time =
-        time(|| for chars in &workload {
-            black_box(loop_from_chars(black_box(chars)).ok());
-        }, rounds, iters);
+    let loop_time = time(
+        || {
+            for chars in &workload {
+                black_box(loop_from_chars(black_box(chars)).ok());
+            }
+        },
+        rounds,
+        iters,
+    );
 
     let per_input = workload.len() as f64;
     let match_ns = match_time.as_nanos() as f64 / (iters as f64 * per_input);
@@ -139,8 +149,5 @@ fn main() {
     println!("inputs per pass: {}", workload.len());
     println!("match impl: {:>8.2} ns/input  (best of {rounds})", match_ns);
     println!("loop  impl: {:>8.2} ns/input  (best of {rounds})", loop_ns);
-    println!(
-        "ratio match/loop: {:.2}x",
-        match_ns / loop_ns
-    );
+    println!("ratio match/loop: {:.2}x", match_ns / loop_ns);
 }

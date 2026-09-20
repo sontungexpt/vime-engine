@@ -52,9 +52,9 @@ pub const CASES: &[TestCase] = &[
     case!(['u', '8', '5'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::UHorn, C::Lower)], Tone::Dot)),
     case!(['a', '1', '7'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ABreve, C::Lower)], Tone::Acute)),
     case!(['a', '1', '6'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::ACircumflex, C::Lower)], Tone::Acute)),
-    case!(['d', '9', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::A, C::Lower)], Tone::Flat)),
-    case!(['d', '9', 'a', '1'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::A, C::Lower)], Tone::Acute)),
-    case!(['D', '9', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['Đ'], &[(V::A, C::Upper)], Tone::Flat)),
+    case!(['d', '9', 'a'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::A, C::Lower)], Tone::Flat)),
+    case!(['d', '9', 'a', '1'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::A, C::Lower)], Tone::Acute)),
+    case!(['D', '9', 'A'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::A, C::Upper)], Tone::Flat)),
     case!(['u', 'o', '7'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)),
     case!(['u', 'o', '7', 'i'], ParseAppendingPhas ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::OHorn, C::Lower), (V::I, C::Lower)], Tone::Flat)),
     case!(
@@ -142,7 +142,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', '9', 'u', '8', 'c', '1'],
         ParseAppendingPhase::Coda,
-        ExpectedSyllable::syllable(Onset::Đ, &['đ'], &[(V::UHorn, C::Lower)], Tone::Acute, Coda::C, &['c'])
+        ExpectedSyllable::syllable(Onset::DStroke, &['đ'], &[(V::UHorn, C::Lower)], Tone::Acute, Coda::C, &['c'])
     ),
     case!(['h', 'o', 'c', '5'], ParseAppendingPhase::Coda, ExpectedSyllable::syllable(Onset::H, &['h'], &[(V::O, C::Lower)], Tone::Dot, Coda::C, &['c'])),
     case!(['q', 'u', 'y', '1'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Qu, &['q', 'u'], &[(V::Y, C::Lower)], Tone::Acute)),
@@ -165,7 +165,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', '9', 'o', '6', 't', '1'],
         ParseAppendingPhase::Coda,
-        ExpectedSyllable::syllable(Onset::Đ, &['đ'], &[(V::OCircumflex, C::Lower)], Tone::Acute, Coda::T, &['t'])
+        ExpectedSyllable::syllable(Onset::DStroke, &['đ'], &[(V::OCircumflex, C::Lower)], Tone::Acute, Coda::T, &['t'])
     ),
     case!(['m', 'a', '1'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::M, &['m'], &[(V::A, C::Lower)], Tone::Acute)),
     case!(
@@ -191,8 +191,8 @@ pub const CASES: &[TestCase] = &[
     case!(['y', '2'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::Y, C::Lower)], Tone::Grave)),
     case!(['y', '3'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::Y, C::Lower)], Tone::Hook)),
     case!(['y', '5'], ParseAppendingPhase::Vowel, ExpectedSyllable::vowel(&[(V::Y, C::Lower)], Tone::Dot)),
-    case!(['d', '9', 'i'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::I, C::Lower)], Tone::Flat)),
-    case!(['d', '9', 'i', '1'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::I, C::Lower)], Tone::Acute)),
+    case!(['d', '9', 'i'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::I, C::Lower)], Tone::Flat)),
+    case!(['d', '9', 'i', '1'], ParseAppendingPhase::Vowel, ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::I, C::Lower)], Tone::Acute)),
     case!(
         ['t', 'h', 'a', 'n', 'h', '2'],
         ParseAppendingPhase::Coda,
@@ -264,7 +264,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', '9', 'u', 'o', '7', 'c', '5'],
         ParseAppendingPhase::Coda,
-        ExpectedSyllable::syllable(Onset::Đ, &['đ'], &[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Dot, Coda::C, &['c'])
+        ExpectedSyllable::syllable(Onset::DStroke, &['đ'], &[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Dot, Coda::C, &['c'])
     ),
     case!(
         ['k', 'h', 'a', '1', 'c'],

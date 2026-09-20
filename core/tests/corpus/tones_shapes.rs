@@ -91,7 +91,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'a', 'a', 'u', 'r'],
         ParseAppendingPhase::Vowel,
-        ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ACircumflex, C::Lower), (V::U, C::Lower)], Tone::Hook)
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::ACircumflex, C::Lower), (V::U, C::Lower)], Tone::Hook)
     ),
     case!(
         ['c', 'u', 'o', 'o', 'n', 'j'],

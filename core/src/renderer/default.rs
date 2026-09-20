@@ -1,57 +1,25 @@
 use super::api::Renderer;
 
 use crate::{
-    composition::{Composition, SyllableBuilder, SyllableState},
+    composition::{Composition, SyllableState, ValidSyllableBuilder},
     keymap::Keymap,
-    phonology::{encode_vowel, tone_index_modern, tone_index_old, BaseVowel, Tone, VowelSequence},
+    phonology::{Tone, ToneScheme},
 };
-
-/// Tone-placement orthography: the modern standard or the pre-1975 "old style".
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Orthography {
-    /// Modern standard orthography ("học sinh" placement).
-    #[default]
-    Modern,
-    /// Pre-1975 "old style" ("học sinh" placement).
-    Old,
-}
-
-/// A [`SyllableBuilder`] is a vowel sequence for tone placement: its nucleus
-/// is exactly the `vowels` list.
-impl VowelSequence for SyllableBuilder {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.nucleus().len()
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        self.nucleus()[index].value
-    }
-}
 
 /// Renders a syllable to a Vietnamese string using a given tone orthography.
 #[derive(Clone, Copy, Debug)]
-pub struct DefaultRenderer {
-    orthography: Orthography,
-}
+pub struct DefaultRenderer {}
 
 impl DefaultRenderer {
     /// Creates a renderer for the given orthography.
-    pub const fn new(orthography: Orthography) -> Self {
-        Self { orthography }
-    }
-
-    /// Returns the orthography this renderer uses.
-    #[inline(always)]
-    pub const fn orthography(&self) -> Orthography {
-        self.orthography
+    pub const fn new() -> Self {
+        Self {}
     }
 }
 
 impl Default for DefaultRenderer {
     fn default() -> Self {
-        Self::new(Orthography::default())
+        Self::new()
     }
 }
 
@@ -70,15 +38,12 @@ impl Renderer for DefaultRenderer {
 }
 
 impl DefaultRenderer {
-    fn render_building(&self, syllable: &SyllableBuilder) -> String {
+    fn render_building(&self, syllable: &ValidSyllableBuilder) -> String {
         let mut output = String::with_capacity(syllable.len());
 
         output.extend(syllable.onset().iter().copied());
 
-        let tone_position = match self.orthography {
-            Orthography::Modern => tone_index_modern(syllable),
-            Orthography::Old => tone_index_old(syllable, syllable.coda().is_empty()),
-        };
+        let tone_position = syllable.tone_index(ToneScheme::Modern);
 
         for (index, vowel) in syllable.nucleus().iter().enumerate() {
             let tone = if Some(index) == tone_position {
@@ -87,7 +52,7 @@ impl DefaultRenderer {
                 Tone::Flat
             };
 
-            output.push(encode_vowel(vowel.value, tone, vowel.uppercase));
+            output.push(vowel.to_char_tone(tone));
         }
 
         output.extend(syllable.coda().iter().copied());

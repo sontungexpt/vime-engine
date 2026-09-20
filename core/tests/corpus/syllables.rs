@@ -175,7 +175,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'u', 'o', 'w', 'n', 'g', 'f'],
         ParseAppendingPhase::Coda,
-        ExpectedSyllable::syllable(Onset::Đ, &['đ'], &[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Grave, Coda::Ng, &['n', 'g'])
+        ExpectedSyllable::syllable(Onset::DStroke, &['đ'], &[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Grave, Coda::Ng, &['n', 'g'])
     ),
     case!(
         ['t', 'r', 'u', 'o', 'w', 'n', 'g', 'f'],
@@ -215,7 +215,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'o', 'o', 'n', 'g', 'f'],
         ParseAppendingPhase::Coda,
-        ExpectedSyllable::syllable(Onset::Đ, &['đ'], &[(V::OCircumflex, C::Lower)], Tone::Grave, Coda::Ng, &['n', 'g'])
+        ExpectedSyllable::syllable(Onset::DStroke, &['đ'], &[(V::OCircumflex, C::Lower)], Tone::Grave, Coda::Ng, &['n', 'g'])
     ),
     case!(
         ['t', 'h', 'o', 'o', 'n', 'g'],
@@ -270,7 +270,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'i', 'e', 'e', 'u', 'f'],
         ParseAppendingPhase::Vowel,
-        ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::I, C::Lower), (V::ECircumflex, C::Lower), (V::U, C::Lower)], Tone::Grave)
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::I, C::Lower), (V::ECircumflex, C::Lower), (V::U, C::Lower)], Tone::Grave)
     ),
     case!(
         ['m', 'i', 'e', 'e', 'n'],
@@ -369,7 +369,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'a', 'a', 's', 'y'],
         ParseAppendingPhase::Vowel,
-        ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ACircumflex, C::Lower), (V::Y, C::Lower)], Tone::Acute)
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::ACircumflex, C::Lower), (V::Y, C::Lower)], Tone::Acute)
     ),
     case!(
         ['m', 'a', 'a', 's', 'y'],
@@ -420,7 +420,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'e', 'e', 'u', 'f'],
         ParseAppendingPhase::Vowel,
-        ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ECircumflex, C::Lower), (V::U, C::Lower)], Tone::Grave)
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::ECircumflex, C::Lower), (V::U, C::Lower)], Tone::Grave)
     ),
     case!(
         ['s', 'a', 'a', 'u'],
@@ -450,7 +450,7 @@ pub const CASES: &[TestCase] = &[
     case!(
         ['d', 'd', 'a', 'a', 'u', 's'],
         ParseAppendingPhase::Vowel,
-        ExpectedSyllable::onset_vowel(Onset::Đ, &['đ'], &[(V::ACircumflex, C::Lower), (V::U, C::Lower)], Tone::Acute)
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::ACircumflex, C::Lower), (V::U, C::Lower)], Tone::Acute)
     ),
     case!(
         ['c', 'h', 'u', 'w', 'n', 'g', 'f'],

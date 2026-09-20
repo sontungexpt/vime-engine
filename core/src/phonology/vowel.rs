@@ -1,6 +1,3 @@
-//! Vietnamese vowels: the [`BaseVowel`] model and the precomposed-character
-//! codec (`encode_vowel` / `decode_vowel` / [`is_vowel`]).
-
 use super::case::Cased;
 
 /// Base ASCII vowel letter independent of shape, tone, and case.
@@ -152,16 +149,6 @@ impl BaseVowel {
         }
     }
 
-    /// Returns the base vowel for the given priority ID without bounds-checking.
-    ///
-    /// # Safety
-    ///
-    /// `id` must be in `0..Self::COUNT`.
-    #[inline(always)]
-    pub unsafe fn from_id_unchecked(id: usize) -> Self {
-        *Self::VARIANTS_BY_ID.get_unchecked(id)
-    }
-
     /// The [`BaseVowel`] for a root letter and shape, or `Err` for a
     /// combination Vietnamese has no letter for.
     #[inline(always)]
@@ -262,23 +249,6 @@ impl CasedBaseVowel {
         encode_vowel(self.value, tone, self.uppercase)
     }
 }
-// All 144 precomposed Vietnamese vowel characters, one 12-entry block per
-// base vowel in priority-ID order; within a block the 6 tones run in
-// Lower/Upper order: `(base.id() * 6 + tone) * 2 + uppercase`.
-const ENCODED_VOWELS: [char; 144] = [
-    'y', 'Y', 'ý', 'Ý', 'ỳ', 'Ỳ', 'ỷ', 'Ỷ', 'ỹ', 'Ỹ', 'ỵ', 'Ỵ', // ID 0: Y (y)
-    'u', 'U', 'ú', 'Ú', 'ù', 'Ù', 'ủ', 'Ủ', 'ũ', 'Ũ', 'ụ', 'Ụ', // ID 1: U (u)
-    'i', 'I', 'í', 'Í', 'ì', 'Ì', 'ỉ', 'Ỉ', 'ĩ', 'Ĩ', 'ị', 'Ị', // ID 2: I (i)
-    'e', 'E', 'é', 'É', 'è', 'È', 'ẻ', 'Ẻ', 'ẽ', 'Ẽ', 'ẹ', 'Ẹ', // ID 3: E (e)
-    'o', 'O', 'ó', 'Ó', 'ò', 'Ò', 'ỏ', 'Ỏ', 'õ', 'Õ', 'ọ', 'Ọ', // ID 4: O (o)
-    'a', 'A', 'á', 'Á', 'à', 'À', 'ả', 'Ả', 'ã', 'Ã', 'ạ', 'Ạ', // ID 5: A (a)
-    'ư', 'Ư', 'ứ', 'Ứ', 'ừ', 'Ừ', 'ử', 'Ử', 'ữ', 'Ữ', 'ự', 'Ự', // ID 6: UHorn (ư)
-    'â', 'Â', 'ấ', 'Ấ', 'ầ', 'Ầ', 'ẩ', 'Ẩ', 'ẫ', 'Ẫ', 'ậ', 'Ậ', // ID 7: ACircumflex (â)
-    'ô', 'Ô', 'ố', 'Ố', 'ồ', 'Ồ', 'ổ', 'Ổ', 'ỗ', 'Ỗ', 'ộ', 'Ộ', // ID 8: OCircumflex (ô)
-    'ă', 'Ă', 'ắ', 'Ắ', 'ằ', 'Ằ', 'ẳ', 'Ẳ', 'ẵ', 'Ẵ', 'ặ', 'Ặ', // ID 9: ABreve (ă)
-    'ê', 'Ê', 'ế', 'Ế', 'ề', 'Ề', 'ể', 'Ể', 'ễ', 'Ễ', 'ệ', 'Ệ', // ID 10: ECircumflex (ê)
-    'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ', // ID 11: OHorn (ơ)
-];
 
 /// Encodes a `(base, tone, uppercase)` triple as a precomposed character.
 ///
@@ -286,149 +256,26 @@ const ENCODED_VOWELS: [char; 144] = [
 /// `0..=143`, so the lookup can't go out of range.
 #[inline(always)]
 pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char {
+    // All 144 precomposed Vietnamese vowel characters, one 12-entry block per
+    // base vowel in priority-ID order; within a block the 6 tones run in
+    // Lower/Upper order: `(base.id() * 6 + tone) * 2 + uppercase`.
+    const ENCODED_VOWELS: [char; 144] = [
+        'y', 'Y', 'ý', 'Ý', 'ỳ', 'Ỳ', 'ỷ', 'Ỷ', 'ỹ', 'Ỹ', 'ỵ', 'Ỵ', // ID 0: Y (y)
+        'u', 'U', 'ú', 'Ú', 'ù', 'Ù', 'ủ', 'Ủ', 'ũ', 'Ũ', 'ụ', 'Ụ', // ID 1: U (u)
+        'i', 'I', 'í', 'Í', 'ì', 'Ì', 'ỉ', 'Ỉ', 'ĩ', 'Ĩ', 'ị', 'Ị', // ID 2: I (i)
+        'e', 'E', 'é', 'É', 'è', 'È', 'ẻ', 'Ẻ', 'ẽ', 'Ẽ', 'ẹ', 'Ẹ', // ID 3: E (e)
+        'o', 'O', 'ó', 'Ó', 'ò', 'Ò', 'ỏ', 'Ỏ', 'õ', 'Õ', 'ọ', 'Ọ', // ID 4: O (o)
+        'a', 'A', 'á', 'Á', 'à', 'À', 'ả', 'Ả', 'ã', 'Ã', 'ạ', 'Ạ', // ID 5: A (a)
+        'ư', 'Ư', 'ứ', 'Ứ', 'ừ', 'Ừ', 'ử', 'Ử', 'ữ', 'Ữ', 'ự', 'Ự', // ID 6: UHorn (ư)
+        'â', 'Â', 'ấ', 'Ấ', 'ầ', 'Ầ', 'ẩ', 'Ẩ', 'ẫ', 'Ẫ', 'ậ', 'Ậ', // ID 7: ACircumflex (â)
+        'ô', 'Ô', 'ố', 'Ố', 'ồ', 'Ồ', 'ổ', 'Ổ', 'ỗ', 'Ỗ', 'ộ', 'Ộ', // ID 8: OCircumflex (ô)
+        'ă', 'Ă', 'ắ', 'Ắ', 'ằ', 'Ằ', 'ẳ', 'Ẳ', 'ẵ', 'Ẵ', 'ặ', 'Ặ', // ID 9: ABreve (ă)
+        'ê', 'Ê', 'ế', 'Ế', 'ề', 'Ề', 'ể', 'Ể', 'ễ', 'Ễ', 'ệ', 'Ệ', // ID 10: ECircumflex (ê)
+        'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ', // ID 11: OHorn (ơ)
+    ];
     let idx = ((base.id() * 6 + tone as usize) << 1) | (uppercase as usize);
     ENCODED_VOWELS[idx]
 }
-
-/// Direct lookup table (LUT) for the precomposed Vietnamese block (U+1EA0..=U+1EF9).
-/// Index = `(code - 0x1EA0) as usize`, giving O(1) `(CasedBaseVowel, Tone)` lookup.
-const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
-    // 0x1EA0 - 0x1EA1 (Ạ, ạ)
-    (CasedBaseVowel::upper(BaseVowel::A), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::A), Tone::Dot),
-    // 0x1EA2 - 0x1EA3 (Ả, ả)
-    (CasedBaseVowel::upper(BaseVowel::A), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::A), Tone::Hook),
-    // 0x1EA4 - 0x1EA5 (Ấ, ấ)
-    (CasedBaseVowel::upper(BaseVowel::ACircumflex), Tone::Acute),
-    (CasedBaseVowel::lower(BaseVowel::ACircumflex), Tone::Acute),
-    // 0x1EA6 - 0x1EA7 (Ầ, ầ)
-    (CasedBaseVowel::upper(BaseVowel::ACircumflex), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::ACircumflex), Tone::Grave),
-    // 0x1EA8 - 0x1EA9 (Ẩ, ẩ)
-    (CasedBaseVowel::upper(BaseVowel::ACircumflex), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::ACircumflex), Tone::Hook),
-    // 0x1EAA - 0x1EAB (Ẫ, ẫ)
-    (CasedBaseVowel::upper(BaseVowel::ACircumflex), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::ACircumflex), Tone::Tilde),
-    // 0x1EAC - 0x1EAD (Ậ, ậ)
-    (CasedBaseVowel::upper(BaseVowel::ACircumflex), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::ACircumflex), Tone::Dot),
-    // 0x1EAE - 0x1EAF (Ắ, ắ)
-    (CasedBaseVowel::upper(BaseVowel::ABreve), Tone::Acute),
-    (CasedBaseVowel::lower(BaseVowel::ABreve), Tone::Acute),
-    // 0x1EB0 - 0x1EB1 (Ằ, ằ)
-    (CasedBaseVowel::upper(BaseVowel::ABreve), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::ABreve), Tone::Grave),
-    // 0x1EB2 - 0x1EB3 (Ẳ, ẳ)
-    (CasedBaseVowel::upper(BaseVowel::ABreve), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::ABreve), Tone::Hook),
-    // 0x1EB4 - 0x1EB5 (Ẵ, ẵ)
-    (CasedBaseVowel::upper(BaseVowel::ABreve), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::ABreve), Tone::Tilde),
-    // 0x1EB6 - 0x1EB7 (Ặ, ặ)
-    (CasedBaseVowel::upper(BaseVowel::ABreve), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::ABreve), Tone::Dot),
-    // 0x1EB8 - 0x1EB9 (Ẹ, ẹ)
-    (CasedBaseVowel::upper(BaseVowel::E), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::E), Tone::Dot),
-    // 0x1EBA - 0x1EBB (Ẻ, ẻ)
-    (CasedBaseVowel::upper(BaseVowel::E), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::E), Tone::Hook),
-    // 0x1EBC - 0x1EBD (Ẽ, ẽ)
-    (CasedBaseVowel::upper(BaseVowel::E), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::E), Tone::Tilde),
-    // 0x1EBE - 0x1EBF (Ế, ế)
-    (CasedBaseVowel::upper(BaseVowel::ECircumflex), Tone::Acute),
-    (CasedBaseVowel::lower(BaseVowel::ECircumflex), Tone::Acute),
-    // 0x1EC0 - 0x1EC1 (Ề, ề)
-    (CasedBaseVowel::upper(BaseVowel::ECircumflex), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::ECircumflex), Tone::Grave),
-    // 0x1EC2 - 0x1EC3 (Ể, ể)
-    (CasedBaseVowel::upper(BaseVowel::ECircumflex), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::ECircumflex), Tone::Hook),
-    // 0x1EC4 - 0x1EC5 (Ễ, ễ)
-    (CasedBaseVowel::upper(BaseVowel::ECircumflex), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::ECircumflex), Tone::Tilde),
-    // 0x1EC6 - 0x1EC7 (Ệ, ệ)
-    (CasedBaseVowel::upper(BaseVowel::ECircumflex), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::ECircumflex), Tone::Dot),
-    // 0x1EC8 - 0x1EC9 (Ỉ, ỉ)
-    (CasedBaseVowel::upper(BaseVowel::I), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::I), Tone::Hook),
-    // 0x1ECA - 0x1ECB (Ị, ị)
-    (CasedBaseVowel::upper(BaseVowel::I), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::I), Tone::Dot),
-    // 0x1ECC - 0x1ECD (Ọ, ọ)
-    (CasedBaseVowel::upper(BaseVowel::O), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::O), Tone::Dot),
-    // 0x1ECE - 0x1ECF (Ỏ, ỏ)
-    (CasedBaseVowel::upper(BaseVowel::O), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::O), Tone::Hook),
-    // 0x1ED0 - 0x1ED1 (Ố, ố)
-    (CasedBaseVowel::upper(BaseVowel::OCircumflex), Tone::Acute),
-    (CasedBaseVowel::lower(BaseVowel::OCircumflex), Tone::Acute),
-    // 0x1ED2 - 0x1ED3 (Ồ, ồ)
-    (CasedBaseVowel::upper(BaseVowel::OCircumflex), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::OCircumflex), Tone::Grave),
-    // 0x1ED4 - 0x1ED5 (Ổ, ổ)
-    (CasedBaseVowel::upper(BaseVowel::OCircumflex), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::OCircumflex), Tone::Hook),
-    // 0x1ED6 - 0x1ED7 (Ỗ, ỗ)
-    (CasedBaseVowel::upper(BaseVowel::OCircumflex), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::OCircumflex), Tone::Tilde),
-    // 0x1ED8 - 0x1ED9 (Ộ, ộ)
-    (CasedBaseVowel::upper(BaseVowel::OCircumflex), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::OCircumflex), Tone::Dot),
-    // 0x1EDA - 0x1EDB (Ớ, ớ)
-    (CasedBaseVowel::upper(BaseVowel::OHorn), Tone::Acute),
-    (CasedBaseVowel::lower(BaseVowel::OHorn), Tone::Acute),
-    // 0x1EDC - 0x1EDD (Ờ, ờ)
-    (CasedBaseVowel::upper(BaseVowel::OHorn), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::OHorn), Tone::Grave),
-    // 0x1EDE - 0x1EDF (Ở, ở)
-    (CasedBaseVowel::upper(BaseVowel::OHorn), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::OHorn), Tone::Hook),
-    // 0x1EE0 - 0x1EE1 (Ỡ, ỡ)
-    (CasedBaseVowel::upper(BaseVowel::OHorn), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::OHorn), Tone::Tilde),
-    // 0x1EE2 - 0x1EE3 (Ợ, ợ)
-    (CasedBaseVowel::upper(BaseVowel::OHorn), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::OHorn), Tone::Dot),
-    // 0x1EE4 - 0x1EE5 (Ụ, ụ)
-    (CasedBaseVowel::upper(BaseVowel::U), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::U), Tone::Dot),
-    // 0x1EE6 - 0x1EE7 (Ủ, ủ)
-    (CasedBaseVowel::upper(BaseVowel::U), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::U), Tone::Hook),
-    // 0x1EE8 - 0x1EE9 (Ứ, ứ)
-    (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Acute),
-    (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Acute),
-    // 0x1EEA - 0x1EEB (Ừ, ừ)
-    (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Grave),
-    // 0x1EEC - 0x1EED (Ử, ử)
-    (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Hook),
-    // 0x1EEE - 0x1EEF (Ữ, ữ)
-    (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Tilde),
-    // 0x1EF0 - 0x1EF1 (Ự, ự)
-    (CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Dot),
-    // 0x1EF2 - 0x1EF3 (Ỳ, ỳ)
-    (CasedBaseVowel::upper(BaseVowel::Y), Tone::Grave),
-    (CasedBaseVowel::lower(BaseVowel::Y), Tone::Grave),
-    // 0x1EF4 - 0x1EF5 (Ỵ, ỵ)
-    (CasedBaseVowel::upper(BaseVowel::Y), Tone::Dot),
-    (CasedBaseVowel::lower(BaseVowel::Y), Tone::Dot),
-    // 0x1EF6 - 0x1EF7 (Ỷ, ỷ)
-    (CasedBaseVowel::upper(BaseVowel::Y), Tone::Hook),
-    (CasedBaseVowel::lower(BaseVowel::Y), Tone::Hook),
-    // 0x1EF8 - 0x1EF9 (Ỹ, ỹ)
-    (CasedBaseVowel::upper(BaseVowel::Y), Tone::Tilde),
-    (CasedBaseVowel::lower(BaseVowel::Y), Tone::Tilde),
-];
 
 /// Decodes a precomposed Vietnamese vowel into a `(CasedBaseVowel, Tone)` pair,
 /// or `None` if `character` is not a vowel.
@@ -438,80 +285,222 @@ const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
 /// Vietnamese block (U+1EA0..=U+1EF9) via O(1) direct LUT indexing.
 #[inline(always)]
 pub const fn decode_vowel(character: char) -> Option<(CasedBaseVowel, Tone)> {
+    use BaseVowel::*;
+    use Tone::*;
+
     let code = character as u32;
 
     match code {
         // 1. ASCII Block (Fast path - Keystrokes)
         0x00..=0x7F => match character {
-            'a' => Some((CasedBaseVowel::lower(BaseVowel::A), Tone::Flat)),
-            'A' => Some((CasedBaseVowel::upper(BaseVowel::A), Tone::Flat)),
-            'o' => Some((CasedBaseVowel::lower(BaseVowel::O), Tone::Flat)),
-            'O' => Some((CasedBaseVowel::upper(BaseVowel::O), Tone::Flat)),
-            'e' => Some((CasedBaseVowel::lower(BaseVowel::E), Tone::Flat)),
-            'E' => Some((CasedBaseVowel::upper(BaseVowel::E), Tone::Flat)),
-            'i' => Some((CasedBaseVowel::lower(BaseVowel::I), Tone::Flat)),
-            'I' => Some((CasedBaseVowel::upper(BaseVowel::I), Tone::Flat)),
-            'u' => Some((CasedBaseVowel::lower(BaseVowel::U), Tone::Flat)),
-            'U' => Some((CasedBaseVowel::upper(BaseVowel::U), Tone::Flat)),
-            'y' => Some((CasedBaseVowel::lower(BaseVowel::Y), Tone::Flat)),
-            'Y' => Some((CasedBaseVowel::upper(BaseVowel::Y), Tone::Flat)),
+            'a' => Some((CasedBaseVowel::lower(A), Flat)),
+            'A' => Some((CasedBaseVowel::upper(A), Flat)),
+            'o' => Some((CasedBaseVowel::lower(O), Flat)),
+            'O' => Some((CasedBaseVowel::upper(O), Flat)),
+            'e' => Some((CasedBaseVowel::lower(E), Flat)),
+            'E' => Some((CasedBaseVowel::upper(E), Flat)),
+            'i' => Some((CasedBaseVowel::lower(I), Flat)),
+            'I' => Some((CasedBaseVowel::upper(I), Flat)),
+            'u' => Some((CasedBaseVowel::lower(U), Flat)),
+            'U' => Some((CasedBaseVowel::upper(U), Flat)),
+            'y' => Some((CasedBaseVowel::lower(Y), Flat)),
+            'Y' => Some((CasedBaseVowel::upper(Y), Flat)),
             _ => None,
         },
 
         // 2. Latin-1 Supplement (U+00C0..U+00FF)
         0x80..=0xFF => match character {
-            'ê' => Some((CasedBaseVowel::lower(BaseVowel::ECircumflex), Tone::Flat)),
-            'Ê' => Some((CasedBaseVowel::upper(BaseVowel::ECircumflex), Tone::Flat)),
-            'ô' => Some((CasedBaseVowel::lower(BaseVowel::OCircumflex), Tone::Flat)),
-            'Ô' => Some((CasedBaseVowel::upper(BaseVowel::OCircumflex), Tone::Flat)),
-            'â' => Some((CasedBaseVowel::lower(BaseVowel::ACircumflex), Tone::Flat)),
-            'Â' => Some((CasedBaseVowel::upper(BaseVowel::ACircumflex), Tone::Flat)),
-            'á' => Some((CasedBaseVowel::lower(BaseVowel::A), Tone::Acute)),
-            'Á' => Some((CasedBaseVowel::upper(BaseVowel::A), Tone::Acute)),
-            'à' => Some((CasedBaseVowel::lower(BaseVowel::A), Tone::Grave)),
-            'À' => Some((CasedBaseVowel::upper(BaseVowel::A), Tone::Grave)),
-            'ã' => Some((CasedBaseVowel::lower(BaseVowel::A), Tone::Tilde)),
-            'Ã' => Some((CasedBaseVowel::upper(BaseVowel::A), Tone::Tilde)),
-            'ó' => Some((CasedBaseVowel::lower(BaseVowel::O), Tone::Acute)),
-            'Ó' => Some((CasedBaseVowel::upper(BaseVowel::O), Tone::Acute)),
-            'ò' => Some((CasedBaseVowel::lower(BaseVowel::O), Tone::Grave)),
-            'Ò' => Some((CasedBaseVowel::upper(BaseVowel::O), Tone::Grave)),
-            'õ' => Some((CasedBaseVowel::lower(BaseVowel::O), Tone::Tilde)),
-            'Õ' => Some((CasedBaseVowel::upper(BaseVowel::O), Tone::Tilde)),
-            'é' => Some((CasedBaseVowel::lower(BaseVowel::E), Tone::Acute)),
-            'É' => Some((CasedBaseVowel::upper(BaseVowel::E), Tone::Acute)),
-            'è' => Some((CasedBaseVowel::lower(BaseVowel::E), Tone::Grave)),
-            'È' => Some((CasedBaseVowel::upper(BaseVowel::E), Tone::Grave)),
-            'í' => Some((CasedBaseVowel::lower(BaseVowel::I), Tone::Acute)),
-            'Í' => Some((CasedBaseVowel::upper(BaseVowel::I), Tone::Acute)),
-            'ì' => Some((CasedBaseVowel::lower(BaseVowel::I), Tone::Grave)),
-            'Ì' => Some((CasedBaseVowel::upper(BaseVowel::I), Tone::Grave)),
-            'ú' => Some((CasedBaseVowel::lower(BaseVowel::U), Tone::Acute)),
-            'Ú' => Some((CasedBaseVowel::upper(BaseVowel::U), Tone::Acute)),
-            'ù' => Some((CasedBaseVowel::lower(BaseVowel::U), Tone::Grave)),
-            'Ù' => Some((CasedBaseVowel::upper(BaseVowel::U), Tone::Grave)),
-            'ý' => Some((CasedBaseVowel::lower(BaseVowel::Y), Tone::Acute)),
-            'Ý' => Some((CasedBaseVowel::upper(BaseVowel::Y), Tone::Acute)),
+            'ê' => Some((CasedBaseVowel::lower(ECircumflex), Flat)),
+            'Ê' => Some((CasedBaseVowel::upper(ECircumflex), Flat)),
+            'ô' => Some((CasedBaseVowel::lower(OCircumflex), Flat)),
+            'Ô' => Some((CasedBaseVowel::upper(OCircumflex), Flat)),
+            'â' => Some((CasedBaseVowel::lower(ACircumflex), Flat)),
+            'Â' => Some((CasedBaseVowel::upper(ACircumflex), Flat)),
+            'á' => Some((CasedBaseVowel::lower(A), Acute)),
+            'Á' => Some((CasedBaseVowel::upper(A), Acute)),
+            'à' => Some((CasedBaseVowel::lower(A), Grave)),
+            'À' => Some((CasedBaseVowel::upper(A), Grave)),
+            'ã' => Some((CasedBaseVowel::lower(A), Tilde)),
+            'Ã' => Some((CasedBaseVowel::upper(A), Tilde)),
+            'ó' => Some((CasedBaseVowel::lower(O), Acute)),
+            'Ó' => Some((CasedBaseVowel::upper(O), Acute)),
+            'ò' => Some((CasedBaseVowel::lower(O), Grave)),
+            'Ò' => Some((CasedBaseVowel::upper(O), Grave)),
+            'õ' => Some((CasedBaseVowel::lower(O), Tilde)),
+            'Õ' => Some((CasedBaseVowel::upper(O), Tilde)),
+            'é' => Some((CasedBaseVowel::lower(E), Acute)),
+            'É' => Some((CasedBaseVowel::upper(E), Acute)),
+            'è' => Some((CasedBaseVowel::lower(E), Grave)),
+            'È' => Some((CasedBaseVowel::upper(E), Grave)),
+            'í' => Some((CasedBaseVowel::lower(I), Acute)),
+            'Í' => Some((CasedBaseVowel::upper(I), Acute)),
+            'ì' => Some((CasedBaseVowel::lower(I), Grave)),
+            'Ì' => Some((CasedBaseVowel::upper(I), Grave)),
+            'ú' => Some((CasedBaseVowel::lower(U), Acute)),
+            'Ú' => Some((CasedBaseVowel::upper(U), Acute)),
+            'ù' => Some((CasedBaseVowel::lower(U), Grave)),
+            'Ù' => Some((CasedBaseVowel::upper(U), Grave)),
+            'ý' => Some((CasedBaseVowel::lower(Y), Acute)),
+            'Ý' => Some((CasedBaseVowel::upper(Y), Acute)),
             _ => None,
         },
 
         // 3. Latin Extended
         0x0100..=0x01B0 => match character {
-            'ơ' => Some((CasedBaseVowel::lower(BaseVowel::OHorn), Tone::Flat)),
-            'Ơ' => Some((CasedBaseVowel::upper(BaseVowel::OHorn), Tone::Flat)),
-            'ă' => Some((CasedBaseVowel::lower(BaseVowel::ABreve), Tone::Flat)),
-            'Ă' => Some((CasedBaseVowel::upper(BaseVowel::ABreve), Tone::Flat)),
-            'ư' => Some((CasedBaseVowel::lower(BaseVowel::UHorn), Tone::Flat)),
-            'Ư' => Some((CasedBaseVowel::upper(BaseVowel::UHorn), Tone::Flat)),
-            'ĩ' => Some((CasedBaseVowel::lower(BaseVowel::I), Tone::Tilde)),
-            'Ĩ' => Some((CasedBaseVowel::upper(BaseVowel::I), Tone::Tilde)),
-            'ũ' => Some((CasedBaseVowel::lower(BaseVowel::U), Tone::Tilde)),
-            'Ũ' => Some((CasedBaseVowel::upper(BaseVowel::U), Tone::Tilde)),
+            'ơ' => Some((CasedBaseVowel::lower(OHorn), Flat)),
+            'Ơ' => Some((CasedBaseVowel::upper(OHorn), Flat)),
+            'ă' => Some((CasedBaseVowel::lower(ABreve), Flat)),
+            'Ă' => Some((CasedBaseVowel::upper(ABreve), Flat)),
+            'ư' => Some((CasedBaseVowel::lower(UHorn), Flat)),
+            'Ư' => Some((CasedBaseVowel::upper(UHorn), Flat)),
+            'ĩ' => Some((CasedBaseVowel::lower(I), Tilde)),
+            'Ĩ' => Some((CasedBaseVowel::upper(I), Tilde)),
+            'ũ' => Some((CasedBaseVowel::lower(U), Tilde)),
+            'Ũ' => Some((CasedBaseVowel::upper(U), Tilde)),
             _ => None,
         },
 
         // 4. Vietnamese block (U+1EA0..U+1EF9) -> Direct Indexing Table!
         0x1EA0..=0x1EF9 => {
+            /// Direct lookup table (LUT) for the precomposed Vietnamese block (U+1EA0..=U+1EF9).
+            /// Index = `(code - 0x1EA0) as usize`, giving O(1) `(CasedBaseVowel, Tone)` lookup.
+            const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
+                // 0x1EA0 - 0x1EA1 (Ạ, ạ)
+                (CasedBaseVowel::upper(A), Dot),
+                (CasedBaseVowel::lower(A), Dot),
+                // 0x1EA2 - 0x1EA3 (Ả, ả)
+                (CasedBaseVowel::upper(A), Hook),
+                (CasedBaseVowel::lower(A), Hook),
+                // 0x1EA4 - 0x1EA5 (Ấ, ấ)
+                (CasedBaseVowel::upper(ACircumflex), Acute),
+                (CasedBaseVowel::lower(ACircumflex), Acute),
+                // 0x1EA6 - 0x1EA7 (Ầ, ầ)
+                (CasedBaseVowel::upper(ACircumflex), Grave),
+                (CasedBaseVowel::lower(ACircumflex), Grave),
+                // 0x1EA8 - 0x1EA9 (Ẩ, ẩ)
+                (CasedBaseVowel::upper(ACircumflex), Hook),
+                (CasedBaseVowel::lower(ACircumflex), Hook),
+                // 0x1EAA - 0x1EAB (Ẫ, ẫ)
+                (CasedBaseVowel::upper(ACircumflex), Tilde),
+                (CasedBaseVowel::lower(ACircumflex), Tilde),
+                // 0x1EAC - 0x1EAD (Ậ, ậ)
+                (CasedBaseVowel::upper(ACircumflex), Dot),
+                (CasedBaseVowel::lower(ACircumflex), Dot),
+                // 0x1EAE - 0x1EAF (Ắ, ắ)
+                (CasedBaseVowel::upper(ABreve), Acute),
+                (CasedBaseVowel::lower(ABreve), Acute),
+                // 0x1EB0 - 0x1EB1 (Ằ, ằ)
+                (CasedBaseVowel::upper(ABreve), Grave),
+                (CasedBaseVowel::lower(ABreve), Grave),
+                // 0x1EB2 - 0x1EB3 (Ẳ, ẳ)
+                (CasedBaseVowel::upper(ABreve), Hook),
+                (CasedBaseVowel::lower(ABreve), Hook),
+                // 0x1EB4 - 0x1EB5 (Ẵ, ẵ)
+                (CasedBaseVowel::upper(ABreve), Tilde),
+                (CasedBaseVowel::lower(ABreve), Tilde),
+                // 0x1EB6 - 0x1EB7 (Ặ, ặ)
+                (CasedBaseVowel::upper(ABreve), Dot),
+                (CasedBaseVowel::lower(ABreve), Dot),
+                // 0x1EB8 - 0x1EB9 (Ẹ, ẹ)
+                (CasedBaseVowel::upper(E), Dot),
+                (CasedBaseVowel::lower(E), Dot),
+                // 0x1EBA - 0x1EBB (Ẻ, ẻ)
+                (CasedBaseVowel::upper(E), Hook),
+                (CasedBaseVowel::lower(E), Hook),
+                // 0x1EBC - 0x1EBD (Ẽ, ẽ)
+                (CasedBaseVowel::upper(E), Tilde),
+                (CasedBaseVowel::lower(E), Tilde),
+                // 0x1EBE - 0x1EBF (Ế, ế)
+                (CasedBaseVowel::upper(ECircumflex), Acute),
+                (CasedBaseVowel::lower(ECircumflex), Acute),
+                // 0x1EC0 - 0x1EC1 (Ề, ề)
+                (CasedBaseVowel::upper(ECircumflex), Grave),
+                (CasedBaseVowel::lower(ECircumflex), Grave),
+                // 0x1EC2 - 0x1EC3 (Ể, ể)
+                (CasedBaseVowel::upper(ECircumflex), Hook),
+                (CasedBaseVowel::lower(ECircumflex), Hook),
+                // 0x1EC4 - 0x1EC5 (Ễ, ễ)
+                (CasedBaseVowel::upper(ECircumflex), Tilde),
+                (CasedBaseVowel::lower(ECircumflex), Tilde),
+                // 0x1EC6 - 0x1EC7 (Ệ, ệ)
+                (CasedBaseVowel::upper(ECircumflex), Dot),
+                (CasedBaseVowel::lower(ECircumflex), Dot),
+                // 0x1EC8 - 0x1EC9 (Ỉ, ỉ)
+                (CasedBaseVowel::upper(I), Hook),
+                (CasedBaseVowel::lower(I), Hook),
+                // 0x1ECA - 0x1ECB (Ị, ị)
+                (CasedBaseVowel::upper(I), Dot),
+                (CasedBaseVowel::lower(I), Dot),
+                // 0x1ECC - 0x1ECD (Ọ, ọ)
+                (CasedBaseVowel::upper(O), Dot),
+                (CasedBaseVowel::lower(O), Dot),
+                // 0x1ECE - 0x1ECF (Ỏ, ỏ)
+                (CasedBaseVowel::upper(O), Hook),
+                (CasedBaseVowel::lower(O), Hook),
+                // 0x1ED0 - 0x1ED1 (Ố, ố)
+                (CasedBaseVowel::upper(OCircumflex), Acute),
+                (CasedBaseVowel::lower(OCircumflex), Acute),
+                // 0x1ED2 - 0x1ED3 (Ồ, ồ)
+                (CasedBaseVowel::upper(OCircumflex), Grave),
+                (CasedBaseVowel::lower(OCircumflex), Grave),
+                // 0x1ED4 - 0x1ED5 (Ổ, ổ)
+                (CasedBaseVowel::upper(OCircumflex), Hook),
+                (CasedBaseVowel::lower(OCircumflex), Hook),
+                // 0x1ED6 - 0x1ED7 (Ỗ, ỗ)
+                (CasedBaseVowel::upper(OCircumflex), Tilde),
+                (CasedBaseVowel::lower(OCircumflex), Tilde),
+                // 0x1ED8 - 0x1ED9 (Ộ, ộ)
+                (CasedBaseVowel::upper(OCircumflex), Dot),
+                (CasedBaseVowel::lower(OCircumflex), Dot),
+                // 0x1EDA - 0x1EDB (Ớ, ớ)
+                (CasedBaseVowel::upper(OHorn), Acute),
+                (CasedBaseVowel::lower(OHorn), Acute),
+                // 0x1EDC - 0x1EDD (Ờ, ờ)
+                (CasedBaseVowel::upper(OHorn), Grave),
+                (CasedBaseVowel::lower(OHorn), Grave),
+                // 0x1EDE - 0x1EDF (Ở, ở)
+                (CasedBaseVowel::upper(OHorn), Hook),
+                (CasedBaseVowel::lower(OHorn), Hook),
+                // 0x1EE0 - 0x1EE1 (Ỡ, ỡ)
+                (CasedBaseVowel::upper(OHorn), Tilde),
+                (CasedBaseVowel::lower(OHorn), Tilde),
+                // 0x1EE2 - 0x1EE3 (Ợ, ợ)
+                (CasedBaseVowel::upper(OHorn), Dot),
+                (CasedBaseVowel::lower(OHorn), Dot),
+                // 0x1EE4 - 0x1EE5 (Ụ, ụ)
+                (CasedBaseVowel::upper(U), Dot),
+                (CasedBaseVowel::lower(U), Dot),
+                // 0x1EE6 - 0x1EE7 (Ủ, ủ)
+                (CasedBaseVowel::upper(U), Hook),
+                (CasedBaseVowel::lower(U), Hook),
+                // 0x1EE8 - 0x1EE9 (Ứ, ứ)
+                (CasedBaseVowel::upper(UHorn), Acute),
+                (CasedBaseVowel::lower(UHorn), Acute),
+                // 0x1EEA - 0x1EEB (Ừ, ừ)
+                (CasedBaseVowel::upper(UHorn), Grave),
+                (CasedBaseVowel::lower(UHorn), Grave),
+                // 0x1EEC - 0x1EED (Ử, ử)
+                (CasedBaseVowel::upper(UHorn), Hook),
+                (CasedBaseVowel::lower(UHorn), Hook),
+                // 0x1EEE - 0x1EEF (Ữ, ữ)
+                (CasedBaseVowel::upper(UHorn), Tilde),
+                (CasedBaseVowel::lower(UHorn), Tilde),
+                // 0x1EF0 - 0x1EF1 (Ự, ự)
+                (CasedBaseVowel::upper(UHorn), Dot),
+                (CasedBaseVowel::lower(UHorn), Dot),
+                // 0x1EF2 - 0x1EF3 (Ỳ, ỳ)
+                (CasedBaseVowel::upper(Y), Grave),
+                (CasedBaseVowel::lower(Y), Grave),
+                // 0x1EF4 - 0x1EF5 (Ỵ, ỵ)
+                (CasedBaseVowel::upper(Y), Dot),
+                (CasedBaseVowel::lower(Y), Dot),
+                // 0x1EF6 - 0x1EF7 (Ỷ, ỷ)
+                (CasedBaseVowel::upper(Y), Hook),
+                (CasedBaseVowel::lower(Y), Hook),
+                // 0x1EF8 - 0x1EF9 (Ỹ, ỹ)
+                (CasedBaseVowel::upper(Y), Tilde),
+                (CasedBaseVowel::lower(Y), Tilde),
+            ];
             let offset = (code - 0x1EA0) as usize;
             Some(DECODED_VIETNAMESE_BLOCK_LUT[offset])
         }
