@@ -27,6 +27,14 @@ pub enum Shape {
     Horn = 3,
 }
 
+impl Shape {
+    /// Trả về true nếu shape là một dấu thực sự (Horn, Circumflex, Breve), không phải None.
+    #[inline(always)]
+    pub const fn is_some(self) -> bool {
+        !matches!(self, Shape::None)
+    }
+}
+
 /// A Vietnamese lexical tone applied to the vowel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
@@ -189,6 +197,11 @@ impl BaseVowel {
         let raw = (self as u16 >> Self::SHAPE_OFFSET) & Self::SHAPE_MASK;
         // Safety: SHAPE_MASK limits `raw` to 0..=3, matching Shape's u8 discriminants.
         unsafe { std::mem::transmute::<u8, Shape>(raw as u8) }
+    }
+
+    #[inline(always)]
+    pub const fn has_shape(self, shape: Shape) -> bool {
+        self.shape() as u8 == shape as u8
     }
 
     /// Returns `true` when this vowel has a structural diacritic shape (ă, â, ê, ô, ơ, ư).

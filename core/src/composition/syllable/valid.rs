@@ -13,15 +13,15 @@ pub enum InputResult {
     Inserted,
 }
 
-/// Outcome of applying a transform key to the current syllable.
+/// Effect of applying a transform key (shape/tone mark) to the syllable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransformResult {
-    /// The transform was applied to the syllable.
+pub enum TransformEffect {
+    /// Applied a new mark/transform to the syllable (e.g. `a` + `w` -> `ă`).
     Applied,
-    /// The transform undid an existing mark; the key falls through as a literal.
+    /// Removed/undid an existing mark, stripping back to base (e.g. `ă` + `w` -> `a`).
     Reverted,
-    /// The key could not act as a transform here.
-    NotApplicable,
+    /// The key cannot transform the current state; pass through as a literal char.
+    Ignored,
 }
 
 /// The parsing phase the syllable is currently in.
@@ -52,7 +52,7 @@ pub struct ValidSyllableBuilder {
     onset_kind: Onset,
     onset: ArrayVec<char, { Onset::MAX_ONSET_LEN }>,
 
-    nucleus: ArrayVec<CasedBaseVowel, 3>,
+    vowels: ArrayVec<CasedBaseVowel, 3>,
 
     coda_kind: Coda,
     coda: ArrayVec<char, { Coda::MAX_CODA_LEN }>,
@@ -65,7 +65,7 @@ pub struct ValidSyllableBuilder {
 impl ValidSyllableBuilder {
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.onset.len() + self.nucleus.len() + self.coda.len()
+        self.onset.len() + self.vowels.len() + self.coda.len()
     }
 
     #[inline(always)]
@@ -90,7 +90,7 @@ impl ValidSyllableBuilder {
 
     #[inline(always)]
     pub fn nucleus(&self) -> &[CasedBaseVowel] {
-        &self.nucleus
+        &self.vowels
     }
 
     #[inline(always)]
@@ -102,7 +102,7 @@ impl ValidSyllableBuilder {
     pub fn reset(&mut self) {
         self.onset_kind = Onset::None;
         self.onset.clear();
-        self.nucleus.clear();
+        self.vowels.clear();
         self.coda_kind = Coda::None;
         self.coda.clear();
         self.tone = Tone::Flat;
@@ -116,19 +116,19 @@ impl ValidSyllableBuilder {
     /// Tapping the same tone again toggles the syllable back to `Flat`;
     /// a different tone replaces the current one.
     #[inline]
-    fn apply_tone(&mut self, tone: Tone) -> TransformResult {
-        if self.nucleus.is_empty() {
-            return TransformResult::NotApplicable;
+    fn transform_tone(&mut self, tone: Tone) -> TransformEffect {
+        if self.vowels.is_empty() {
+            return TransformEffect::Ignored;
         }
         // Same tone -> toggle back to Flat.
         else if self.tone == tone {
             self.tone = Tone::Flat;
-            return TransformResult::Reverted;
+            return TransformEffect::Reverted;
         }
 
         // Different tone -> replace the current tone.
         self.tone = tone;
-        TransformResult::Applied
+        TransformEffect::Applied
     }
 
     /// Toggles the D-stroke on the onset cluster (`d` ↔ `đ`, `D` ↔ `Đ`).
@@ -136,28 +136,28 @@ impl ValidSyllableBuilder {
     /// Only applies when the onset is a lone `D`/`Đ`; otherwise the stroke key
     /// cannot act here.
     #[inline]
-    fn toggle_d_stroke(&mut self) -> TransformResult {
+    fn toggle_d_stroke(&mut self) -> TransformEffect {
         let onset_chars = &mut self.onset;
 
         match self.onset_kind {
             Onset::D => {
                 onset_chars[0] = if onset_chars[0] == 'd' { 'đ' } else { 'Đ' };
                 self.onset_kind = Onset::DStroke;
-                TransformResult::Applied
+                TransformEffect::Applied
             }
             Onset::DStroke => {
                 onset_chars[0] = if onset_chars[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
-                TransformResult::Reverted
+                TransformEffect::Reverted
             }
-            _ => TransformResult::NotApplicable,
+            _ => TransformEffect::Ignored,
         }
     }
 
     /// Whether the nucleus starts with an unmarked `u o` pair.
     #[inline(always)]
-    fn nucleus_starts_with_uo(&self) -> bool {
-        let vowels = &self.nucleus;
+    fn vowels_starts_with_uo(&self) -> bool {
+        let vowels = &self.vowels;
         vowels.len() > 1
             && vowels[0].value.root() == RootVowel::U
             && vowels[1].value.root() == RootVowel::O
@@ -168,7 +168,7 @@ impl ValidSyllableBuilder {
     /// `uơ → ươ` and `ưo → ươ` are folded once at least two vowels are present.
     #[inline]
     fn finalize_uo_prefix(&mut self) {
-        let vowels = &mut self.nucleus;
+        let vowels = &mut self.vowels;
         if vowels.len() < 2 {
             return;
         }
@@ -189,18 +189,184 @@ impl ValidSyllableBuilder {
     #[inline(always)]
     fn validate_nucleus<const N: usize>(&self) -> NucleusStatus {
         let mut buf = [BaseVowel::A; N];
-        let len = self.nucleus.len().min(N);
+        let len = self.vowels.len().min(N);
 
-        for (i, v) in self.nucleus.iter().take(len).enumerate() {
+        for (i, v) in self.vowels.iter().take(len).enumerate() {
             buf[i] = v.value;
         }
 
         check_nucleus_validity(&buf[..len])
     }
 
+    #[inline]
+    fn apply_transform_key<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformEffect {
+        // 1. Tone
+        if let Some(tone) = keymap.decode_tone(key) {
+            return self.transform_tone(tone);
+        }
+        // 2. D-stroke
+        else if keymap.is_stroke_key(key) {
+            return self.toggle_d_stroke();
+        }
+
+        self.transform_vowels_shape(keymap, key)
+    }
+
+    /// Applies a Horn shape to the `u o` prefix (requires at least 2 vowels).
+    fn transform_uo_horn(&mut self) -> TransformEffect {
+        let vowels = &self.vowels;
+
+        match (vowels[0].value, vowels[1].value) {
+            // ươ -> uow
+            //
+            // This always reverts, even with a third vowel.
+            (BaseVowel::UHorn, BaseVowel::OHorn) => {
+                self.vowels[0].value = BaseVowel::U;
+                self.vowels[1].value = BaseVowel::O;
+                TransformEffect::Reverted
+            }
+
+            // ưô -> not applicable
+            (BaseVowel::UHorn, BaseVowel::OCircumflex) => TransformEffect::Ignored,
+
+            // ưo -> ươ
+            (BaseVowel::UHorn, BaseVowel::O) => self.transform_vowels_shape_at(1, Shape::Horn),
+
+            // uo -> uơ
+            (BaseVowel::U, BaseVowel::O) => self.transform_vowels_shape_at(1, Shape::Horn),
+
+            // uơ -> ươ
+            (BaseVowel::U, BaseVowel::OHorn) => self.transform_vowels_shape_at(0, Shape::Horn),
+
+            // uô -> uơ
+            (BaseVowel::U, BaseVowel::OCircumflex) => {
+                self.transform_vowels_shape_at(1, Shape::Horn)
+            }
+
+            _ => TransformEffect::Ignored,
+        }
+    }
+
+    /// Applies a Circumflex shape to the `u o` prefix (requires at least 2 vowels).
+    fn transform_uo_circumflex(&mut self) -> TransformEffect {
+        let vowels = &self.vowels;
+        let first = vowels[0].value;
+
+        match (first, vowels[1].value) {
+            // ươ -> uô
+            (BaseVowel::UHorn, BaseVowel::OHorn) => {
+                self.vowels[0].value = BaseVowel::U;
+
+                match self.transform_vowels_shape_at(1, Shape::Circumflex) {
+                    effect @ (TransformEffect::Applied | TransformEffect::Reverted) => effect,
+                    TransformEffect::Ignored => {
+                        self.vowels[0].value = first;
+                        TransformEffect::Ignored
+                    }
+                }
+            }
+
+            // ưô -> not applicable
+            (BaseVowel::UHorn, BaseVowel::OCircumflex) => TransformEffect::Ignored,
+
+            // ưo -> uô
+            (BaseVowel::UHorn, BaseVowel::O) => {
+                self.vowels[0].value = BaseVowel::U;
+
+                match self.transform_vowels_shape_at(1, Shape::Circumflex) {
+                    effect @ (TransformEffect::Applied | TransformEffect::Reverted) => effect,
+                    TransformEffect::Ignored => {
+                        self.vowels[0].value = first;
+                        TransformEffect::Ignored
+                    }
+                }
+            }
+
+            // uo -> uô
+            (BaseVowel::U, BaseVowel::O) => self.transform_vowels_shape_at(1, Shape::Circumflex),
+
+            // uơ -> uô
+            (BaseVowel::U, BaseVowel::OHorn) => {
+                self.transform_vowels_shape_at(1, Shape::Circumflex)
+            }
+
+            // uô -> undo (revert to "uo")
+            (BaseVowel::U, BaseVowel::OCircumflex) => {
+                self.vowels[1].value = BaseVowel::O;
+                TransformEffect::Reverted
+            }
+            _ => TransformEffect::Ignored,
+        }
+    }
+
+    /// Tries to apply `key` as a shape transform on the vowel sequence,
+    /// scanning from the last vowel backwards.
+    fn transform_vowels_shape<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformEffect {
+        // Handle the special u / o cases.
+        if self.vowels_starts_with_uo() {
+            if let Some(shape) = keymap
+                .decode_shape(key, RootVowel::O)
+                .or_else(|| keymap.decode_shape(key, RootVowel::U))
+            {
+                match shape {
+                    Shape::Horn => return self.transform_uo_horn(),
+                    Shape::Circumflex => return self.transform_uo_circumflex(),
+                    _ => {}
+                }
+            }
+        }
+
+        let vseq_len = self.vowels.len();
+        for index in (0..vseq_len).rev() {
+            let base = self.vowels[index].value;
+
+            if let Some(shape) = keymap.decode_shape(key, base.root()) {
+                let effect = self.transform_vowels_shape_at(index, shape);
+                // If that failed, keep trying the earlier vowels.
+                if effect != TransformEffect::Ignored {
+                    return effect;
+                }
+            };
+        }
+
+        TransformEffect::Ignored
+    }
+
+    /// Applies `shape` to the vowel at `index`, re-validating the nucleus.
+    ///
+    /// Applying the shape it already has reverts it; an invalid result rolls
+    /// the vowel back.
+    fn transform_vowels_shape_at(&mut self, index: usize, shape: Shape) -> TransformEffect {
+        let old = self.vowels[index].value;
+
+        if old.has_shape(shape) && shape.is_some() {
+            self.vowels[index].value = old.remove_shape();
+            return TransformEffect::Reverted;
+        }
+
+        let Ok(new) = old.replace_shape(shape) else {
+            return TransformEffect::Ignored;
+        };
+
+        self.vowels[index].value = new;
+
+        if self.vowels.len() < 2 {
+            return TransformEffect::Applied;
+        }
+
+        match self.validate_nucleus::<3>() {
+            NucleusStatus::Valid => TransformEffect::Applied,
+            NucleusStatus::InComplete => TransformEffect::Applied,
+            NucleusStatus::Dead => {
+                self.vowels[index].value = old;
+                TransformEffect::Ignored
+            }
+        }
+    }
+
     #[inline(always)]
     pub fn tone_index(&self, tone_scheme: ToneScheme) -> Option<usize> {
-        tone_scheme.tone_index(&self.nucleus, self.coda.is_empty())
+        tone_scheme.tone_index(&self.vowels, self.coda.is_empty())
     }
 }
 
@@ -226,10 +392,20 @@ impl ValidSyllableBuilder {
         input: char,
     ) -> Result<InputResult, SyllableError> {
         if keymap.is_stroke_key(input) {
-            return self.push_onset_transform(input);
+            return match self.toggle_d_stroke() {
+                // Stroke applied in place; the stroke key itself is not stored literally.
+                TransformEffect::Applied => Ok(InputResult::Transformed),
+                TransformEffect::Reverted | TransformEffect::Ignored => {
+                    // After reverting, the stroke key is treated as a literal.
+                    // Example: 'đ' and typed `d` revert `đ` to `dd` so we remove the stroke in old đ and add new d
+
+                    // Any key that is not a stroke key is treated as an ordinary letter.
+                    self.push_onset_literal(input)
+                }
+            };
         }
 
-        self.push_onset_literal(input);
+        self.push_onset_literal(input)
     }
 
     #[inline]
@@ -291,26 +467,6 @@ impl ValidSyllableBuilder {
         Err(SyllableError::InvalidOnset)
     }
 
-    /// Handles a transform key while in the `Onset` phase.
-    ///
-    /// Only the D-stroke is meaningful here; every other key falls back to the
-    /// literal handlers.
-    #[inline]
-    fn push_onset_transform(&mut self, input: char) -> Result<InputResult, SyllableError> {
-        match self.toggle_d_stroke() {
-            // Stroke applied in place; the stroke key itself is not stored literally.
-            TransformResult::Applied => Ok(InputResult::Transformed),
-
-            TransformResult::Reverted | TransformResult::NotApplicable => {
-                // - After reverting, the stroke key is treated as a literal.
-                // Example: 'đ' and typed `d` revert `đ` to `dd` so we remove the stroke in old đ and add new d
-
-                // - Any key that is not a stroke key is treated as an ordinary letter.
-                self.push_onset_literal(input)
-            }
-        }
-    }
-
     // ─────────────────────────── Vowel ───────────────────────────
 
     /// Dispatches one input character to the vowel-phase handlers, trying
@@ -326,7 +482,12 @@ impl ValidSyllableBuilder {
         // (`s`, `f`, `r`, `x`, `j`, digits) are themselves vowels or ASCII
         // consonants, so the transform check must come first here.
         if keymap.is_transform_key(input) {
-            return self.push_vowel_transform(keymap, input);
+            return match self.apply_transform_key(keymap, input) {
+                TransformEffect::Applied => Ok(InputResult::Transformed),
+                TransformEffect::Reverted | TransformEffect::Ignored => {
+                    self.push_vowel_literal(input)
+                }
+            };
         }
 
         self.push_vowel_literal(input)
@@ -339,11 +500,11 @@ impl ValidSyllableBuilder {
     /// accept it (too many vowels, tone conflict, or an invalid sequence);
     /// the caller is responsible for reporting the failure.
     fn push_decoded_vowel(&mut self, cased_base: CasedBaseVowel, tone: Tone) -> bool {
-        let vowels_len = self.nucleus.len();
+        let vowels_len = self.vowels.len();
 
         if vowels_len == 0 {
             // First vowel; add it to the nucleus.
-            self.nucleus.push(cased_base);
+            self.vowels.push(cased_base);
             self.tone = tone;
             return true;
         }
@@ -374,17 +535,17 @@ impl ValidSyllableBuilder {
         // follows the 'i', "gi" becomes the onset; otherwise 'g'
         // stays the onset and the 'i' is the nucleus.
         // ---------------------------------------------------------
-        if vowels_len == 1 && self.nucleus[0].value == BaseVowel::I && self.onset_kind == Onset::G {
-            let i = self.nucleus.pop().unwrap();
+        if vowels_len == 1 && self.vowels[0].value == BaseVowel::I && self.onset_kind == Onset::G {
+            let i = self.vowels.pop().unwrap();
             self.onset.push(if i.uppercase { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
         }
 
-        self.nucleus.push(cased_base);
+        self.vowels.push(cased_base);
 
         if NucleusStatus::Dead == self.validate_nucleus::<3>() {
             // rollback state
-            self.nucleus.pop();
+            self.vowels.pop();
             self.tone = old_tone;
             return false;
         }
@@ -403,7 +564,7 @@ impl ValidSyllableBuilder {
                 return Err(SyllableError::InvalidNucleus);
             }
 
-            if self.nucleus.len() == 3 {
+            if self.vowels.len() == 3 {
                 self.finalize_uo_prefix();
             }
 
@@ -420,34 +581,6 @@ impl ValidSyllableBuilder {
         Err(SyllableError::InvalidCoda)
     }
 
-    /// Handles a transform key while in the `Vowel` phase.
-    ///
-    /// Tries tones, then the D-stroke, then vowel shapes.
-    #[inline]
-    fn push_vowel_transform<KM: Keymap>(
-        &mut self,
-        keymap: &KM,
-        input: char,
-    ) -> Result<InputResult, SyllableError> {
-        // `Some` means the key resolved into a tone or a stroke.
-        if let Some(effect) = self.handle_tone_or_d_stroke(keymap, input) {
-            return match effect {
-                TransformResult::Applied => Ok(InputResult::Transformed),
-                TransformResult::Reverted | TransformResult::NotApplicable => {
-                    self.push_vowel_literal(input)
-                }
-            };
-        }
-
-        // No tone or stroke effect: try a shape instead.
-        match self.try_shape_transform(keymap, input) {
-            TransformResult::Applied => Ok(InputResult::Transformed),
-            TransformResult::Reverted | TransformResult::NotApplicable => {
-                self.push_vowel_literal(input)
-            }
-        }
-    }
-
     // ─────────────────────────── Coda ───────────────────────────
 
     /// Dispatches one input character to the coda-phase handlers, trying
@@ -461,7 +594,12 @@ impl ValidSyllableBuilder {
         // Telex tone keys (`s`, `f`, `r`, `x`, `j`) and the `d` stroke are
         // ASCII consonants, so the transform check must come first here.
         if keymap.is_transform_key(input) {
-            return self.push_coda_transform(keymap, input);
+            return match self.apply_transform_key(keymap, input) {
+                TransformEffect::Applied => Ok(InputResult::Transformed),
+                TransformEffect::Reverted | TransformEffect::Ignored => {
+                    self.push_coda_literal(input)
+                }
+            };
         }
 
         self.push_coda_literal(input)
@@ -496,206 +634,6 @@ impl ValidSyllableBuilder {
             Err(_) => {
                 self.coda.pop();
                 false
-            }
-        }
-    }
-
-    /// Handles a transform key while in the `Coda` phase.
-    ///
-    /// Tone, D-stroke and shape transforms are forwarded to the vowel
-    /// handlers; anything else falls back to the literal handlers.
-    #[inline]
-    fn push_coda_transform<KM: Keymap>(
-        &mut self,
-        keymap: &KM,
-        input: char,
-    ) -> Result<InputResult, SyllableError> {
-        if let Some(effect) = self.handle_tone_or_d_stroke(keymap, input) {
-            return match effect {
-                TransformResult::Applied => Ok(InputResult::Transformed),
-                TransformResult::Reverted | TransformResult::NotApplicable => {
-                    self.push_coda_literal(input)
-                }
-            };
-        }
-
-        match self.try_shape_transform(keymap, input) {
-            TransformResult::Applied => Ok(InputResult::Transformed),
-            TransformResult::Reverted | TransformResult::NotApplicable => {
-                self.push_coda_literal(input)
-            }
-        }
-    }
-
-    // ─────────────────────────── Shared ───────────────────────────
-
-    /// Resolves a tone or D-stroke transform key.
-    #[inline]
-    fn handle_tone_or_d_stroke<KM: Keymap>(
-        &mut self,
-        keymap: &KM,
-        key: char,
-    ) -> Option<TransformResult> {
-        // ---------------------------------------------------------
-        // 1. Tone
-        // ---------------------------------------------------------
-        if let Some(tone) = keymap.decode_tone(key) {
-            return Some(self.apply_tone(tone));
-        }
-
-        // ---------------------------------------------------------
-        // 2. D-stroke
-        // ---------------------------------------------------------
-        if keymap.is_stroke_key(key) {
-            return Some(self.toggle_d_stroke());
-        }
-
-        None
-    }
-
-    /// Applies a Horn shape to the `u o` prefix (requires at least 2 vowels).
-    fn try_uo_horn(&mut self) -> TransformResult {
-        let vowels = &self.nucleus;
-
-        match (vowels[0].value, vowels[1].value) {
-            // ươ -> uow
-            //
-            // This always reverts, even with a third vowel.
-            (BaseVowel::UHorn, BaseVowel::OHorn) => {
-                self.nucleus[0].value = BaseVowel::U;
-                self.nucleus[1].value = BaseVowel::O;
-                TransformResult::Reverted
-            }
-
-            // ưô -> not applicable
-            (BaseVowel::UHorn, BaseVowel::OCircumflex) => TransformResult::NotApplicable,
-
-            // ưo -> ươ
-            (BaseVowel::UHorn, BaseVowel::O) => self.try_vowel_shape(1, Shape::Horn),
-
-            // uo -> uơ
-            (BaseVowel::U, BaseVowel::O) => self.try_vowel_shape(1, Shape::Horn),
-
-            // uơ -> ươ
-            (BaseVowel::U, BaseVowel::OHorn) => self.try_vowel_shape(0, Shape::Horn),
-
-            // uô -> uơ
-            (BaseVowel::U, BaseVowel::OCircumflex) => self.try_vowel_shape(1, Shape::Horn),
-
-            _ => TransformResult::NotApplicable,
-        }
-    }
-
-    /// Applies a Circumflex shape to the `u o` prefix (requires at least 2 vowels).
-    fn try_uo_circumflex(&mut self) -> TransformResult {
-        let vowels = &self.nucleus;
-        let first = vowels[0].value;
-
-        match (first, vowels[1].value) {
-            // ươ -> uô
-            (BaseVowel::UHorn, BaseVowel::OHorn) => {
-                self.nucleus[0].value = BaseVowel::U;
-
-                match self.try_vowel_shape(1, Shape::Circumflex) {
-                    effect @ (TransformResult::Applied | TransformResult::Reverted) => effect,
-                    TransformResult::NotApplicable => {
-                        self.nucleus[0].value = first;
-                        TransformResult::NotApplicable
-                    }
-                }
-            }
-
-            // ưô -> not applicable
-            (BaseVowel::UHorn, BaseVowel::OCircumflex) => TransformResult::NotApplicable,
-
-            // ưo -> uô
-            (BaseVowel::UHorn, BaseVowel::O) => {
-                self.nucleus[0].value = BaseVowel::U;
-
-                match self.try_vowel_shape(1, Shape::Circumflex) {
-                    effect @ (TransformResult::Applied | TransformResult::Reverted) => effect,
-                    TransformResult::NotApplicable => {
-                        self.nucleus[0].value = first;
-                        TransformResult::NotApplicable
-                    }
-                }
-            }
-
-            // uo -> uô
-            (BaseVowel::U, BaseVowel::O) => self.try_vowel_shape(1, Shape::Circumflex),
-
-            // uơ -> uô
-            (BaseVowel::U, BaseVowel::OHorn) => self.try_vowel_shape(1, Shape::Circumflex),
-
-            // uô -> undo (revert to "uo")
-            (BaseVowel::U, BaseVowel::OCircumflex) => {
-                self.nucleus[1].value = BaseVowel::O;
-                TransformResult::Reverted
-            }
-            _ => TransformResult::NotApplicable,
-        }
-    }
-
-    /// Tries to apply `key` as a shape transform on the vowel sequence,
-    /// scanning from the last vowel backwards.
-    fn try_shape_transform<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformResult {
-        let vseq_len = self.nucleus.len();
-
-        for index in (0..vseq_len).rev() {
-            let base = self.nucleus[index].value;
-
-            let Some(shape) = keymap.decode_shape(key, base.root()) else {
-                continue;
-            };
-
-            // Handle the special u / o cases.
-
-            if self.nucleus_starts_with_uo() {
-                match shape {
-                    Shape::Horn => return self.try_uo_horn(),
-                    Shape::Circumflex => return self.try_uo_circumflex(),
-                    _ => {}
-                }
-            }
-
-            let effect = self.try_vowel_shape(index, shape);
-            // If that failed, keep trying the earlier vowels.
-            if effect != TransformResult::NotApplicable {
-                return effect;
-            }
-        }
-
-        TransformResult::NotApplicable
-    }
-
-    /// Applies `shape` to the vowel at `index`, re-validating the nucleus.
-    ///
-    /// Applying the shape it already has reverts it; an invalid result rolls
-    /// the vowel back.
-    fn try_vowel_shape(&mut self, index: usize, shape: Shape) -> TransformResult {
-        let old = self.nucleus[index].value;
-
-        if old.shape() == shape && shape != Shape::None {
-            self.nucleus[index].value = old.remove_shape();
-            return TransformResult::Reverted;
-        }
-
-        let Ok(new) = old.replace_shape(shape) else {
-            return TransformResult::NotApplicable;
-        };
-
-        self.nucleus[index].value = new;
-
-        if self.nucleus.len() < 2 {
-            return TransformResult::Applied;
-        }
-
-        match self.validate_nucleus::<3>() {
-            NucleusStatus::Valid => TransformResult::Applied,
-            NucleusStatus::InComplete => TransformResult::Applied,
-            NucleusStatus::Dead => {
-                self.nucleus[index].value = old;
-                TransformResult::NotApplicable
             }
         }
     }

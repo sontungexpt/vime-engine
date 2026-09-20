@@ -50,14 +50,22 @@ impl<'a> DefaultKeymap<'a> {
 }
 
 impl Keymap for DefaultKeymap<'_> {
-    /// Returns whether `key` is configured as a tone, shape, or stroke key.
     #[inline(always)]
-    fn is_transform_key(&self, key: char) -> bool {
-        let key = key.to_ascii_lowercase();
-
+    fn is_tone_key(&self, input: char) -> bool {
+        let key = input.to_ascii_lowercase();
         self.rules.tones.iter().any(|map| map.key == key)
-            || self.rules.strokes.iter().any(|&k| k == key)
-            || self.rules.shapes.iter().any(|map| map.key == key)
+    }
+
+    #[inline(always)]
+    fn is_shape_key(&self, input: char) -> bool {
+        let key = input.to_ascii_lowercase();
+        self.rules.shapes.iter().any(|map| map.key == key)
+    }
+
+    #[inline(always)]
+    fn is_stroke_key(&self, input: char) -> bool {
+        let loinput = input.to_ascii_lowercase();
+        self.rules.strokes.iter().any(|c| *c == loinput)
     }
 
     #[inline(always)]
@@ -69,12 +77,6 @@ impl Keymap for DefaultKeymap<'_> {
             .iter()
             .find(|map| map.key == loinput)
             .map(|map| map.tone)
-    }
-
-    #[inline(always)]
-    fn is_stroke_key(&self, input: char) -> bool {
-        let loinput = input.to_ascii_lowercase();
-        self.rules.strokes.iter().any(|c| *c == loinput)
     }
 
     #[inline(always)]
