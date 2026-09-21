@@ -17,3 +17,176 @@ semantic syllable parsing;
 tone selection;
 
 tone rendering.
+
+use super::case::Cased;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[repr(u8)]
+pub enum RootVowel {
+    A = 0, E = 1, I = 2, O = 3, U = 4, Y = 5,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(u8)]
+pub enum Shape {
+    #[default]
+    None = 0,
+    Circumflex = 1,
+    Breve = 2,
+    Horn = 3,
+}
+
+impl Shape {
+    #[inline(always)]
+    pub const fn is_some(self) -> bool {
+        !matches!(self, Shape::None)
+    }
+}
+
+/// The 12 base vowels of Vietnamese, declared in tone-placement priority order.
+/// Discriminant chính là Tone Priority ID (0..=11).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[repr(u8)]
+pub enum BaseVowel {
+    // Priority 0..=2: closed vowels
+    Y = 0,
+    U = 1,
+    I = 2,
+
+    // Priority 3..=5: open plain vowels
+    E = 3,
+    O = 4,
+    A = 5,
+
+    // Priority 6..=9: vowels with a diacritic
+    UHorn = 6,
+    ACircumflex = 7,
+    OCircumflex = 8,
+    ABreve = 9,
+
+    // Priority 10..=11: highest priority
+    ECircumflex = 10,
+    OHorn = 11,
+}
+
+impl BaseVowel {
+    pub const COUNT: u8 = 12;
+
+    /// Thông tin bổ trợ cho từng BaseVowel theo ID: (RootVowel, Shape, Plain BaseVowel)
+    const METADATA: [(RootVowel, Shape, BaseVowel); Self::COUNT as usize] = [
+        (RootVowel::Y, Shape::None, BaseVowel::Y), // ID 0
+        (RootVowel::U, Shape::None, BaseVowel::U), // ID 1
+        (RootVowel::I, Shape::None, BaseVowel::I), // ID 2
+        (RootVowel::E, Shape::None, BaseVowel::E), // ID 3
+        (RootVowel::O, Shape::None, BaseVowel::O), // ID 4
+        (RootVowel::A, Shape::None, BaseVowel::A), // ID 5
+        (RootVowel::U, Shape::Horn, BaseVowel::U), // ID 6
+        (RootVowel::A, Shape::Circumflex, BaseVowel::A), // ID 7
+        (RootVowel::O, Shape::Circumflex, BaseVowel::O), // ID 8
+        (RootVowel::A, Shape::Breve, BaseVowel::A), // ID 9
+        (RootVowel::E, Shape::Circumflex, BaseVowel::E), // ID 10
+        (RootVowel::O, Shape::Horn, BaseVowel::O), // ID 11
+    ];
+
+    /// LUT 2D phục vụ `from_parts`: [RootVowel][Shape] -> Option<BaseVowel>
+    /// Giúp `from_parts` chạy O(1) cực nhanh mà không phụ thuộc bitwise math.
+    const FROM_PARTS_LUT: [[Option<BaseVowel>; 4]; 6] = {
+        let mut table = [[None; 4]; 6];
+
+        table[RootVowel::A as usize][Shape::None as usize] = Some(BaseVowel::A);
+        table[RootVowel::A as usize][Shape::Breve as usize] = Some(BaseVowel::ABreve);
+        table[RootVowel::A as usize][Shape::Circumflex as usize] = Some(BaseVowel::ACircumflex);
+
+        table[RootVowel::E as usize][Shape::None as usize] = Some(BaseVowel::E);
+        table[RootVowel::E as usize][Shape::Circumflex as usize] = Some(BaseVowel::ECircumflex);
+
+        table[RootVowel::I as usize][Shape::None as usize] = Some(BaseVowel::I);
+
+        table[RootVowel::O as usize][Shape::None as usize] = Some(BaseVowel::O);
+        table[RootVowel::O as usize][Shape::Circumflex as usize] = Some(BaseVowel::OCircumflex);
+        table[RootVowel::O as usize][Shape::Horn as usize] = Some(BaseVowel::OHorn);
+
+        table[RootVowel::U as usize][Shape::None as usize] = Some(BaseVowel::U);
+        table[RootVowel::U as usize][Shape::Horn as usize] = Some(BaseVowel::UHorn);
+
+        table[RootVowel::Y as usize][Shape::None as usize] = Some(BaseVowel::Y);
+
+        table
+    };
+
+    /// **ID Siêu Nhanh ($O(1)$):** Chỉ là một phép ép kiểu (no-op ở level assembly).
+    #[inline(always)]
+    pub const fn id(self) -> usize {
+        self as usize
+    }
+
+    /// Lấy `BaseVowel` theo `id`. Đơn giản chỉ là transmute/bounds check.
+    #[inline(always)]
+    pub const fn from_id(id: usize) -> Result<Self, ()> {
+        if id < Self::COUNT as usize {
+            // Safety: Enum repr(u8) từ 0..11 tương ứng chính xác với ID.
+            Ok(unsafe { std::mem::transmute::<u8, Self>(id as u8) })
+        } else {
+            Err(())
+        }
+    }
+
+    /// Lấy `BaseVowel` từ `RootVowel` + `Shape` bằng Lookup Table $O(1)$ mà không cần match nhiều trường hợp.
+    #[inline(always)]
+    pub const fn from_parts(root: RootVowel, shape: Shape) -> Result<Self, ()> {
+        match Self::FROM_PARTS_LUT[root as usize][shape as usize] {
+            Some(vowel) => Ok(vowel),
+            None => Err(()),
+        }
+    }
+
+    #[inline(always)]
+    pub const fn from_root(root: RootVowel) -> Self {
+        match root {
+            RootVowel::A => BaseVowel::A,
+            RootVowel::E => BaseVowel::E,
+            RootVowel::I => BaseVowel::I,
+            RootVowel::O => BaseVowel::O,
+            RootVowel::U => BaseVowel::U,
+            RootVowel::Y => BaseVowel::Y,
+        }
+    }
+
+    /// Lấy `Shape` từ LUT Metadata theo ID.
+    #[inline(always)]
+    pub const fn shape(self) -> Shape {
+        Self::METADATA[self.id()].1
+    }
+
+    #[inline(always)]
+    pub const fn has_shape(self, shape: Shape) -> bool {
+        self.shape() as u8 == shape as u8
+    }
+
+    #[inline(always)]
+    pub const fn is_shaped(self) -> bool {
+        self.id() >= 6
+    }
+
+    #[inline(always)]
+    pub const fn is_plain(self) -> bool {
+        self.id() < 6
+    }
+
+    /// Lấy `RootVowel` từ LUT Metadata theo ID.
+    #[inline(always)]
+    pub const fn root(self) -> RootVowel {
+        Self::METADATA[self.id()].0
+    }
+
+    #[inline(always)]
+    pub const fn replace_shape(self, shape: Shape) -> Result<Self, ()> {
+        Self::from_parts(self.root(), shape)
+    }
+
+    /// Bỏ dấu cực kỳ đơn giản: tra cứu ngay nguyên âm gốc trong LUT METADATA.
+    #[inline(always)]
+    pub const fn remove_shape(self) -> Self {
+        Self::METADATA[self.id()].2
+    }
+}

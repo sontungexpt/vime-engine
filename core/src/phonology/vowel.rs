@@ -57,6 +57,11 @@ impl Tone {
         }
         unsafe { std::mem::transmute::<u8, Self>(id as u8) }
     }
+
+    #[inline(always)]
+    pub const fn is_some(self) -> bool {
+        self as u8 != Self::Flat as u8
+    }
 }
 
 /// The 12 base vowels of Vietnamese, declared in tone-placement priority order.
@@ -286,7 +291,13 @@ pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char 
         'ê', 'Ê', 'ế', 'Ế', 'ề', 'Ề', 'ể', 'Ể', 'ễ', 'Ễ', 'ệ', 'Ệ', // ID 10: ECircumflex (ê)
         'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ', // ID 11: OHorn (ơ)
     ];
-    let idx = ((base.id() * 6 + tone as usize) << 1) | (uppercase as usize);
+
+    // Compute index in a packed 144-element lookup table: (base * 6 + tone) * 2 + uppercase.
+    // Optimized without multiplication (0-byte memory overhead): base * 12 = (base << 3) + (base << 2).
+
+    // Simple: let idx = ((base.id() * 6 + tone as usize) << 1) | (uppercase as usize);
+    let base_id = base.id();
+    let idx = (base_id << 3) + (base_id << 2) + ((tone as usize) << 1) | (uppercase as usize);
     ENCODED_VOWELS[idx]
 }
 

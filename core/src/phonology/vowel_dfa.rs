@@ -668,7 +668,7 @@ pub const fn check_nucleus_validity(vowels: &[BaseVowel]) -> NucleusStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::super::rule::check_nucleus_validity as reference;
+    use super::super::rule::NucleusStatus as RuleStatus;
     use super::*;
     use crate::BaseVowel::*;
 
@@ -678,6 +678,11 @@ mod tests {
 
     fn dfa(vowels: &[BaseVowel]) -> NucleusStatus {
         check_nucleus_validity(vowels)
+    }
+
+    /// The rule-table oracle, currently `NucleusStatus::from_vowels`.
+    fn reference(vowels: &[BaseVowel]) -> NucleusStatus {
+        RuleStatus::from_vowels(vowels)
     }
 
     /// Walks the base-vowel edges from the empty state, resolving the id of the

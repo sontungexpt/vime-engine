@@ -11,18 +11,18 @@ use crate::{composition::syllable::SyllableBuilder, keymap::Keymap, phonology::T
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Composition<'a, KM: Keymap> {
+pub struct Composition<KM: Keymap> {
     raw: Vec<char>,
     raw_cursor: Cursor,
 
-    syllable: SyllableBuilder<'a, KM>,
+    syllable: SyllableBuilder<KM>,
     syllable_cursor: Cursor,
 }
 
-impl<'a, KM: Keymap> Composition<'a, KM> {
-    /// Creates a parser backed by `mapping`, starting in the `Onset` phase.
+impl<KM: Keymap> Composition<KM> {
+    /// Creates a parser backed by `keymap`, starting in the `Onset` phase.
     #[inline(always)]
-    pub fn new(keymap: &'a KM) -> Self {
+    pub fn new(keymap: KM) -> Self {
         Self {
             raw: Vec::new(),
             raw_cursor: Cursor::default(),
@@ -86,11 +86,8 @@ impl<'a, KM: Keymap> Composition<'a, KM> {
 
         // If the index is beyond the end of the syllable, push the input as-is.
         if self.syllable_cursor.is_at_end(composed_len) {
-            self.syllable.push(&self.keymap, input);
+            self.syllable.push(input);
         }
-
-        self.syllable
-            .insert(&self.keymap, self.syllable_cursor.position(), input);
         // Example: "trường"
         //
         // chars: ['t', 'r', 'ư', 'ờ', 'n', 'g']

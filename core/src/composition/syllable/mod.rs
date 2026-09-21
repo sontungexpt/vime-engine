@@ -23,14 +23,14 @@ impl Default for SyllableState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyllableBuilder<'a, KM: Keymap> {
-    pub keymap: &'a KM,
+pub struct SyllableBuilder<KM: Keymap> {
+    pub keymap: KM,
     pub tone_scheme: ToneScheme,
     pub state: SyllableState,
 }
 
-impl<'a, KM: Keymap> SyllableBuilder<'a, KM> {
-    pub fn new(keymap: &'a KM, tone_scheme: ToneScheme) -> Self {
+impl<KM: Keymap> SyllableBuilder<KM> {
+    pub fn new(keymap: KM, tone_scheme: ToneScheme) -> Self {
         Self {
             keymap,
             tone_scheme,
@@ -50,7 +50,7 @@ impl<'a, KM: Keymap> SyllableBuilder<'a, KM> {
     pub fn push(&mut self, input: char) {
         match &mut self.state {
             SyllableState::Building(builder) => {
-                if builder.push(self.keymap, input).is_err() {
+                if builder.push(&self.keymap, input).is_err() {
                     let builder = std::mem::take(builder);
 
                     self.state =

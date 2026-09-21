@@ -69,30 +69,35 @@ impl Coda {
             )
     }
 
+    #[inline(always)]
+    pub const fn from_byte(byte: u8) -> Result<Self, CodaParseError> {
+        match byte | 0x20 {
+            b'c' => Ok(Self::C),
+            b'm' => Ok(Self::M),
+            b'n' => Ok(Self::N),
+            b'p' => Ok(Self::P),
+            b't' => Ok(Self::T),
+            _ => Err(CodaParseError),
+        }
+    }
+
+    #[inline(always)]
+    pub const fn from_two_bytes(first: u8, second: u8) -> Result<Self, CodaParseError> {
+        match (first | 0x20, second | 0x20) {
+            (b'c', b'h') => Ok(Self::Ch),
+            (b'n', b'g') => Ok(Self::Ng),
+            (b'n', b'h') => Ok(Self::Nh),
+            _ => Err(CodaParseError),
+        }
+    }
+
     /// Returns the coda for the given ASCII bytes, or `Err` for an invalid cluster.
     #[inline(always)]
     pub const fn from_bytes(bytes: &[u8]) -> Result<Self, CodaParseError> {
         match bytes {
             [] => Ok(Self::None),
-
-            // Single-byte codas ("c", "m", "n", "p", "t")
-            &[byte] => match byte | 0x20 {
-                b'c' => Ok(Self::C),
-                b'm' => Ok(Self::M),
-                b'n' => Ok(Self::N),
-                b'p' => Ok(Self::P),
-                b't' => Ok(Self::T),
-                _ => Err(CodaParseError),
-            },
-
-            // Two-byte codas ("ch", "ng", "nh")
-            &[first, second] => match [first | 0x20, second | 0x20] {
-                [b'c', b'h'] => Ok(Self::Ch), // b"ch"
-                [b'n', b'g'] => Ok(Self::Ng), // b"ng"
-                [b'n', b'h'] => Ok(Self::Nh), // b"nh"
-                _ => Err(CodaParseError),
-            },
-
+            &[byte] => Self::from_byte(byte),
+            &[first, second] => Self::from_two_bytes(first, second),
             _ => Err(CodaParseError),
         }
     }
@@ -103,8 +108,8 @@ impl Coda {
     pub const fn from_chars(chars: &[char]) -> Result<Self, CodaParseError> {
         match chars {
             [] => Ok(Self::None),
-            &[c] if c.is_ascii() => Self::from_bytes(&[c as u8]),
-            &[c0, c1] if c0.is_ascii() && c1.is_ascii() => Self::from_bytes(&[c0 as u8, c1 as u8]),
+            &[c] if c.is_ascii() => Self::from_byte(c as u8),
+            &[c0, c1] if c0.is_ascii() && c1.is_ascii() => Self::from_two_bytes(c0 as u8, c1 as u8),
             _ => Err(CodaParseError),
         }
     }

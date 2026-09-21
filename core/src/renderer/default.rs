@@ -28,7 +28,7 @@ impl Renderer for DefaultRenderer {
     /// tone on the tone-bearing vowel and leaving the rest unmarked. A dead
     /// syllable is rendered verbatim, in input order.
     fn render<KM: Keymap>(&self, composition: &Composition<KM>) -> String {
-        match composition.syllable() {
+        match &composition.syllable().state {
             SyllableState::Building(syllable) => self.render_building(syllable),
             SyllableState::Dead(builder) => {
                 builder.chars().iter().map(|status| status.char()).collect()
@@ -45,7 +45,7 @@ impl DefaultRenderer {
 
         let tone_position = syllable.tone_index(ToneScheme::Modern);
 
-        for (index, vowel) in syllable.nucleus().iter().enumerate() {
+        for (index, vowel) in syllable.vowels().iter().enumerate() {
             let tone = if Some(index) == tone_position {
                 syllable.tone()
             } else {

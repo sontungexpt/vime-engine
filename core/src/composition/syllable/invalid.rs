@@ -42,7 +42,7 @@ impl DeadSyllableBuilder {
 
         chars.extend(valid.onset().iter().copied().map(CharStatus::Accepted));
 
-        for cased_vowel in valid.nucleus() {
+        for cased_vowel in valid.vowels() {
             chars.push(CharStatus::Accepted(encode_vowel(
                 cased_vowel.value,
                 Tone::Flat,
