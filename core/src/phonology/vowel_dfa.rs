@@ -55,7 +55,7 @@
 //! only.
 
 use super::vowel::BaseVowel;
-pub use super::rule::NucleusStatus;
+pub use super::rules::Nucleus;
 
 use crate::Shape;
 
@@ -644,8 +644,8 @@ pub const fn is_state_complete(state_id: u8) -> bool {
 /// - `InComplete`: the sequence reaches an existing, non-complete state.
 /// - `Valid`: the sequence reaches a complete state.
 #[inline]
-pub const fn check_nucleus_validity(vowels: &[BaseVowel]) -> NucleusStatus {
-    use NucleusStatus::*;
+pub const fn check_nucleus_validity(vowels: &[BaseVowel]) -> Nucleus {
+    use Nucleus::*;
     let first = match vowels.first() {
         Some(vowel) => vowel,
         None => return Dead,
@@ -668,7 +668,7 @@ pub const fn check_nucleus_validity(vowels: &[BaseVowel]) -> NucleusStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::super::rule::NucleusStatus as RuleStatus;
+    use super::super::rules::Nucleus as RuleStatus;
     use super::*;
     use crate::BaseVowel::*;
 
@@ -676,12 +676,12 @@ mod tests {
         Y, U, I, E, O, A, UHorn, ACircumflex, OCircumflex, ABreve, ECircumflex, OHorn,
     ];
 
-    fn dfa(vowels: &[BaseVowel]) -> NucleusStatus {
+    fn dfa(vowels: &[BaseVowel]) -> Nucleus {
         check_nucleus_validity(vowels)
     }
 
-    /// The rule-table oracle, currently `NucleusStatus::from_vowels`.
-    fn reference(vowels: &[BaseVowel]) -> NucleusStatus {
+    /// The rule-table oracle, currently `Nucleus::from_vowels`.
+    fn reference(vowels: &[BaseVowel]) -> Nucleus {
         RuleStatus::from_vowels(vowels)
     }
 
@@ -745,8 +745,8 @@ mod tests {
     /// Spot checks of every rule family, mirroring the documented table.
     #[test]
     fn rule_spot_checks() {
-        use NucleusStatus::*;
-        let cases: &[(&[BaseVowel], NucleusStatus)] = &[
+        use Nucleus::*;
+        let cases: &[(&[BaseVowel], Nucleus)] = &[
             // single vowels
             (&[A], Valid),
             (&[ABreve], Valid),
@@ -850,7 +850,7 @@ mod tests {
     /// and the intermediate "uơi"/"uơu"/"ưoi"/"ưou" states no longer exist.
     #[test]
     fn uo_fold_transitions() {
-        use NucleusStatus::*;
+        use Nucleus::*;
         let uơ = resolve(&[U, OHorn]);
         let ưo = resolve(&[UHorn, O]);
         let ươi = resolve(&[UHorn, OHorn, I]);
@@ -897,7 +897,7 @@ mod tests {
         }
 
         fn shape_at(vowels: &[BaseVowel], index: usize, shape: Shape) -> Option<Vec<BaseVowel>> {
-            use NucleusStatus::Dead;
+            use Nucleus::Dead;
             let old = vowels[index];
             if old.shape() == shape && shape != Shape::None {
                 let mut v = vowels.to_vec();
@@ -1070,7 +1070,7 @@ mod tests {
             );
             assert_ne!(
                 reference(dst),
-                NucleusStatus::Dead,
+                Nucleus::Dead,
                 "target is not a nucleus: {dst:?}"
             );
             assert_eq!(

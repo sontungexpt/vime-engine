@@ -1,8 +1,8 @@
-use super::vowel::BaseVowel;
+use super::super::vowel::BaseVowel;
 
 /// Whether a vowel nucleus is a known Vietnamese sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NucleusStatus {
+pub enum NucleusState {
     /// The sequence can never form a valid Vietnamese nucleus.
     Dead,
     /// The sequence is a complete, valid nucleus.
@@ -11,10 +11,10 @@ pub enum NucleusStatus {
     InComplete,
 }
 
-impl NucleusStatus {
+impl NucleusState {
     pub fn from_vowels(vowels: &[BaseVowel]) -> Self {
         use BaseVowel::*;
-        use NucleusStatus::*;
+        use NucleusState::*;
 
         match vowels {
             // ─────────────────── Single vowels ───────────────────

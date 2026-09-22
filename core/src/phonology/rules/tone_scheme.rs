@@ -1,4 +1,4 @@
-use super::{vowel_sequence::VowelSequence, BaseVowel};
+use super::super::{vowel_sequence::VowelSequence, BaseVowel};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ToneScheme {

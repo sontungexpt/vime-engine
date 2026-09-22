@@ -4,7 +4,7 @@ mod valid;
 pub use invalid::{CharStatus, DeadSyllableBuilder};
 pub use valid::{SyllableError, TransformEffect, ValidSyllableBuilder};
 
-use crate::{keymap::Keymap, phonology::ToneScheme};
+use crate::{keymap::Keymap, phonology::rules::ToneScheme};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyllableState {

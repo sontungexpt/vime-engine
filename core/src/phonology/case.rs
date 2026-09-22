@@ -1,13 +1,13 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cased<T> {
     pub value: T,
-    pub uppercase: bool,
+    pub is_upper: bool,
 }
 
 impl<T> Cased<T> {
     #[inline(always)]
-    pub const fn new(value: T, uppercase: bool) -> Self {
-        Self { value, uppercase }
+    pub const fn new(value: T, is_upper: bool) -> Self {
+        Self { value, is_upper }
     }
 
     /// Creates an uppercased value.

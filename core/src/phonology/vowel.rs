@@ -259,12 +259,12 @@ pub type CasedBaseVowel = Cased<BaseVowel>;
 impl CasedBaseVowel {
     #[inline(always)]
     pub const fn to_char(self) -> char {
-        encode_vowel(self.value, Tone::Flat, self.uppercase)
+        encode_vowel(self.value, Tone::Flat, self.is_upper)
     }
 
     #[inline(always)]
     pub const fn to_char_tone(self, tone: Tone) -> char {
-        encode_vowel(self.value, tone, self.uppercase)
+        encode_vowel(self.value, tone, self.is_upper)
     }
 }
 

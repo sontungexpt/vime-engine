@@ -210,7 +210,7 @@ fn decode_encode_round_trips_every_known_vowel() {
             continue;
         };
 
-        assert_eq!(encode_vowel(cased.value, tone, cased.uppercase), ch, "decode/encode round-trip failed for U+{cp:04X} {ch:?}");
+        assert_eq!(encode_vowel(cased.value, tone, cased.is_upper), ch, "decode/encode round-trip failed for U+{cp:04X} {ch:?}");
 
         count += 1;
     }

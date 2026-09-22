@@ -46,7 +46,7 @@ impl DeadSyllableBuilder {
             chars.push(CharStatus::Accepted(encode_vowel(
                 cased_vowel.value,
                 Tone::Flat,
-                cased_vowel.uppercase,
+                cased_vowel.is_upper,
             )));
         }
 

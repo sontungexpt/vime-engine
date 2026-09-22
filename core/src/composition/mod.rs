@@ -7,7 +7,9 @@ pub use syllable::{
     ValidSyllableBuilder,
 };
 
-use crate::{composition::syllable::SyllableBuilder, keymap::Keymap, phonology::ToneScheme};
+use crate::{
+    composition::syllable::SyllableBuilder, keymap::Keymap, phonology::rules::ToneScheme,
+};
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]

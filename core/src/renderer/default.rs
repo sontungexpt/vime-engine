@@ -3,7 +3,7 @@ use super::api::Renderer;
 use crate::{
     composition::{Composition, SyllableState, ValidSyllableBuilder},
     keymap::Keymap,
-    phonology::{Tone, ToneScheme},
+    phonology::{rules::ToneScheme, Tone},
 };
 
 /// Renders a syllable to a Vietnamese string using a given tone orthography.

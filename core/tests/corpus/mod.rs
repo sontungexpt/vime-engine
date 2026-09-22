@@ -339,7 +339,7 @@ fn describe(onset_kind: Onset, onset: &[char], vowels: &[(BaseVowel, VowelCase)]
 /// Compares every field of the builder's syllable against `expected`, building
 /// the diagnostic string only when they differ.
 pub fn check_syllable_eq(builder: &ValidSyllableBuilder, expected: &ExpectedSyllable, input: &[char]) -> Result<(), String> {
-    let vowel_pair = |v: &CasedBaseVowel| (v.value, if v.uppercase { VowelCase::Upper } else { VowelCase::Lower });
+    let vowel_pair = |v: &CasedBaseVowel| (v.value, if v.is_upper { VowelCase::Upper } else { VowelCase::Lower });
 
     let matches = builder.onset_kind() == expected.onset_kind
         && builder.onset() == expected.onset
