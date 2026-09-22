@@ -2,7 +2,7 @@ use crate::{
     keymap::Keymap,
     phonology::{
         decode_vowel,
-        rules::{NucleusState, ToneScheme},
+        rules::{NucleusState, TonePlacement},
         BaseVowel, CasedBaseVowel, Coda, Onset, RootVowel, Shape, Tone,
     },
 };
@@ -110,12 +110,12 @@ impl BuildingSyllableBuilder {
     }
 
     #[inline(always)]
-    pub fn tone_index(&self, tone_scheme: &ToneScheme) -> Option<usize> {
+    pub fn tone_index(&self, tone_scheme: &TonePlacement) -> Option<usize> {
         tone_scheme.tone_index(&self.vowels, self.coda.is_empty())
     }
 
     #[inline(always)]
-    pub fn to_chars(&self, tone_scheme: &ToneScheme) -> Vec<char> {
+    pub fn to_chars(&self, tone_scheme: &TonePlacement) -> Vec<char> {
         let mut output = Vec::with_capacity(self.len());
 
         output.extend(self.onset.iter().copied());
@@ -864,7 +864,7 @@ impl BuildingSyllableBuilder {
     pub fn remove(
         &mut self,
         index: usize,
-        tone_scheme: &ToneScheme,
+        tone_scheme: &TonePlacement,
     ) -> Result<InputEffect, SyllableError> {
         let onset_len = self.onset.len();
         let vowels_len = self.vowels.len();
@@ -950,7 +950,7 @@ impl BuildingSyllableBuilder {
     ///
     /// Returns `false` only when `index` is outside the vowel range.
     #[inline(always)]
-    fn remove_vowel(&mut self, index: usize, tone_scheme: &ToneScheme) -> bool {
+    fn remove_vowel(&mut self, index: usize, tone_scheme: &TonePlacement) -> bool {
         debug_assert!(index < self.vowels.len());
 
         // Removing a vowel may change the tone position according to the

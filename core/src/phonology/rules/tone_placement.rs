@@ -1,7 +1,7 @@
 use super::super::{vowel_sequence::VowelSequence, BaseVowel};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum ToneScheme {
+pub enum TonePlacement {
     /// Modern standard orthography ("học sinh" placement).
     #[default]
     Modern,
@@ -9,7 +9,7 @@ pub enum ToneScheme {
     Old,
 }
 
-impl ToneScheme {
+impl TonePlacement {
     /// Index of the tone-bearing vowel, or `None` for an empty nucleus.
     #[inline]
     pub fn tone_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>

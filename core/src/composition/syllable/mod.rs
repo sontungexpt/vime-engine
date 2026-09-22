@@ -4,7 +4,7 @@ mod dead;
 pub use building::{BuildingSyllableBuilder, InputEffect, SyllableError, TransformEffect};
 pub use dead::{CharStatus, DeadSyllableBuilder};
 
-use crate::{keymap::Keymap, phonology::rules::ToneScheme};
+use crate::{keymap::Keymap, phonology::rules::TonePlacement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyllableState {
@@ -25,13 +25,13 @@ impl Default for SyllableState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyllableBuilder<KM: Keymap> {
     pub keymap: KM,
-    pub tone_scheme: ToneScheme,
+    pub tone_scheme: TonePlacement,
     pub state: SyllableState,
 }
 
 impl<KM: Keymap> SyllableBuilder<KM> {
     #[inline]
-    pub fn new(keymap: KM, tone_scheme: ToneScheme) -> Self {
+    pub fn new(keymap: KM, tone_scheme: TonePlacement) -> Self {
         Self {
             keymap,
             tone_scheme,

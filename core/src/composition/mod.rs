@@ -7,7 +7,9 @@ pub use syllable::{
     SyllableState, TransformEffect,
 };
 
-use crate::{composition::syllable::SyllableBuilder, keymap::Keymap, phonology::rules::ToneScheme};
+use crate::{
+    composition::syllable::SyllableBuilder, keymap::Keymap, phonology::rules::TonePlacement,
+};
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +29,7 @@ impl<KM: Keymap> Composition<KM> {
             raw: Vec::new(),
             raw_cursor: Cursor::default(),
 
-            syllable: SyllableBuilder::new(keymap, ToneScheme::Modern),
+            syllable: SyllableBuilder::new(keymap, TonePlacement::Modern),
             syllable_cursor: Cursor::default(),
         }
     }

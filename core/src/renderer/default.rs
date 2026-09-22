@@ -3,7 +3,7 @@ use super::api::Renderer;
 use crate::{
     composition::{BuildingSyllableBuilder, Composition, SyllableState},
     keymap::Keymap,
-    phonology::{rules::ToneScheme, Tone},
+    phonology::{rules::TonePlacement, Tone},
 };
 
 /// Renders a syllable to a Vietnamese string using a given tone orthography.
@@ -43,7 +43,7 @@ impl DefaultRenderer {
 
         output.extend(syllable.onset().iter().copied());
 
-        let tone_position = syllable.tone_index(&ToneScheme::Modern);
+        let tone_position = syllable.tone_index(&TonePlacement::Modern);
 
         for (index, vowel) in syllable.vowels().iter().enumerate() {
             let tone = if Some(index) == tone_position {
