@@ -43,7 +43,7 @@ impl DefaultRenderer {
 
         output.extend(syllable.onset().iter().copied());
 
-        let tone_position = syllable.tone_index(&TonePlacement::Modern);
+        let tone_position = syllable.tone_index(TonePlacement::Modern);
 
         for (index, vowel) in syllable.vowels().iter().enumerate() {
             let tone = if Some(index) == tone_position {

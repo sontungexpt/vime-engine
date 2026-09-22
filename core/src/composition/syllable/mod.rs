@@ -58,7 +58,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
                     Ok(effect) => effect,
                     Err(_err) => {
                         // Chuyển sang Dead nhưng vẫn giữ lại effect gốc (Transform hay Structural)
-                        let chars = builder.to_chars(&self.tone_scheme);
+                        let chars = builder.to_chars(self.tone_scheme);
                         let mut dead = DeadSyllableBuilder::from_accepted(chars);
                         dead.push(input);
                         self.state = SyllableState::Dead(dead);
@@ -80,7 +80,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
                     Ok(effect) => effect,
                     Err(_err) => {
                         // Chuyển sang Dead nhưng vẫn giữ lại effect gốc (Transform hay Structural)
-                        let chars = builder.to_chars(&self.tone_scheme);
+                        let chars = builder.to_chars(self.tone_scheme);
                         let mut dead = DeadSyllableBuilder::from_accepted(chars);
                         dead.insert(index, input);
                         self.state = SyllableState::Dead(dead);
