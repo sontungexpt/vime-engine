@@ -8,41 +8,41 @@
 //! Several of these were previously dead ends; the expanded nucleus validity
 //! rules (see `phonology::rule::transition`) keep them alive.
 
-use super::{status_case, StatusCase};
+use super::prelude::*;
 
-pub const TELEX: &[StatusCase] = &[
+pub const TELEX: &[Case] = &[
     // ── iêu family: `ieu` is now an accepted nucleus ──
-    status_case!(['i', 'e', 'u']),
+    alive_case!(['i', 'e', 'u']),
     // `ieun` used to be Dead(InvalidVowelSequence); it must stay alive now
     // that [I, E, U] is a recognised nucleus.
-    status_case!(['i', 'e', 'u', 'n']),
+    alive_case!(['i', 'e', 'u', 'n']),
     // ── ue / uy-e / uu: unions kept alive ──
-    status_case!(['u', 'e']),
-    status_case!(['u', 'y', 'e']),
-    status_case!(['u', 'u']),
+    alive_case!(['u', 'e']),
+    alive_case!(['u', 'y', 'e']),
+    alive_case!(['u', 'u']),
     // ── uo family checkpoints ──
-    status_case!(['u', 'o']),
-    status_case!(['u', 'o', 'i']),
-    status_case!(['u', 'o', 'u']),
-    status_case!(['u', 'o', 'w', 'i']), // uơi
-    status_case!(['u', 'o', 'w', 'u']), // uơu
+    alive_case!(['u', 'o']),
+    alive_case!(['u', 'o', 'i']),
+    alive_case!(['u', 'o', 'u']),
+    alive_case!(['u', 'o', 'w', 'i']), // uơi
+    alive_case!(['u', 'o', 'w', 'u']), // uơu
     // ── ưo family (ư = u + w in telex) ──
-    status_case!(['u', 'w', 'o']),      // ưo
-    status_case!(['u', 'w', 'o', 'i']), // ưoi
-    status_case!(['u', 'w', 'o', 'u']), // ưou
+    alive_case!(['u', 'w', 'o']),      // ưo
+    alive_case!(['u', 'w', 'o', 'i']), // ưoi
+    alive_case!(['u', 'w', 'o', 'u']), // ưou
     // ── the `w` cycle: uơ / ươ stay alive until a tone or coda arrives ──
-    status_case!(['u', 'o', 'w']),      // uơ
-    status_case!(['u', 'o', 'w', 'w']), // ươ
+    alive_case!(['u', 'o', 'w']),      // uơ
+    alive_case!(['u', 'o', 'w', 'w']), // ươ
     // ── q waits for u (see dead_cases for q + non-u vowels) ──
-    status_case!(['q']),
-    status_case!(['q', 'u']),
-    status_case!(['q', 'u', 'a']),
-    status_case!(['q', 'u', 'y']),
+    alive_case!(['q']),
+    alive_case!(['q', 'u']),
+    alive_case!(['q', 'u', 'a']),
+    alive_case!(['q', 'u', 'y']),
 ];
 
-pub const VNI: &[StatusCase] = &[
+pub const VNI: &[Case] = &[
     // `oo` is a shape (ô) on telex; VNI keeps two plain o's, the `oo` union
-    status_case!(['o', 'o']),
-    status_case!(['u', 'u']),
-    status_case!(['i', 'e', 'u']),
+    alive_case!(['o', 'o']),
+    alive_case!(['u', 'u']),
+    alive_case!(['i', 'e', 'u']),
 ];
