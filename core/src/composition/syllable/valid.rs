@@ -50,12 +50,12 @@ pub enum SyllableError {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ValidSyllableBuilder {
     onset_kind: Onset,
-    onset: ArrayVec<char, { Onset::MAX_ONSET_LEN }>,
+    onset: ArrayVec<char, { Onset::MAX_CHARS }>,
 
     vowels: ArrayVec<CasedBaseVowel, 3>,
 
     coda_kind: Coda,
-    coda: ArrayVec<char, { Coda::MAX_CODA_LEN }>,
+    coda: ArrayVec<char, { Coda::MAX_CHARS }>,
 
     tone: Tone,
 
@@ -108,9 +108,91 @@ impl ValidSyllableBuilder {
         self.tone = Tone::Flat;
         self.push_phase = PushPhase::Onset;
     }
+
+    #[inline(always)]
+    pub fn tone_index(&self, tone_scheme: ToneScheme) -> Option<usize> {
+        tone_scheme.tone_index(&self.vowels, self.coda.is_empty())
+    }
+
+    #[inline(always)]
+    pub fn chars(&self, tone_scheme: ToneScheme) -> Vec<char> {
+        let mut output = Vec::with_capacity(self.len());
+
+        output.extend(self.onset.iter().copied());
+
+        let tone_position = self.tone_index(tone_scheme);
+        for (index, vowel) in self.vowels.iter().enumerate() {
+            let tone = if Some(index) == tone_position {
+                self.tone()
+            } else {
+                Tone::Flat
+            };
+
+            output.push(vowel.to_char_tone(tone));
+        }
+
+        output.extend(self.coda.iter().copied());
+
+        output
+    }
 }
 
 impl ValidSyllableBuilder {
+    /// Thao tác trên `coda` một cách an toàn bằng cách truyền vào closure `mutate` và `revert`.
+    ///
+    /// Nếu kiểm tra `Coda::from_chars` thành công, trạng thái `coda_kind` sẽ được cập nhật.
+    /// Nếu thất bại, closure `revert` sẽ được gọi để hoàn tác mảng `coda`.
+    pub fn try_update_coda<F, R>(&mut self, update: F, revert: R) -> bool
+    where
+        F: FnOnce(&mut ArrayVec<char, { Coda::MAX_CHARS }>),
+        R: FnOnce(&mut ArrayVec<char, { Coda::MAX_CHARS }>),
+    {
+        if self.coda.len() >= Coda::MAX_CHARS {
+            return false;
+        }
+        // 1. Thực hiện thao tác sửa đổi mảng coda
+        update(&mut self.coda);
+
+        // 2. Validation ngữ âm coda
+        match Coda::from_chars(&self.coda) {
+            Ok(kind) => {
+                self.coda_kind = kind;
+                true
+            }
+            Err(_) => {
+                // 3. Revert nếu coda không hợp lệ
+                revert(&mut self.coda);
+                false
+            }
+        }
+    }
+
+    pub fn try_update_onset<F, R>(&mut self, update: F, revert: R) -> bool
+    where
+        F: FnOnce(&mut ArrayVec<char, { Onset::MAX_CHARS }>),
+        R: FnOnce(&mut ArrayVec<char, { Onset::MAX_CHARS }>),
+    {
+        if self.onset.len() >= Onset::MAX_CHARS {
+            return false;
+        }
+
+        // 1. Thực hiện thao tác sửa đổi mảng onset
+        update(&mut self.onset);
+
+        // 2. Validation ngữ âm onset
+        match Onset::from_chars(&self.onset) {
+            Ok(kind) => {
+                self.onset_kind = kind;
+                true
+            }
+            Err(_) => {
+                // 3. Revert nếu onset không hợp lệ
+                revert(&mut self.onset);
+                false
+            }
+        }
+    }
+
     /// Applies or toggles a tone on the syllable.
     ///
     /// Tapping the same tone again toggles the syllable back to `Flat`;
@@ -198,21 +280,6 @@ impl ValidSyllableBuilder {
         NucleusStatus::from_vowels(&buf[..len])
     }
 
-    #[inline]
-    fn apply_transform_key<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformEffect {
-        // 1. Tone
-        if let Some(tone) = keymap.decode_tone(key) {
-            return self.transform_tone(tone);
-        }
-        // 2. D-stroke
-        else if keymap.is_stroke_key(key) {
-            return self.toggle_d_stroke();
-        }
-
-        // 3. Shape
-        self.transform_vowels_shape(keymap, key)
-    }
-
     /// Applies a Horn shape to the `u o` prefix (requires at least 2 vowels).
     fn transform_uo_horn(&mut self) -> TransformEffect {
         let vowels = &self.vowels;
@@ -229,20 +296,22 @@ impl ValidSyllableBuilder {
 
             // ưô -> ươ
             (BaseVowel::UHorn, BaseVowel::OCircumflex) => {
-                self.transform_vowel_shape(1, Shape::Horn)
+                self.try_transform_vowel_shape(1, Shape::Horn)
             }
 
             // ưo -> ươ
-            (BaseVowel::UHorn, BaseVowel::O) => self.transform_vowel_shape(1, Shape::Horn),
+            (BaseVowel::UHorn, BaseVowel::O) => self.try_transform_vowel_shape(1, Shape::Horn),
 
             // uo -> uơ
-            (BaseVowel::U, BaseVowel::O) => self.transform_vowel_shape(1, Shape::Horn),
+            (BaseVowel::U, BaseVowel::O) => self.try_transform_vowel_shape(1, Shape::Horn),
 
             // uơ -> ươ
-            (BaseVowel::U, BaseVowel::OHorn) => self.transform_vowel_shape(0, Shape::Horn),
+            (BaseVowel::U, BaseVowel::OHorn) => self.try_transform_vowel_shape(0, Shape::Horn),
 
             // uô -> uơ
-            (BaseVowel::U, BaseVowel::OCircumflex) => self.transform_vowel_shape(1, Shape::Horn),
+            (BaseVowel::U, BaseVowel::OCircumflex) => {
+                self.try_transform_vowel_shape(1, Shape::Horn)
+            }
 
             _ => TransformEffect::Ignored,
         }
@@ -258,7 +327,7 @@ impl ValidSyllableBuilder {
             (BaseVowel::UHorn, BaseVowel::OHorn) => {
                 self.vowels[0].value = BaseVowel::U;
 
-                match self.transform_vowel_shape(1, Shape::Circumflex) {
+                match self.try_transform_vowel_shape(1, Shape::Circumflex) {
                     effect @ (TransformEffect::Applied | TransformEffect::Reverted) => effect,
                     TransformEffect::Ignored => {
                         self.vowels[0].value = first;
@@ -274,7 +343,7 @@ impl ValidSyllableBuilder {
             (BaseVowel::UHorn, BaseVowel::O) => {
                 self.vowels[0].value = BaseVowel::U;
 
-                match self.transform_vowel_shape(1, Shape::Circumflex) {
+                match self.try_transform_vowel_shape(1, Shape::Circumflex) {
                     effect @ (TransformEffect::Applied | TransformEffect::Reverted) => effect,
                     TransformEffect::Ignored => {
                         self.vowels[0].value = first;
@@ -284,10 +353,12 @@ impl ValidSyllableBuilder {
             }
 
             // uo -> uô
-            (BaseVowel::U, BaseVowel::O) => self.transform_vowel_shape(1, Shape::Circumflex),
+            (BaseVowel::U, BaseVowel::O) => self.try_transform_vowel_shape(1, Shape::Circumflex),
 
             // uơ -> uô
-            (BaseVowel::U, BaseVowel::OHorn) => self.transform_vowel_shape(1, Shape::Circumflex),
+            (BaseVowel::U, BaseVowel::OHorn) => {
+                self.try_transform_vowel_shape(1, Shape::Circumflex)
+            }
 
             // uô -> undo (revert to "uo")
             (BaseVowel::U, BaseVowel::OCircumflex) => {
@@ -300,9 +371,25 @@ impl ValidSyllableBuilder {
 
     /// Tries to apply `key` as a shape transform on the vowel sequence,
     /// scanning from the last vowel backwards.
-    fn transform_vowels_shape<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformEffect {
-        // Handle the special u / o cases.
-        if self.vowels_starts_with_uo() {
+    fn try_transform_shape<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        key: char,
+        upper_bound_idx: Option<usize>,
+    ) -> TransformEffect {
+        // 1. Xác định giới hạn con trỏ (upper bound)
+        let max_len = match upper_bound_idx {
+            Some(idx) => idx.min(self.vowels.len()),
+            None => self.vowels.len(),
+        };
+
+        // Nếu con trỏ ở ngay vị trí 0, không có nguyên âm nào bên trái -> Bỏ qua ngay lập tức!
+        if max_len == 0 {
+            return TransformEffect::Ignored;
+        }
+        // 2. Xử lý trường hợp đặc biệt "uo" (uow -> ươ, uoo -> uô)
+        // ĐIỀU KIỆN MỚI: Chỉ check "uo" khi con trỏ nằm SAU chữ 'u' (tức max_len >= 1)
+        else if self.vowels_starts_with_uo() {
             if let Some(shape) = keymap
                 .decode_shape(key, RootVowel::O)
                 .or_else(|| keymap.decode_shape(key, RootVowel::U))
@@ -315,17 +402,16 @@ impl ValidSyllableBuilder {
             }
         }
 
-        let vseq_len = self.vowels.len();
-        for index in (0..vseq_len).rev() {
+        // 3. Duyệt ngược từ (max_len - 1) lùi về 0 (CHỈ xét các nguyên âm đứng TRƯỚC con trỏ)
+        for index in (0..max_len).rev() {
             let base = self.vowels[index].value;
 
             if let Some(shape) = keymap.decode_shape(key, base.root()) {
-                let effect = self.transform_vowel_shape(index, shape);
-                // If that failed, keep trying the earlier vowels.
+                let effect = self.try_transform_vowel_shape(index, shape);
                 if effect != TransformEffect::Ignored {
                     return effect;
                 }
-            };
+            }
         }
 
         TransformEffect::Ignored
@@ -335,7 +421,7 @@ impl ValidSyllableBuilder {
     ///
     /// Applying the shape it already has reverts it; an invalid result rolls
     /// the vowel back.
-    fn transform_vowel_shape(&mut self, index: usize, shape: Shape) -> TransformEffect {
+    fn try_transform_vowel_shape(&mut self, index: usize, shape: Shape) -> TransformEffect {
         let old = self.vowels[index].value;
 
         if old.has_shape(shape) && shape.is_some() {
@@ -363,31 +449,31 @@ impl ValidSyllableBuilder {
         }
     }
 
-    #[inline(always)]
-    pub fn tone_index(&self, tone_scheme: ToneScheme) -> Option<usize> {
-        tone_scheme.tone_index(&self.vowels, self.coda.is_empty())
+    #[inline]
+    fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformEffect {
+        if self.onset.len() > 0 && keymap.is_stroke_key(key) {
+            return self.toggle_d_stroke();
+        }
+        TransformEffect::Ignored
     }
 
-    #[inline(always)]
-    pub fn to_chars(&self, tone_scheme: ToneScheme) -> Vec<char> {
-        let mut output = Vec::with_capacity(self.len());
-
-        output.extend(self.onset.iter().copied());
-
-        let tone_position = self.tone_index(tone_scheme);
-        for (index, vowel) in self.vowels.iter().enumerate() {
-            let tone = if Some(index) == tone_position {
-                self.tone()
-            } else {
-                Tone::Flat
-            };
-
-            output.push(vowel.to_char_tone(tone));
+    #[inline]
+    fn try_transform<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        key: char,
+        upper_bound_idx: Option<usize>,
+    ) -> TransformEffect {
+        // 1. Tone
+        if let Some(tone) = keymap.decode_tone(key) {
+            return self.transform_tone(tone);
         }
-
-        output.extend(self.coda.iter().copied());
-
-        output
+        // 2. Shape
+        else if keymap.is_shape_key(key) {
+            return self.try_transform_shape(keymap, key, upper_bound_idx);
+        }
+        // 3. D-stroke
+        self.try_toggle_d_stroke(keymap, key)
     }
 }
 
@@ -398,13 +484,13 @@ impl ValidSyllableBuilder {
         &mut self,
         keymap: &KM,
         index: usize,
-        input: char,
+        key: char,
     ) -> Result<InputResult, SyllableError> {
         let total_len = self.len();
 
         // 1. Chèn vào cuối -> chính là push()
         if index >= total_len {
-            return self.push(keymap, input);
+            return self.push(keymap, key);
         }
 
         let onset_len = self.onset.len();
@@ -413,27 +499,21 @@ impl ValidSyllableBuilder {
         // 2. Định tuyến theo vùng index
         if index <= onset_len {
             // 1. Phím gạch ngang (d -> đ)
-            if index > 0
-                && keymap.is_stroke_key(input)
-                && self.toggle_d_stroke() == TransformEffect::Applied
-            {
+            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
                 return Ok(InputResult::Transformed);
             }
 
-            self.insert_onset(keymap, index, input)
+            self.insert_onset(keymap, index, key)
         } else if index <= onset_len + vowels_len {
             let vowel_idx = index - onset_len;
-            self.insert_vowel(keymap, vowel_idx, input)
+            self.insert_vowel(keymap, vowel_idx, key)
         } else {
             // 1. Áp dụng dấu thanh nếu gõ phím biến đổi khi con trỏ ở vùng Coda
-            if keymap.is_transform_key(input) {
-                let effect = self.apply_transform_key(keymap, input);
-                if effect == TransformEffect::Applied {
-                    return Ok(InputResult::Transformed);
-                }
+            if self.try_transform(keymap, key, Some(index)) == TransformEffect::Applied {
+                return Ok(InputResult::Transformed);
             }
             let coda_idx = index - onset_len - vowels_len;
-            self.insert_coda(coda_idx, input)
+            self.insert_coda(coda_idx, key)
         }
     }
 
@@ -445,19 +525,19 @@ impl ValidSyllableBuilder {
         index: usize,
         input: char,
     ) -> Result<InputResult, SyllableError> {
-        // 2. Thử mở rộng Onset (thường xảy ra khi index == onset.len() hoặc chèn phụ âm vào giữa)
-        if self.onset.len() < Onset::MAX_ONSET_LEN {
-            self.onset.insert(index, input);
-            if let Ok(kind) = Onset::from_chars(&self.onset) {
-                self.onset_kind = kind;
-                return Ok(InputResult::Inserted);
-            }
-            // Không tạo thành Onset hợp lệ -> Revert
-            self.onset.remove(index);
-        }
+        let at_end_onset = self.onset.len() == index;
 
-        // 3. Nếu chèn ở giữa Onset (index < onset.len()) mà Onset không nhận -> Báo lỗi InvalidOnset
-        if index < self.onset.len() {
+        // 2. Thử mở rộng Onset (thường xảy ra khi index == onset.len() hoặc chèn phụ âm vào giữa)
+        if self.try_update_onset(
+            |onset| onset.insert(index, input),
+            |onset| {
+                onset.remove(index);
+            },
+        ) {
+            return Ok(InputResult::Inserted);
+        }
+        // Nếu chèn ở giữa Onset (index < onset.len()) mà Onset không nhận -> Báo lỗi InvalidOnset
+        else if !at_end_onset {
             return Err(SyllableError::InvalidOnset);
         }
 
@@ -473,46 +553,51 @@ impl ValidSyllableBuilder {
         vowel_index: usize,
         input: char,
     ) -> Result<InputResult, SyllableError> {
-        // 1. Kiểm tra phím biến đổi (dấu thanh/mũ: s, f, r, x, j, a, w, e...)
-        if keymap.is_transform_key(input) {
-            let effect = self.apply_transform_key(keymap, input);
-            if effect == TransformEffect::Applied {
-                return Ok(InputResult::Transformed);
-            }
+        // 1. Áp dụng dấu thanh nếu gõ phím biến đổi khi con trỏ ở vùng Vowel
+        if self.try_transform(keymap, input, Some(vowel_index)) == TransformEffect::Applied {
+            return Ok(InputResult::Transformed);
         }
 
-        // 2. Giải mã input thành nguyên âm
+        // ─── Chèn nguyên âm thô (Literal Vowel Insertion) ────────────────────
+        // Nếu không phải là phím modifier (hoặc modifier bị Ignored), giải mã
+        // và chèn input như một nguyên âm mới.
         let Some((base_cased, tone)) = decode_vowel(input) else {
+            if vowel_index == self.vowels.len() {
+                // Chuẩn hóa tiền tố uo / ươ nếu có coda đi kèm
+                self.finalize_uo_prefix();
+                return self.insert_coda(0, input);
+            }
+
             return Err(SyllableError::InvalidNucleus);
         };
 
-        // 3. Kiểm tra các điều kiện biên của Vowel
+        // Tiếng Việt tối đa 3 nguyên âm
         if self.vowels.len() >= 3 {
             return Err(SyllableError::InvalidNucleus);
         }
 
-        // Kiểm tra xung đột dấu thanh
+        // Kiểm tra xung đột dấu thanh đối với nguyên âm mới chèn vào
         let old_tone = self.tone;
         if self.tone != Tone::Flat && tone != Tone::Flat && self.tone != tone {
             return Err(SyllableError::InvalidNucleus);
         }
 
-        // 4. Chèn nguyên âm mới vào vị trí vowel_index
+        // Chèn nguyên âm mới vào đúng vị trí vowel_index
         self.vowels.insert(vowel_index, base_cased);
         if self.tone == Tone::Flat {
             self.tone = tone;
         }
 
-        // 5. Kiểm tra tính hợp lệ của Nucleus mới
+        // Validate lại toàn bộ Nucleus
         if self.validate_vowels() == NucleusStatus::Dead {
-            // Rollback nếu không hợp lệ
+            // Rollback nếu chuỗi nguyên âm mới tạo ra không hợp lệ
             self.vowels.remove(vowel_index);
             self.tone = old_tone;
             return Err(SyllableError::InvalidNucleus);
         }
 
-        // Chuẩn hóa uo / ươ nếu có
-        if self.vowels.len() >= 2 {
+        // Chuẩn hóa tiền tố uo / ươ nếu chạm mốc >= 2 nguyên âm
+        if self.vowels.len() == 3 {
             self.finalize_uo_prefix();
         }
 
@@ -526,25 +611,19 @@ impl ValidSyllableBuilder {
         coda_index: usize,
         input: char,
     ) -> Result<InputResult, SyllableError> {
-        // 2. Chèn phụ âm cuối vào mảng Coda
-        if self.coda.len() >= Coda::MAX_CODA_LEN {
-            return Err(SyllableError::InvalidCoda);
+        // Chèn phụ âm cuối vào mảng Coda
+        if self.try_update_coda(
+            |coda| coda.insert(coda_index, input),
+            |coda| {
+                coda.remove(coda_index);
+            },
+        ) {
+            // always in coda phase if has coda
+            self.push_phase = PushPhase::Coda;
+            return Ok(InputResult::Inserted);
         }
 
-        self.coda.insert(coda_index, input);
-
-        // 3. Validate Coda cluster
-        match Coda::from_chars(&self.coda) {
-            Ok(kind) => {
-                self.coda_kind = kind;
-                Ok(InputResult::Inserted)
-            }
-            Err(_) => {
-                // Rollback nếu Coda không hợp lệ
-                self.coda.remove(coda_index);
-                Err(SyllableError::InvalidCoda)
-            }
-        }
+        Err(SyllableError::InvalidCoda)
     }
 }
 
@@ -559,17 +638,14 @@ impl ValidSyllableBuilder {
     pub fn push<KM: Keymap>(
         &mut self,
         keymap: &KM,
-        input: char,
+        key: char,
     ) -> Result<InputResult, SyllableError> {
         let curr_phase = self.push_phase;
         match curr_phase {
             PushPhase::Onset => {
                 // A stroke key strokes an existing onset letter (`d` -> `đ`), so
                 // it only acts once the onset already holds a character.
-                if self.onset.len() > 0 // at least one onset char
-                    && keymap.is_stroke_key(input)
-                    && self.toggle_d_stroke() == TransformEffect::Applied
-                {
+                if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
                     // Applied: the onset became `đ` / `Đ`; the key is consumed.
                     //   `d` + `d` -> `đ`, `D` + `D` -> `Đ`
                     return Ok(InputResult::Transformed);
@@ -581,15 +657,13 @@ impl ValidSyllableBuilder {
                 // Ignored: the onset cannot be stroked, so the key is an
                 // ordinary literal (rejected here if it breaks the onset).
                 //   `b` + `d` -> `b` then literal `d` -> invalid onset
-                self.push_onset(input)
+                self.push_onset(key)
             }
             PushPhase::Vowel | PushPhase::Coda => {
-                if keymap.is_transform_key(input)
-                    // A transform key (tone / shape / stroke) is offered to the
-                    // current syllable first. Only `Applied` consumes it; every
-                    // other effect falls through to be parsed as a literal.
-                    && self.apply_transform_key(keymap, input) == TransformEffect::Applied
-                {
+                // A transform key (tone / shape / stroke) is offered to the
+                // current syllable first. Only `Applied` consumes it; every
+                // other effect falls through to be parsed as a literal.
+                if self.try_transform(keymap, key, None) == TransformEffect::Applied {
                     // Applied: the mark changed the syllable; the key is consumed.
                     //   `a` + `s` -> `á` (tone), `a` + `w` -> `ă` (shape)
                     return Ok(InputResult::Transformed);
@@ -602,8 +676,8 @@ impl ValidSyllableBuilder {
                 // Ignored: nothing to transform, so the key is a plain literal.
                 //   `i` + `e` -> `ie` (`e` cannot shape `i`, so it is inserted)
                 match curr_phase {
-                    PushPhase::Vowel => self.push_vowel(input),
-                    PushPhase::Coda => self.push_coda(input),
+                    PushPhase::Vowel => self.push_vowel(key),
+                    PushPhase::Coda => self.push_coda(key),
                     PushPhase::Onset => unreachable!(),
                 }
             }
@@ -611,25 +685,6 @@ impl ValidSyllableBuilder {
     }
 
     // ─────────────────────────── Onset ───────────────────────────
-    #[inline(always)]
-    fn try_push_onset(&mut self, input: char) -> bool {
-        if self.onset.len() < Onset::MAX_ONSET_LEN {
-            self.onset.push(input);
-            return match Onset::from_chars(&self.onset) {
-                Ok(kind) => {
-                    self.onset_kind = kind;
-                    true
-                }
-                Err(_) => {
-                    // Coda is not valid then rollback
-                    self.onset.pop();
-                    false
-                }
-            };
-        }
-        false
-    }
-
     /// Handles a literal (non-transform) character while in the `Onset` phase.
     ///
     /// `q` is kept as a transitional prefix waiting for `u` (to form `qu`);
@@ -663,11 +718,16 @@ impl ValidSyllableBuilder {
             }
 
             return Err(SyllableError::InvalidNucleus);
-        } else if self.try_push_onset(input) {
+        } else if self.try_update_onset(
+            |onset| onset.push(input),
+            |onset| {
+                onset.pop();
+            },
+        ) {
             return Ok(InputResult::Inserted);
         }
 
-        return Err(SyllableError::InvalidNucleus);
+        Err(SyllableError::InvalidOnset)
     }
 
     // ─────────────────────────── Vowel ───────────────────────────
@@ -780,20 +840,11 @@ impl ValidSyllableBuilder {
     /// back in that case).
     #[inline(always)]
     fn try_push_coda(&mut self, input: char) -> bool {
-        if self.coda.len() >= Coda::MAX_CODA_LEN {
-            return false;
-        }
-
-        self.coda.push(input);
-        match Coda::from_chars(&self.coda) {
-            Ok(kind) => {
-                self.coda_kind = kind;
-                true
-            }
-            Err(_) => {
-                self.coda.pop();
-                false
-            }
-        }
+        self.try_update_coda(
+            |coda| coda.push(input),
+            |coda| {
+                coda.pop();
+            },
+        )
     }
 }

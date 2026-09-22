@@ -168,7 +168,13 @@ fn main() {
     let delegating_ns = delegating_time.as_nanos() as f64 / (iters as f64 * per_input);
 
     println!("inputs per pass: {}", workload.len());
-    println!("inline     impl: {:>8.2} ns/input  (best of {rounds})", inline_ns);
-    println!("delegating impl: {:>8.2} ns/input  (best of {rounds})", delegating_ns);
+    println!(
+        "inline     impl: {:>8.2} ns/input  (best of {rounds})",
+        inline_ns
+    );
+    println!(
+        "delegating impl: {:>8.2} ns/input  (best of {rounds})",
+        delegating_ns
+    );
     println!("ratio delegating/inline: {:.2}x", delegating_ns / inline_ns);
 }

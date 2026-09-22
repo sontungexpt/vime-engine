@@ -57,11 +57,7 @@ fn main() {
 
     // Sanity: both variants must agree on every input.
     for &id in &workload {
-        assert_eq!(
-            BaseVowel::from_id(id),
-            match_from_id(id),
-            "id {id}"
-        );
+        assert_eq!(BaseVowel::from_id(id), match_from_id(id), "id {id}");
     }
 
     let rounds = 40;
