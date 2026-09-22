@@ -1,19 +1,11 @@
-//! Runs the full data-driven corpus through the current `ValidSyllableBuilder`
-//! `push` pipeline.
+//! Runs the full data-driven corpus through `BuildingSyllableBuilder::push`.
 //!
-//! The corpus data and the harness live under `corpus/`:
-//!
-//! * `corpus/mod.rs`  — shared types, macros and the [`Corpus`] runner
-//! * `corpus/onsets` … — one module of behaviour data per concern
-//!
-//! The entry points below sweep each module's rows with one keymap and assert
-//! the corpus never silently shrinks. Add a new row to the module matching the
-//! behaviour it exercises; keep the bodies of the tests here as small as
-//! possible.
+//! Behaviour data and the [`Corpus`] runner live under `corpus/`; the shared
+//! `ExpectedSyllable` model and `check_syllable_eq` come from `common`. The
+//! entry points below sweep each module's rows with one keymap and assert the
+//! corpus never silently shrinks.
 
-mod corpus;
-
-use corpus::{dead_cases, gi, incomplete, onsets, precomposed, syllables, telex_shapes, telex_tones, toggles, tones_shapes, uo_sequences, uppercase, viqr, vni, Corpus};
+use crate::corpus::{dead_cases, gi, incomplete, onsets, precomposed, syllables, telex_shapes, telex_tones, toggles, tones_shapes, uo_sequences, uppercase, viqr, vni, Corpus};
 
 use vime_engine::DefaultKeymap;
 

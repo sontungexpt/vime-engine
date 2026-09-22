@@ -127,7 +127,11 @@ fn main() {
             ],
         };
         for _ in 0..*w {
-            states.push(Nucleus { vowels: n.vowels, len: n.len, coda_empty: n.coda_empty });
+            states.push(Nucleus {
+                vowels: n.vowels,
+                len: n.len,
+                coda_empty: n.coda_empty,
+            });
         }
     }
 
@@ -143,16 +147,22 @@ fn main() {
     }
     println!("inputs per pass: {}", states.len());
     println!("states where old != new (guard change): {diffs}");
-    assert_eq!(diffs, 4, "expected exactly the len-2/no-coda uo-horn states");
+    assert_eq!(
+        diffs, 4,
+        "expected exactly the len-2/no-coda uo-horn states"
+    );
 
     // Body-style equivalence: same `len < 2` guard, old indexed writes vs the
-// slice-let form. Outputs must agree on every state.
-for s in &states {
-    let (mut a, mut b) = (s.clone(), s.clone());
-    old_normalize(&mut a);
-    hybrid_normalize(&mut b);
-    assert!(a.vowels == b.vowels, "indexed and slice-let bodies must agree");
-}
+    // slice-let form. Outputs must agree on every state.
+    for s in &states {
+        let (mut a, mut b) = (s.clone(), s.clone());
+        old_normalize(&mut a);
+        hybrid_normalize(&mut b);
+        assert!(
+            a.vowels == b.vowels,
+            "indexed and slice-let bodies must agree"
+        );
+    }
 
     let rounds = 300;
     let iters = 400_000;
@@ -187,9 +197,24 @@ for s in &states {
 
     let n = states.len() as f64;
     let base = iters as f64 * n;
-    println!("old (guard+body 068edb6): {:7.3} ns/input", old_t.as_nanos() as f64 / base);
-    println!("new (all in one fn)   : {:7.3} ns/input", new_t.as_nanos() as f64 / base);
-    println!("hyb (old guard new bd): {:7.3} ns/input", hyb_t.as_nanos() as f64 / base);
-    println!("body-style effect (hyb/old): {:.3}x", hyb_t.as_nanos() as f64 / old_t.as_nanos() as f64);
-    println!("guard effect (new/hyb):      {:.3}x", new_t.as_nanos() as f64 / hyb_t.as_nanos() as f64);
+    println!(
+        "old (guard+body 068edb6): {:7.3} ns/input",
+        old_t.as_nanos() as f64 / base
+    );
+    println!(
+        "new (all in one fn)   : {:7.3} ns/input",
+        new_t.as_nanos() as f64 / base
+    );
+    println!(
+        "hyb (old guard new bd): {:7.3} ns/input",
+        hyb_t.as_nanos() as f64 / base
+    );
+    println!(
+        "body-style effect (hyb/old): {:.3}x",
+        hyb_t.as_nanos() as f64 / old_t.as_nanos() as f64
+    );
+    println!(
+        "guard effect (new/hyb):      {:.3}x",
+        new_t.as_nanos() as f64 / hyb_t.as_nanos() as f64
+    );
 }

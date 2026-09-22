@@ -56,12 +56,20 @@ fn main() {
         }};
     }
     // len-1 (the overwhelming majority)
-    add!(8; BaseVowel::A); add!(8; BaseVowel::O); add!(6; BaseVowel::U);
-    add!(6; BaseVowel::I); add!(6; BaseVowel::E); add!(3; BaseVowel::OHorn);
-    add!(3; BaseVowel::UHorn); add!(3; BaseVowel::OCircumflex); add!(2; BaseVowel::ACircumflex);
-    add!(2; BaseVowel::ECircumflex); add!(2; BaseVowel::ABreve); add!(1; BaseVowel::Y);
+    add!(8; BaseVowel::A);
+    add!(8; BaseVowel::O);
+    add!(6; BaseVowel::U);
+    add!(6; BaseVowel::I);
+    add!(6; BaseVowel::E);
+    add!(3; BaseVowel::OHorn);
+    add!(3; BaseVowel::UHorn);
+    add!(3; BaseVowel::OCircumflex);
+    add!(2; BaseVowel::ACircumflex);
+    add!(2; BaseVowel::ECircumflex);
+    add!(2; BaseVowel::ABreve);
+    add!(1; BaseVowel::Y);
     // len-2 pairs including the true `uo`
-    add!(5; BaseVowel::U, BaseVowel::O);   // true
+    add!(5; BaseVowel::U, BaseVowel::O); // true
     add!(2; BaseVowel::O, BaseVowel::U);
     add!(2; BaseVowel::I, BaseVowel::E);
     add!(2; BaseVowel::A, BaseVowel::I);
@@ -70,7 +78,7 @@ fn main() {
     add!(1; BaseVowel::E, BaseVowel::U);
     add!(1; BaseVowel::U, BaseVowel::OHorn);
     add!(1; BaseVowel::UHorn, BaseVowel::O); // true
-    // len-3
+                                             // len-3
     add!(3; BaseVowel::U, BaseVowel::O, BaseVowel::I); // true
     add!(1; BaseVowel::I, BaseVowel::E, BaseVowel::U);
     add!(1; BaseVowel::O, BaseVowel::A, BaseVowel::I);
@@ -120,8 +128,17 @@ fn main() {
     let new_ns = new_t.as_nanos() as f64 / (iters as f64 * n);
 
     println!("inputs per pass: {}", inputs.len());
-    println!("true  uo cases / pass: {}", inputs.iter().filter(|s| old_starts_with_uo(s)).count());
-    println!("old (len>1 &&)   : {:>7.3} ns/input  (best of {rounds})", old_ns);
-    println!("new (matches![])  : {:>7.3} ns/input  (best of {rounds})", new_ns);
+    println!(
+        "true  uo cases / pass: {}",
+        inputs.iter().filter(|s| old_starts_with_uo(s)).count()
+    );
+    println!(
+        "old (len>1 &&)   : {:>7.3} ns/input  (best of {rounds})",
+        old_ns
+    );
+    println!(
+        "new (matches![])  : {:>7.3} ns/input  (best of {rounds})",
+        new_ns
+    );
     println!("ratio new/old: {:.3}x", new_ns / old_ns);
 }

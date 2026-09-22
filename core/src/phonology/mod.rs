@@ -1,9 +1,10 @@
 mod case;
 mod coda;
 mod onset;
-pub mod rules;
 mod vowel;
 mod vowel_sequence;
+
+pub mod rules;
 
 pub use case::Cased;
 pub use coda::{Coda, CodaParseError};

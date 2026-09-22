@@ -125,7 +125,10 @@ fn main() {
             ],
         };
         for _ in 0..*w {
-            states.push(Nucleus { vowels: n.vowels, len: n.len });
+            states.push(Nucleus {
+                vowels: n.vowels,
+                len: n.len,
+            });
         }
     }
 
@@ -161,7 +164,16 @@ fn main() {
     let n = states.len() as f64;
     let base = iters as f64 * n;
     println!("inputs per pass: {}", states.len());
-    println!("slice-let body:  {:7.3} ns/input", slice_t.as_nanos() as f64 / base);
-    println!("indexed body:    {:7.3} ns/input", index_t.as_nanos() as f64 / base);
-    println!("indexed/slicelet effect: {:.3}x", index_t.as_nanos() as f64 / slice_t.as_nanos() as f64);
+    println!(
+        "slice-let body:  {:7.3} ns/input",
+        slice_t.as_nanos() as f64 / base
+    );
+    println!(
+        "indexed body:    {:7.3} ns/input",
+        index_t.as_nanos() as f64 / base
+    );
+    println!(
+        "indexed/slicelet effect: {:.3}x",
+        index_t.as_nanos() as f64 / slice_t.as_nanos() as f64
+    );
 }

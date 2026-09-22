@@ -877,7 +877,7 @@ mod tests {
         assert_eq!(dfa(&[UHorn, O]), InComplete);
     }
 
-    /// A faithful transcription of the engine's shape transform (valid.rs):
+    /// A faithful transcription of the engine's shape transform (building.rs):
     /// scan the nucleus right-to-left; transform the rightmost vowel that can
     /// take the shape; special-case the "u o" prefix; reverting applies the
     /// shape back; Dead results roll back and scanning continues.

@@ -1,4 +1,4 @@
-//! Micro-benchmark of `ValidSyllableBuilder::push` through a representative
+//! Micro-benchmark of `BuildingSyllableBuilder::push` through a representative
 //! Vietnamese (telex) keystroke workload.
 //!
 //! Run against a checkout and compare results between revisions:
@@ -11,7 +11,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::composition::ValidSyllableBuilder;
+use vime_engine::composition::BuildingSyllableBuilder;
 use vime_engine::DefaultKeymap;
 
 fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
@@ -31,7 +31,7 @@ fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
 fn run_workload(workload: &[&str], keymap: &DefaultKeymap<'_>) -> usize {
     let mut pushes = 0;
     for &word in workload {
-        let mut builder = ValidSyllableBuilder::default();
+        let mut builder = BuildingSyllableBuilder::default();
         for ch in word.chars() {
             black_box(black_box(&mut builder).push(keymap, ch));
             pushes += 1;
@@ -78,7 +78,13 @@ fn main() {
 
     let ns = best.as_nanos() as f64;
     println!("total:        {:>10.2} ns/pass", ns / iters as f64);
-    println!("per sequence: {:>10.2} ns/input", ns / (iters as f64 * workload.len() as f64));
-    println!("per push:     {:>10.2} ns/push", ns / (iters as f64 * pushes_per_pass));
+    println!(
+        "per sequence: {:>10.2} ns/input",
+        ns / (iters as f64 * workload.len() as f64)
+    );
+    println!(
+        "per push:     {:>10.2} ns/push",
+        ns / (iters as f64 * pushes_per_pass)
+    );
     println!("(best of {rounds} rounds)");
 }

@@ -1,15 +1,15 @@
-mod invalid;
-mod valid;
+mod building;
+mod dead;
 
-pub use invalid::{CharStatus, DeadSyllableBuilder};
-pub use valid::{SyllableError, TransformEffect, ValidSyllableBuilder};
+pub use building::{BuildingSyllableBuilder, InputEffect, SyllableError, TransformEffect};
+pub use dead::{CharStatus, DeadSyllableBuilder};
 
 use crate::{keymap::Keymap, phonology::rules::ToneScheme};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyllableState {
     /// Parsing phase: accumulating and validating Vietnamese syllable components.
-    Building(ValidSyllableBuilder),
+    Building(BuildingSyllableBuilder),
 
     /// Dead phase: parsing failed; remaining input is collected verbatim.
     Dead(DeadSyllableBuilder),
@@ -18,7 +18,7 @@ pub enum SyllableState {
 impl Default for SyllableState {
     #[inline]
     fn default() -> Self {
-        Self::Building(ValidSyllableBuilder::default())
+        Self::Building(BuildingSyllableBuilder::default())
     }
 }
 
@@ -30,6 +30,7 @@ pub struct SyllableBuilder<KM: Keymap> {
 }
 
 impl<KM: Keymap> SyllableBuilder<KM> {
+    #[inline]
     pub fn new(keymap: KM, tone_scheme: ToneScheme) -> Self {
         Self {
             keymap,
@@ -46,20 +47,46 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         }
     }
 
-    /// Clean push signature — only needs the character!
-    pub fn push(&mut self, input: char) {
+    pub fn push(&mut self, input: char) -> InputEffect {
         match &mut self.state {
-            SyllableState::Building(builder) => {
-                if builder.push(&self.keymap, input).is_err() {
-                    let builder = std::mem::take(builder);
-
-                    self.state =
-                        SyllableState::Dead(DeadSyllableBuilder::from_rejected(builder, input));
-                }
-            }
-
             SyllableState::Dead(builder) => {
                 builder.push(input);
+                InputEffect::StructurallyChanged
+            }
+            SyllableState::Building(builder) => {
+                match builder.push(&self.keymap, input) {
+                    Ok(effect) => effect,
+                    Err(_err) => {
+                        // Chuyển sang Dead nhưng vẫn giữ lại effect gốc (Transform hay Structural)
+                        let chars = builder.to_chars(&self.tone_scheme);
+                        let mut dead = DeadSyllableBuilder::from_accepted(chars);
+                        dead.push(input);
+                        self.state = SyllableState::Dead(dead);
+                        InputEffect::StructurallyChanged
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn insert(&mut self, index: usize, input: char) -> InputEffect {
+        match &mut self.state {
+            SyllableState::Dead(builder) => {
+                builder.insert(index, input);
+                InputEffect::StructurallyChanged
+            }
+            SyllableState::Building(builder) => {
+                match builder.insert(&self.keymap, index, input) {
+                    Ok(effect) => effect,
+                    Err(_err) => {
+                        // Chuyển sang Dead nhưng vẫn giữ lại effect gốc (Transform hay Structural)
+                        let chars = builder.to_chars(&self.tone_scheme);
+                        let mut dead = DeadSyllableBuilder::from_accepted(chars);
+                        dead.insert(index, input);
+                        self.state = SyllableState::Dead(dead);
+                        InputEffect::StructurallyChanged
+                    }
+                }
             }
         }
     }

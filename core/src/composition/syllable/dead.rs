@@ -1,7 +1,3 @@
-use crate::phonology::{encode_vowel, Tone};
-
-use super::valid::ValidSyllableBuilder;
-
 /// Whether a recorded character belongs to the accepted syllable or to the
 /// rejected input that ended the parse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,36 +25,18 @@ impl CharStatus {
 /// character is recorded verbatim, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadSyllableBuilder {
-    previous: ValidSyllableBuilder,
-    recoverable: bool,
-
     chars: Vec<CharStatus>,
 }
 
 impl DeadSyllableBuilder {
-    #[inline]
-    pub fn from_rejected(valid: ValidSyllableBuilder, rejected: char) -> Self {
-        let mut chars = Vec::with_capacity(valid.len() + 1);
+    pub fn from_accepted(valid_chars: impl IntoIterator<Item = char>) -> Self {
+        let iter = valid_chars.into_iter();
+        let (lower, _) = iter.size_hint();
 
-        chars.extend(valid.onset().iter().copied().map(CharStatus::Accepted));
+        let mut chars = Vec::with_capacity(lower + 1);
+        chars.extend(iter.map(CharStatus::Accepted));
 
-        for cased_vowel in valid.vowels() {
-            chars.push(CharStatus::Accepted(encode_vowel(
-                cased_vowel.value,
-                Tone::Flat,
-                cased_vowel.is_upper,
-            )));
-        }
-
-        chars.extend(valid.coda().iter().copied().map(CharStatus::Accepted));
-
-        chars.push(CharStatus::Rejected(rejected));
-
-        Self {
-            previous: valid,
-            recoverable: true,
-            chars,
-        }
+        Self { chars }
     }
 
     #[inline(always)]
@@ -71,12 +49,30 @@ impl DeadSyllableBuilder {
         &self.chars
     }
 
+    #[inline(always)]
+    pub fn to_chars(&self) -> Vec<char> {
+        self.chars.iter().copied().map(CharStatus::char).collect()
+    }
+
     #[inline]
     pub fn reset(&mut self) {
         self.chars.clear();
     }
 
+    #[inline]
     pub fn push(&mut self, input: char) {
         self.chars.push(CharStatus::Rejected(input));
+    }
+
+    #[inline]
+    pub fn insert(&mut self, index: usize, input: char) {
+        debug_assert!(index <= self.chars.len());
+        self.chars.insert(index, CharStatus::Rejected(input));
+    }
+
+    #[inline]
+    pub fn remove(&mut self, index: usize) -> CharStatus {
+        debug_assert!(index < self.chars.len());
+        self.chars.remove(index)
     }
 }

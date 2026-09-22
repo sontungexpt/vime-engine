@@ -31,10 +31,10 @@ pub use config::Config;
 pub use engine::Engine;
 pub use event::{Key, KeyEvent, KeyState};
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
+pub use phonology::rules::{tone_index_modern, tone_index_old};
 pub use phonology::{
     decode_vowel, encode_vowel, is_vowel, BaseVowel, Cased, CasedBaseVowel, RootVowel, Shape, Tone,
     VowelSequence,
 };
-pub use phonology::rules::{tone_index_modern, tone_index_old};
 pub use renderer::{DefaultRenderer, Renderer};
 pub use result::Result;

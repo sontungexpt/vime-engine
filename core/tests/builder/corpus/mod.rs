@@ -1,14 +1,18 @@
-//! Shared, data-driven harness for the `ValidSyllableBuilder::push` corpus.
+//! Behaviour corpus for `BuildingSyllableBuilder::push`.
 //!
 //! The pipeline under test is just the syllable builder:
 //!
 //! ```text
-//! Keymap + char → ValidSyllableBuilder::push() → syllable state
+//! Keymap + char → BuildingSyllableBuilder::push() → syllable state
 //! ```
 //!
 //! Every case pushes characters one at a time and lets the builder classify and
 //! transform each one via the keymap. Precomposed Vietnamese vowels (`ạ`, `ắ`,
 //! `Ắ`, …) are kept as-is; the corpus never decomposes them.
+//!
+//! The shared [`ExpectedSyllable`] model, the `C` / `V` field shorthands and
+//! [`check_syllable_eq`] live in the sibling [`common`](crate::common) module;
+//! this module holds only the push-specific case model, runner and data.
 //!
 //! # Case model
 //!
@@ -57,7 +61,7 @@
 //! | `syllables`      | real Vietnamese syllables (regression corpus) |
 //!
 //! The `#[test]` entry points live in the crate root integration test
-//! (`parser_corpus.rs`); each drives a [`Corpus`] with one keymap, asserts every
+//! (`push.rs`); each drives a [`Corpus`] with one keymap, asserts every
 //! case, and checks the corpus never silently shrinks.
 
 pub mod dead_cases;
@@ -76,26 +80,15 @@ pub mod viqr;
 pub mod vni;
 
 pub mod prelude {
-    //! One-line import for the behaviour modules: cases, macros and the
-    //! `C` / `V` field shorthands used by every `ExpectedSyllable`.
+    //! One-line import for the behaviour modules: cases, macros, the shared
+    //! `ExpectedSyllable` / `C` / `V` and the phonology types.
 
-    pub(crate) use super::{alive_case, case, dead_case, Case, ExpectedSyllable, C, V};
+    pub(crate) use super::{alive_case, case, dead_case, Case};
+    pub(crate) use crate::common::{ExpectedSyllable, C, V};
     pub(crate) use vime_engine::phonology::{Coda, Onset, Tone};
 }
 
-/// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
-/// much faster than `(BaseVowel::VowelCase::Lower)`.
-pub use vime_engine::phonology::BaseVowel as V;
-
-/// Vowel case, kept as a tiny local enum so the corpus cases can write
-/// `C::Lower` / `C::Upper` without depending on the production casing type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VowelCase {
-    Lower,
-    Upper,
-}
-
-pub use VowelCase as C;
+use crate::common::{check_syllable_eq, ExpectedSyllable};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Case model
@@ -116,92 +109,6 @@ pub enum Outcome {
     /// Every `push` is `Ok`; only liveness is asserted, the syllable is not
     /// inspected.
     AliveOnly,
-}
-
-/// The expected semantic state of a syllable: what the builder must report
-/// after the whole input has been pushed.
-pub struct ExpectedSyllable {
-    /// The classified onset cluster kind; `Onset::None` when empty.
-    pub onset_kind: Onset,
-    /// The raw onset characters (e.g. `['t', 'r']`).
-    pub onset: &'static [char],
-    /// The vowel nucleus as `(base, case)` pairs, in order.
-    pub vowels: &'static [(BaseVowel, VowelCase)],
-    /// The tone stored on the syllable.
-    pub tone: Tone,
-    /// The classified coda cluster kind; `Coda::None` when empty.
-    pub coda_kind: Coda,
-    /// The raw coda characters (e.g. `['n', 'g']`).
-    pub coda: &'static [char],
-}
-
-/// Compact builders for [`ExpectedSyllable`], one per common shape of a
-/// syllable, so every corpus case stays on a single line.
-///
-/// They fill in the empty `Onset::None` / `Coda::None` / `Tone::Flat` defaults
-/// that the exploded struct literal would otherwise spell out on every case.
-impl ExpectedSyllable {
-    /// A vowel nucleus with no onset and no coda.
-    pub const fn vowel(vowels: &'static [(BaseVowel, VowelCase)], tone: Tone) -> Self {
-        Self {
-            onset_kind: Onset::None,
-            onset: &[],
-            vowels,
-            tone,
-            coda_kind: Coda::None,
-            coda: &[],
-        }
-    }
-
-    /// A bare onset with no vowel nucleus yet (`t`, `ngh`, …). `onset_kind` is
-    /// `Onset::None` for consonant characters the parser leaves unclassified
-    /// (e.g. `q`).
-    pub const fn consonant(onset_kind: Onset, onset: &'static [char]) -> Self {
-        Self {
-            onset_kind,
-            onset,
-            vowels: &[],
-            tone: Tone::Flat,
-            coda_kind: Coda::None,
-            coda: &[],
-        }
-    }
-
-    /// An onset followed by a vowel nucleus, no coda.
-    pub const fn onset_vowel(onset_kind: Onset, onset: &'static [char], vowels: &'static [(BaseVowel, VowelCase)], tone: Tone) -> Self {
-        Self {
-            onset_kind,
-            onset,
-            vowels,
-            tone,
-            coda_kind: Coda::None,
-            coda: &[],
-        }
-    }
-
-    /// A vowel nucleus followed by a coda, no onset.
-    pub const fn vowel_coda(vowels: &'static [(BaseVowel, VowelCase)], tone: Tone, coda_kind: Coda, coda: &'static [char]) -> Self {
-        Self {
-            onset_kind: Onset::None,
-            onset: &[],
-            vowels,
-            tone,
-            coda_kind,
-            coda,
-        }
-    }
-
-    /// The full picture: onset, vowel nucleus and coda.
-    pub const fn full(onset_kind: Onset, onset: &'static [char], vowels: &'static [(BaseVowel, VowelCase)], tone: Tone, coda_kind: Coda, coda: &'static [char]) -> Self {
-        Self {
-            onset_kind,
-            onset,
-            vowels,
-            tone,
-            coda_kind,
-            coda,
-        }
-    }
 }
 
 macro_rules! case {
@@ -241,14 +148,13 @@ pub(crate) use dead_case;
 // Runners
 // ─────────────────────────────────────────────────────────────────────────────
 
-use vime_engine::composition::ValidSyllableBuilder;
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel, Coda, Onset, Tone};
+use vime_engine::composition::BuildingSyllableBuilder;
 use vime_engine::Keymap;
 
 /// Pushes every character in order, requiring each `push` to be accepted, and
 /// hands back the resulting builder.
-fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<ValidSyllableBuilder, String> {
-    let mut builder = ValidSyllableBuilder::default();
+fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<BuildingSyllableBuilder, String> {
+    let mut builder = BuildingSyllableBuilder::default();
 
     for &ch in input {
         builder.push(keymap, ch).map_err(|e| format!("input={input:?}: push({ch:?}) unexpectedly failed: {e:?}"))?;
@@ -257,7 +163,7 @@ fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<ValidSyllableBuil
     Ok(builder)
 }
 
-/// Pushes every character in order and checks the final syllable against
+/// Pushes every character in order, then checks the final syllable against
 /// `expected`.
 fn run_expect<KM: Keymap>(input: &[char], expected: &ExpectedSyllable, keymap: &KM) -> Result<(), String> {
     let builder = push_all(keymap, input)?;
@@ -267,7 +173,7 @@ fn run_expect<KM: Keymap>(input: &[char], expected: &ExpectedSyllable, keymap: &
 /// Pushes every character in order, then requires the builder to be dead: some
 /// `push` returns `Err`, and afterwards it must have rolled back to `expected`.
 fn run_dead<KM: Keymap>(input: &[char], expected: &ExpectedSyllable, keymap: &KM) -> Result<(), String> {
-    let mut builder = ValidSyllableBuilder::default();
+    let mut builder = BuildingSyllableBuilder::default();
 
     let failed = input.iter().any(|&ch| builder.push(keymap, ch).is_err());
     if !failed {
@@ -325,37 +231,4 @@ impl<'a, KM: Keymap> Corpus<'a, KM> {
         }
         self.cases
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Assertions
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Renders a syllable as `{ onset, vowels, tone, coda }` for diagnostics.
-fn describe(onset_kind: Onset, onset: &[char], vowels: &[(BaseVowel, VowelCase)], tone: Tone, coda_kind: Coda, coda: &[char]) -> String {
-    format!("{{ onset: {onset_kind:?} {onset:?}, vowels: {vowels:?}, tone: {tone:?}, coda: {coda_kind:?} {coda:?} }}")
-}
-
-/// Compares every field of the builder's syllable against `expected`, building
-/// the diagnostic string only when they differ.
-pub fn check_syllable_eq(builder: &ValidSyllableBuilder, expected: &ExpectedSyllable, input: &[char]) -> Result<(), String> {
-    let vowel_pair = |v: &CasedBaseVowel| (v.value, if v.is_upper { VowelCase::Upper } else { VowelCase::Lower });
-
-    let matches = builder.onset_kind() == expected.onset_kind
-        && builder.onset() == expected.onset
-        && builder.vowels().iter().map(vowel_pair).eq(expected.vowels.iter().copied())
-        && builder.tone() == expected.tone
-        && builder.coda_kind() == expected.coda_kind
-        && builder.coda() == expected.coda;
-
-    if matches {
-        return Ok(());
-    }
-
-    let actual_vowels = builder.vowels().iter().map(vowel_pair).collect::<Vec<_>>();
-    Err(format!(
-        "input={input:?}\n  expected: {}\n  actual:   {}",
-        describe(expected.onset_kind, expected.onset, expected.vowels, expected.tone, expected.coda_kind, expected.coda,),
-        describe(builder.onset_kind(), builder.onset(), &actual_vowels, builder.tone(), builder.coda_kind(), builder.coda(),),
-    ))
 }

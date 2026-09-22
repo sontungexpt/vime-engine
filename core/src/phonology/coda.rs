@@ -1,8 +1,6 @@
 use std::mem::transmute;
 use std::str::FromStr;
 
-// ------------------- Error -------------------
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodaParseError;
 
@@ -20,12 +18,10 @@ impl std::error::Error for CodaParseError {}
 pub enum Coda {
     #[default]
     None = 0,
-
     P,
     T,
     C,
     Ch,
-
     M,
     N,
     Ng,
@@ -37,7 +33,6 @@ impl Coda {
     pub const COUNT: usize = 9;
     pub const MAX_ID: usize = Self::COUNT - 1;
 
-    /// Returns the coda for the given ID, or `Err` if out of range.
     #[inline(always)]
     pub const fn from_id(id: usize) -> Result<Self, CodaParseError> {
         if id < Self::COUNT {
@@ -69,53 +64,41 @@ impl Coda {
             )
     }
 
-    #[inline(always)]
-    pub const fn from_byte(byte: u8) -> Result<Self, CodaParseError> {
-        match byte | 0x20 {
-            b'c' => Ok(Self::C),
-            b'm' => Ok(Self::M),
-            b'n' => Ok(Self::N),
-            b'p' => Ok(Self::P),
-            b't' => Ok(Self::T),
-            _ => Err(CodaParseError),
-        }
-    }
-
-    #[inline(always)]
-    pub const fn from_two_bytes(first: u8, second: u8) -> Result<Self, CodaParseError> {
-        match (first | 0x20, second | 0x20) {
-            (b'c', b'h') => Ok(Self::Ch),
-            (b'n', b'g') => Ok(Self::Ng),
-            (b'n', b'h') => Ok(Self::Nh),
-            _ => Err(CodaParseError),
-        }
-    }
-
-    /// Returns the coda for the given ASCII bytes, or `Err` for an invalid cluster.
+    /// Primary const parser for ASCII byte slices.
     #[inline(always)]
     pub const fn from_bytes(bytes: &[u8]) -> Result<Self, CodaParseError> {
         match bytes {
             [] => Ok(Self::None),
-            &[byte] => Self::from_byte(byte),
-            &[first, second] => Self::from_two_bytes(first, second),
+            &[b] => match b | 0x20 {
+                b'c' => Ok(Self::C),
+                b'm' => Ok(Self::M),
+                b'n' => Ok(Self::N),
+                b'p' => Ok(Self::P),
+                b't' => Ok(Self::T),
+                _ => Err(CodaParseError),
+            },
+            &[b0, b1] => match (b0 | 0x20, b1 | 0x20) {
+                (b'c', b'h') => Ok(Self::Ch),
+                (b'n', b'g') => Ok(Self::Ng),
+                (b'n', b'h') => Ok(Self::Nh),
+                _ => Err(CodaParseError),
+            },
             _ => Err(CodaParseError),
         }
     }
 
-    /// Returns the coda for the given ASCII characters, or `Err` for an
-    /// invalid cluster.
+    /// Direct parser from a character slice.
     #[inline(always)]
     pub const fn from_chars(chars: &[char]) -> Result<Self, CodaParseError> {
         match chars {
             [] => Ok(Self::None),
-            &[c] if c.is_ascii() => Self::from_byte(c as u8),
-            &[c0, c1] if c0.is_ascii() && c1.is_ascii() => Self::from_two_bytes(c0 as u8, c1 as u8),
+            &[c] if c.is_ascii() => Self::from_bytes(&[c as u8]),
+            &[c0, c1] if c0.is_ascii() && c1.is_ascii() => Self::from_bytes(&[c0 as u8, c1 as u8]),
             _ => Err(CodaParseError),
         }
     }
 }
 
-// Standard FromStr implementation for idiomatic parsing via .parse::<Coda>()
 impl FromStr for Coda {
     type Err = CodaParseError;
 

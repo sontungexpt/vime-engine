@@ -1,4 +1,4 @@
-//! Micro-benchmark of `ValidSyllableBuilder::insert` vs `push`.
+//! Micro-benchmark of `BuildingSyllableBuilder::insert` vs `push`.
 //!
 //! `insert(index == len, ...)` should be ~identical to `push` (it delegates).
 //! Cursor-mid inserts are only reachable while editing, so we also measure the
@@ -8,7 +8,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::composition::ValidSyllableBuilder;
+use vime_engine::composition::BuildingSyllableBuilder;
 use vime_engine::DefaultKeymap;
 
 fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
@@ -26,7 +26,7 @@ fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
 /// Append a keystroke sequence via push.
 fn run_push(workload: &[&str], keymap: &DefaultKeymap<'_>) {
     for &word in workload {
-        let mut b = ValidSyllableBuilder::default();
+        let mut b = BuildingSyllableBuilder::default();
         for ch in word.chars() {
             black_box(black_box(&mut b).push(keymap, ch));
         }
@@ -36,7 +36,7 @@ fn run_push(workload: &[&str], keymap: &DefaultKeymap<'_>) {
 /// Append the same workload via insert-at-end (should delegate to push).
 fn run_insert_end(workload: &[&str], keymap: &DefaultKeymap<'_>) {
     for &word in workload {
-        let mut b = ValidSyllableBuilder::default();
+        let mut b = BuildingSyllableBuilder::default();
         for ch in word.chars() {
             let idx = b.len();
             black_box(black_box(&mut b).insert(keymap, idx, ch));
@@ -48,7 +48,7 @@ fn run_insert_end(workload: &[&str], keymap: &DefaultKeymap<'_>) {
 /// (horn) at every nucleus position, then a trailing coda 'n' at mid positions.
 fn run_insert_mid(workload: &[&str], keymap: &DefaultKeymap<'_>) {
     for &word in workload {
-        let mut b = ValidSyllableBuilder::default();
+        let mut b = BuildingSyllableBuilder::default();
         for ch in word.chars() {
             black_box(black_box(&mut b).push(keymap, ch));
         }
@@ -69,8 +69,7 @@ fn main() {
         "ow", "eekho", "aafamily", "som", "sinh", "hoc", "ban", "len", "how", "uow", "uo", "uoi",
         "uowng", "luowng", "nuowc", "thuowng", "nguoi", "tuoi", "cuoi", "cong", "long", "tan",
         "tam", "tap", "ach", "anhng", "vient", "hat", "bac", "khong", "toan", "vien", "nuoc",
-        "vuon", "muot", "tham", "que", "thuy", "truong", "Viet", "Nam", "HA", "NOI", "DAN",
-        "Tien",
+        "vuon", "muot", "tham", "que", "thuy", "truong", "Viet", "Nam", "HA", "NOI", "DAN", "Tien",
     ];
 
     let keymap = DefaultKeymap::telex();
@@ -87,7 +86,11 @@ fn main() {
 
     println!("words per pass:      {}", workload.len());
     println!("push (append):       {:9.2} ns/pass", push_ns);
-    println!("insert@len (append): {:9.2} ns/pass   ({:.3}x push)", ins_end_ns, ins_end_ns / push_ns);
+    println!(
+        "insert@len (append): {:9.2} ns/pass   ({:.3}x push)",
+        ins_end_ns,
+        ins_end_ns / push_ns
+    );
     println!(
         "insert mid (edits):  {:9.2} ns/pass   ({:.3}x push)",
         ins_mid_ns,

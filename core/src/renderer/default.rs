@@ -1,7 +1,7 @@
 use super::api::Renderer;
 
 use crate::{
-    composition::{Composition, SyllableState, ValidSyllableBuilder},
+    composition::{BuildingSyllableBuilder, Composition, SyllableState},
     keymap::Keymap,
     phonology::{rules::ToneScheme, Tone},
 };
@@ -38,12 +38,12 @@ impl Renderer for DefaultRenderer {
 }
 
 impl DefaultRenderer {
-    fn render_building(&self, syllable: &ValidSyllableBuilder) -> String {
+    fn render_building(&self, syllable: &BuildingSyllableBuilder) -> String {
         let mut output = String::with_capacity(syllable.len());
 
         output.extend(syllable.onset().iter().copied());
 
-        let tone_position = syllable.tone_index(ToneScheme::Modern);
+        let tone_position = syllable.tone_index(&ToneScheme::Modern);
 
         for (index, vowel) in syllable.vowels().iter().enumerate() {
             let tone = if Some(index) == tone_position {

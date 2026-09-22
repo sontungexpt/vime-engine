@@ -3,13 +3,11 @@ pub mod syllable;
 
 pub use cursor::Cursor;
 pub use syllable::{
-    CharStatus, DeadSyllableBuilder, SyllableError, SyllableState, TransformEffect,
-    ValidSyllableBuilder,
+    BuildingSyllableBuilder, CharStatus, DeadSyllableBuilder, InputEffect, SyllableError,
+    SyllableState, TransformEffect,
 };
 
-use crate::{
-    composition::syllable::SyllableBuilder, keymap::Keymap, phonology::rules::ToneScheme,
-};
+use crate::{composition::syllable::SyllableBuilder, keymap::Keymap, phonology::rules::ToneScheme};
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
 #[derive(Debug, Clone, PartialEq, Eq)]
