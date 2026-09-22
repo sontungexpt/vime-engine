@@ -21,16 +21,4 @@ impl<T> Cased<T> {
     pub const fn lower(value: T) -> Self {
         Self::new(value, false)
     }
-
-    /// Whether the value is uppercased.
-    #[inline(always)]
-    pub const fn is_upper(&self) -> bool {
-        self.uppercase
-    }
-
-    /// Whether the value is lowercased.
-    #[inline(always)]
-    pub const fn is_lower(&self) -> bool {
-        !self.uppercase
-    }
 }

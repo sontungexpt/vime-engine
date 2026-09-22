@@ -3,7 +3,7 @@ pub mod syllable;
 
 pub use cursor::Cursor;
 pub use syllable::{
-    CharStatus, DeadSyllableBuilder, PushPhase, SyllableError, SyllableState, TransformEffect,
+    CharStatus, DeadSyllableBuilder, SyllableError, SyllableState, TransformEffect,
     ValidSyllableBuilder,
 };
 

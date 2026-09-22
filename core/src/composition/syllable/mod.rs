@@ -2,7 +2,7 @@ mod invalid;
 mod valid;
 
 pub use invalid::{CharStatus, DeadSyllableBuilder};
-pub use valid::{PushPhase, SyllableError, TransformEffect, ValidSyllableBuilder};
+pub use valid::{SyllableError, TransformEffect, ValidSyllableBuilder};
 
 use crate::{keymap::Keymap, phonology::ToneScheme};
 
