@@ -1,7 +1,5 @@
-#pragma once
-
-/* C ABI boundary between native frontend adapters (Fcitx5, IBus, macOS, Windows)
- * and the pure Rust Vietnamese IME engine. */
+#ifndef VIME_ENGINE_H
+#define VIME_ENGINE_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,22 +8,14 @@
 extern "C" {
 #endif
 
-/* Key event state — vime-engine's canonical KeyState bitmask.
- * Bitmask ORed into VimeKeyEvent.state. Frontends must translate native
- * modifier states into these exact values. */
-#define VIME_KEY_STATE_CTRL      (1u << 0)
-#define VIME_KEY_STATE_ALT       (1u << 1)
-#define VIME_KEY_STATE_SHIFT     (1u << 2)
-#define VIME_KEY_STATE_SUPER     (1u << 3)
-#define VIME_KEY_STATE_CAPS_LOCK (1u << 4)
-#define VIME_KEY_STATE_NUM_LOCK   (1u << 5)
-#define VIME_KEY_STATE_HYPER     (1u << 6)
-#define VIME_KEY_STATE_META      (1u << 7)
-
 /* ========================================================================= */
-/* Opaque Handles & Forward Declarations                                     */
+/* Opaque Types                                                              */
 /* ========================================================================= */
 
+/**
+ * Handle to an active Vietnamese input engine instance.
+ * Thread-safety: Not thread-safe. Synchronization is the caller's duty.
+ */
 typedef struct VimeEngineHandle VimeEngineHandle;
 
 /* ========================================================================= */
@@ -55,23 +45,23 @@ typedef enum VimeInputMethod {
  * Tone-placement scheme. Values reflect the ABI agreement with Rust backend.
  */
 typedef enum VimeTonePlacement {
-    VIME_TONE_PLACEMENT_MODERN = 1u, /* "hóa", "thúy"                       */
-    VIME_TONE_PLACEMENT_OLD    = 2u, /* "hoá", "thúy"                       */
+    VIME_TONE_PLACEMENT_MODERN = 1u, /* "hoá", "thuý"                       */
+    VIME_TONE_PLACEMENT_OLD    = 2u, /* "hóa", "thúy"                       */
 } VimeTonePlacement;
 
 /**
  * Discrete key codes. Values match the engine's internal Key enum.
  */
 typedef enum VimeKey {
-    VIME_KEY_NONE      = 0u,
-    VIME_KEY_BACKSPACE = 1u,
-    VIME_KEY_DELETE    = 2u,
-    VIME_KEY_LEFT      = 3u,
-    VIME_KEY_RIGHT     = 4u,
-    VIME_KEY_ENTER     = 5u,
-    VIME_KEY_ESCAPE    = 6u,
-    VIME_KEY_TAB       = 7u,
-    VIME_KEY_SPACE     = 8u,
+    VIME_KEY_NONE      = 0,
+    VIME_KEY_BACKSPACE = 1,
+    VIME_KEY_DELETE    = 2,
+    VIME_KEY_LEFT      = 3,
+    VIME_KEY_RIGHT     = 4,
+    VIME_KEY_ENTER     = 5,
+    VIME_KEY_ESCAPE    = 6,
+    VIME_KEY_TAB       = 7,
+    VIME_KEY_SPACE     = 8,
 } VimeKey;
 
 /* ========================================================================= */
@@ -81,7 +71,7 @@ typedef enum VimeKey {
 typedef struct VimeKeyEvent {
     VimeKey key;
     uint32_t character;
-    uint32_t states; /* Engine-owned KeyState bitmask (VIME_KEY_STATE_*) */
+    uint32_t states;
 } VimeKeyEvent;
 
 typedef struct VimeOutput {
@@ -98,7 +88,7 @@ typedef struct VimeOutput {
 } VimeOutput;
 
 /* ========================================================================= */
-/* Engine Lifecycle & Configuration APIs                                     */
+/* Engine Lifecycle                                                          */
 /* ========================================================================= */
 
 /** Creates a new engine instance. Returns NULL on allocation failure. */
@@ -132,3 +122,5 @@ VimeOutput vime_process_key(VimeEngineHandle *engine, VimeKeyEvent event);
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* VIME_ENGINE_H */
