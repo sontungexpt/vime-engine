@@ -16,12 +16,61 @@ use super::Keymap;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DefaultKeymap<'a> {
     rules: &'a Rules<'a>,
+    tone_mask: u128,
+    shape_mask: u128,
+    stroke_mask: u128,
 }
 
 impl<'a> DefaultKeymap<'a> {
     /// Creates a key mapping from a declarative configuration.
     pub const fn new(config: &'a Rules<'a>) -> Self {
-        Self { rules: config }
+        Self {
+            rules: config,
+            tone_mask: Self::build_tone_mask(config.tones),
+            shape_mask: Self::build_shape_mask(config.shapes),
+            stroke_mask: Self::build_stroke_mask(config.strokes),
+        }
+    }
+
+    const fn build_tone_mask(tones: &[ToneRule]) -> u128 {
+        let mut mask = 0u128;
+        let mut i = 0;
+        while i < tones.len() {
+            let key = tones[i].key;
+            if key < 128 {
+                mask |= 1u128 << key;
+            }
+            i += 1;
+        }
+        mask
+    }
+
+    /// Generates bitmask for shape keys at compile-time.
+    const fn build_shape_mask(shapes: &[ShapeRule]) -> u128 {
+        let mut mask = 0u128;
+        let mut i = 0;
+        while i < shapes.len() {
+            let key = shapes[i].key;
+            if key < 128 {
+                mask |= 1u128 << key;
+            }
+            i += 1;
+        }
+        mask
+    }
+
+    /// Generates bitmask for stroke keys at compile-time.
+    const fn build_stroke_mask(strokes: &[u8]) -> u128 {
+        let mut mask = 0u128;
+        let mut i = 0;
+        while i < strokes.len() {
+            let key = strokes[i];
+            if key < 128 {
+                mask |= 1u128 << key;
+            }
+            i += 1;
+        }
+        mask
     }
 
     /// The Telex input method.
@@ -47,46 +96,49 @@ impl<'a> DefaultKeymap<'a> {
     pub const fn config(&self) -> &Rules<'a> {
         self.rules
     }
+
+    /// Branchless check whether a character matches the mask.
+    #[inline(always)]
+    fn has_key(mask: u128, input: char) -> bool {
+        let lower = input.to_ascii_lowercase() as u32;
+        lower < 128 && (mask & (1u128 << lower)) != 0
+    }
 }
 
 impl Keymap for DefaultKeymap<'_> {
     #[inline(always)]
     fn is_tone_key(&self, input: char) -> bool {
-        let key = input.to_ascii_lowercase();
-        self.rules.tones.iter().any(|map| map.key == key)
+        Self::has_key(self.tone_mask, input)
     }
 
     #[inline(always)]
     fn is_shape_key(&self, input: char) -> bool {
-        let key = input.to_ascii_lowercase();
-        self.rules.shapes.iter().any(|map| map.key == key)
+        Self::has_key(self.shape_mask, input)
     }
 
     #[inline(always)]
     fn is_stroke_key(&self, input: char) -> bool {
-        let loinput = input.to_ascii_lowercase();
-        self.rules.strokes.iter().any(|c| *c == loinput)
+        Self::has_key(self.stroke_mask, input)
     }
 
     #[inline(always)]
     fn decode_tone(&self, input: char) -> Option<Tone> {
-        let loinput = input.to_ascii_lowercase();
-
+        let lower = input.to_ascii_lowercase();
         self.rules
             .tones
             .iter()
-            .find(|map| map.key == loinput)
+            .find(|map| (map.key as char) == lower)
             .map(|map| map.tone)
     }
 
     #[inline(always)]
     fn decode_shape(&self, input: char, target: RootVowel) -> Option<Shape> {
-        let loinput = input.to_ascii_lowercase();
+        let lower = input.to_ascii_lowercase();
 
         self.rules
             .shapes
             .iter()
-            .find(|map| map.key == loinput && map.on == target)
+            .find(|map| (map.key as char) == lower && map.on == target)
             .map(|map| map.shape)
     }
 }

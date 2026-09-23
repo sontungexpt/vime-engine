@@ -29,7 +29,7 @@ pub enum Coda {
 }
 
 impl Coda {
-    pub const MAX_CHARS: usize = 2;
+    pub const MAX_LEN: usize = 2;
     pub const COUNT: usize = 9;
     pub const MAX_ID: usize = Self::COUNT - 1;
 

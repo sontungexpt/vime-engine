@@ -1,110 +1,130 @@
-use super::super::{vowel_sequence::VowelSequence, BaseVowel};
+use super::super::{BaseVowel, CasedBaseVowel};
+use arrayvec::ArrayVec;
+
+/// A read-only view over a vowel nucleus.
+pub trait NucleusView {
+    fn len(&self) -> usize;
+    fn at(&self, index: usize) -> BaseVowel;
+}
+
+impl NucleusView for [BaseVowel] {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    #[inline(always)]
+    fn at(&self, index: usize) -> BaseVowel {
+        self[index]
+    }
+}
+
+impl<const N: usize> NucleusView for ArrayVec<CasedBaseVowel, N> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    #[inline(always)]
+    fn at(&self, index: usize) -> BaseVowel {
+        self[index].value
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TonePlacement {
-    /// Modern standard orthography ("học sinh" placement).
+    /// Modern standard orthography ("học sinh", "hóa", "thúy").
     #[default]
     Modern,
-    /// Pre-1975 "old style" placement.
+    /// Pre-1975 classic orthography ("hoá", "thúy").
     Old,
 }
 
 impl TonePlacement {
-    /// Index of the tone-bearing vowel, or `None` for an empty nucleus.
+    /// Determines the 0-based relative index of the vowel within the provided
+    /// `vowels` array/slice that should receive the tone mark.
+    ///
+    /// The returned index is strictly local to `vowels` (i.e. `0..vowels.len()`),
+    /// pointing directly to the target vowel element rather than an absolute character
+    /// position in the full syllable or a global vowel identifier.
+    ///
+    /// Returns `None` if the nucleus is empty (`vowels.len() == 0`).
     #[inline]
-    pub fn tone_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>
+    pub fn vowel_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>
     where
-        V: VowelSequence + ?Sized,
+        V: NucleusView + ?Sized,
     {
-        match self {
-            Self::Modern => tone_index_modern(vowels),
-            Self::Old => tone_index_old(vowels, coda_is_empty),
+        let len = vowels.len();
+        match len {
+            0 => None,
+            1 => Some(0),
+            2 => Some(match self {
+                Self::Modern => tone_index_2_modern(vowels),
+                Self::Old => tone_index_2_old(vowels, coda_is_empty),
+            }),
+            3 => Some(tone_index_3(vowels)),
+            _ => fallback_tone_index(vowels),
         }
     }
 }
 
-/// Tone-bearing vowel index under the modern standard, or `None` for an empty
-/// nucleus.
-#[inline]
-pub fn tone_index_modern<V>(vowels: &V) -> Option<usize>
+/// Tone placement for 2-vowel nucleus under Modern standard.
+#[inline(always)]
+fn tone_index_2_modern<V>(vowels: &V) -> usize
 where
-    V: VowelSequence + ?Sized,
+    V: NucleusView + ?Sized,
 {
-    let len = vowels.len();
+    let v0 = vowels.at(0);
+    let v1 = vowels.at(1);
 
-    match len {
-        0 => None,
-        1 => Some(0),
-        2 => {
-            let v0 = vowels.at(0);
-            let v1 = vowels.at(1);
+    // Rule 1: Diacritic/shaped vowel always takes the tone (e.g., "thuế" -> ê, "cuối" -> ô).
+    if v1.is_shaped() {
+        return 1;
+    }
+    if v0.is_shaped() {
+        return 0;
+    }
 
-            // Marked vowel always takes the tone (thuế -> ê, cuối -> ô).
-            if v1.is_shaped() {
-                return Some(1);
-            } else if v0.is_shaped() {
-                return Some(0);
-            }
-
-            // oa / oe / uy -> tone on the second (hoá, khoèo, huý).
-            match (v0, v1) {
-                (BaseVowel::O, BaseVowel::A | BaseVowel::E) | (BaseVowel::U, BaseVowel::Y) => {
-                    Some(1)
-                }
-
-                // Everything else -> tone on the first (ia -> i, ai -> a).
-                _ => Some(0),
-            }
-        }
-        3 => Some(tone_index_3(vowels)),
-        _ => fallback_tone_index(vowels),
+    // Rule 2: Open diphthongs "oa", "oe", "uy" place tone on the second vowel ("hóa", "hoe", "thúy").
+    match (v0, v1) {
+        (BaseVowel::O, BaseVowel::A | BaseVowel::E) | (BaseVowel::U, BaseVowel::Y) => 1,
+        // Default: First vowel takes tone ("mía", "ai", "ao").
+        _ => 0,
     }
 }
 
-/// Tone-bearing vowel index under the pre-1975 style, or `None` for an empty
-/// nucleus.
-///
-/// Marked vowel always wins; otherwise open syllable -> first, closed ->
-/// second (tòa -> o, toán -> a).
-#[inline]
-pub fn tone_index_old<V>(vowels: &V, coda_is_empty: bool) -> Option<usize>
+/// Tone placement for 2-vowel nucleus under Old/Classic standard.
+#[inline(always)]
+fn tone_index_2_old<V>(vowels: &V, coda_is_empty: bool) -> usize
 where
-    V: VowelSequence + ?Sized,
+    V: NucleusView + ?Sized,
 {
-    let len = vowels.len();
+    let v0 = vowels.at(0);
+    let v1 = vowels.at(1);
 
-    match len {
-        0 => None,
-        1 => Some(0),
-        2 => {
-            let v0 = vowels.at(0);
-            let v1 = vowels.at(1);
+    // Rule 1: Diacritic/shaped vowel always takes the tone ("thuế" -> ê, "cuối" -> ô).
+    if v1.is_shaped() {
+        return 1;
+    }
+    if v0.is_shaped() {
+        return 0;
+    }
 
-            // Marked vowel always takes the tone (thuế -> ê, cuối -> ô).
-            if v1.is_shaped() {
-                return Some(1);
-            } else if v0.is_shaped() {
-                return Some(0);
-            }
-            // Open syllable -> first, closed syllable -> second.
-            else if coda_is_empty {
-                return Some(0);
-            }
-
-            Some(1)
-        }
-        3 => Some(tone_index_3(vowels)),
-        _ => fallback_tone_index(vowels),
+    // Rule 2: Open syllable -> first vowel ("hoá", "thúy"). Closed syllable -> second vowel ("hoán", "thuýth").
+    if coda_is_empty {
+        0
+    } else {
+        1
     }
 }
 
-/// Tone-bearing vowel of a 3-vowel nucleus: rightmost marked vowel wins
-/// (uôi -> ô), else the middle (oai -> a).
+/// Tone placement for 3-vowel nucleus (e.g., "oai", "uôi", "uyu").
 #[inline(always)]
 fn tone_index_3<V>(vowels: &V) -> usize
 where
-    V: VowelSequence + ?Sized,
+    V: NucleusView + ?Sized,
 {
+    // Rightmost shaped vowel wins (e.g., "uôi" -> index 1 'ô')
     if vowels.at(2).is_shaped() {
         2
     } else if vowels.at(1).is_shaped() {
@@ -112,6 +132,7 @@ where
     } else if vowels.at(0).is_shaped() {
         0
     } else {
+        // Unshaped triphthong (e.g., "oai", "uye") -> center vowel
         1
     }
 }
@@ -121,7 +142,7 @@ where
 #[inline]
 fn fallback_tone_index<V>(vowels: &V) -> Option<usize>
 where
-    V: VowelSequence + ?Sized,
+    V: NucleusView + ?Sized,
 {
     let mut best = vowels.at(0);
     let mut at = 0;

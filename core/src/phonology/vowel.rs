@@ -28,7 +28,8 @@ pub enum Shape {
 }
 
 impl Shape {
-    /// Trả về true nếu shape là một dấu thực sự (Horn, Circumflex, Breve), không phải None.
+    /// Returns `true` if the shape is a real diacritic (Horn, Circumflex,
+    /// Breve) rather than `None`.
     #[inline(always)]
     pub const fn is_some(self) -> bool {
         !matches!(self, Shape::None)

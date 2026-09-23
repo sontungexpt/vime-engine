@@ -65,7 +65,7 @@ pub enum Onset {
 }
 
 impl Onset {
-    pub const MAX_CHARS: usize = 3;
+    pub const MAX_LEN: usize = 3;
     pub const COUNT: usize = 28 as usize;
     pub const MAX_ID: usize = Self::COUNT - 1;
 

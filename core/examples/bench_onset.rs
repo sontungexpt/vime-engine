@@ -18,11 +18,11 @@ use vime_engine::phonology::{Onset, OnsetParseError};
 /// as an equivalent `#[inline(always)]` runtime function.
 #[inline(always)]
 pub fn loop_from_chars(chars: &[char]) -> Result<Onset, OnsetParseError> {
-    if chars.len() > Onset::MAX_CHARS {
+    if chars.len() > Onset::MAX_LEN {
         return Err(OnsetParseError);
     }
 
-    let mut bytes = [0u8; Onset::MAX_CHARS];
+    let mut bytes = [0u8; Onset::MAX_LEN];
 
     let mut i = 0;
     while i < chars.len() {

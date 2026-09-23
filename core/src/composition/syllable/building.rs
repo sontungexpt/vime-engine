@@ -22,9 +22,10 @@ const fn is_i(ch: char) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEffect {
-    /// Biến đổi ký tự có sẵn (ví dụ: gán dấu thanh, thêm mũ/móc: `a` + `w` -> `ă`)
+    /// Mutated an existing character (e.g. assigned a tone, added a hat/hook:
+    /// `a` + `w` -> `ă`).
     Transformed,
-    /// Thay đổi cấu trúc độ dài bộ đệm (chèn thêm ký tự mới hoặc xóa ký tự)
+    /// Changed the buffer structure (inserted a new character or removed one).
     StructurallyChanged,
 }
 
@@ -53,12 +54,12 @@ pub enum SyllableError {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuildingSyllableBuilder {
     onset_kind: Onset,
-    onset: ArrayVec<char, { Onset::MAX_CHARS }>,
+    onset: ArrayVec<char, { Onset::MAX_LEN }>,
 
     vowels: ArrayVec<CasedBaseVowel, 3>,
 
     coda_kind: Coda,
-    coda: ArrayVec<char, { Coda::MAX_CHARS }>,
+    coda: ArrayVec<char, { Coda::MAX_LEN }>,
 
     tone: Tone,
 }
@@ -110,30 +111,538 @@ impl BuildingSyllableBuilder {
     }
 
     #[inline(always)]
-    pub fn tone_index(&self, tone_scheme: TonePlacement) -> Option<usize> {
-        tone_scheme.tone_index(&self.vowels, self.coda.is_empty())
+    pub fn tone_index(&self, tone_placement: TonePlacement) -> Option<usize> {
+        tone_placement.vowel_index(&self.vowels, self.coda.is_empty())
     }
 
     #[inline(always)]
-    pub fn to_chars(&self, tone_scheme: TonePlacement) -> Vec<char> {
+    pub fn to_chars(&self, tone_placement: TonePlacement) -> Vec<char> {
         let mut output = Vec::with_capacity(self.len());
 
+        // 1. Onset
         output.extend(self.onset.iter().copied());
 
-        let tone_position = self.tone_index(tone_scheme);
-        for (index, vowel) in self.vowels.iter().enumerate() {
-            let tone = if Some(index) == tone_position {
-                self.tone()
-            } else {
-                Tone::Flat
-            };
-
-            output.push(vowel.to_char_tone(tone));
+        // 2. Vowels
+        if self.tone.is_some() {
+            let tone_pos = self.tone_index(tone_placement);
+            output.extend(self.vowels.iter().enumerate().map(|(idx, vowel)| {
+                let active_tone = if Some(idx) == tone_pos {
+                    self.tone
+                } else {
+                    Tone::Flat
+                };
+                vowel.to_char_tone(active_tone)
+            }));
+        } else {
+            output.extend(self.vowels.iter().map(|vowel| vowel.to_char()));
         }
 
+        // 3. Coda
         output.extend(self.coda.iter().copied());
 
         output
+    }
+}
+
+impl BuildingSyllableBuilder {
+    #[inline(always)]
+    pub fn push<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        key: char,
+    ) -> Result<InputEffect, SyllableError> {
+        // ─────────────────────────── Onset ───────────────────────────
+        //
+        // No vowel and no coda means we are still parsing the onset.
+        //
+        // A stroke key can modify an existing D/Đ onset before being
+        // interpreted as a literal character.
+        if self.coda.is_empty() && self.vowels.is_empty() {
+            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
+                return Ok(InputEffect::Transformed);
+            }
+            // Try to consume the input as part of the onset.
+            if self.push_onset(key) {
+                return Ok(InputEffect::StructurallyChanged);
+            }
+            // Alone Q is a transitional onset and can only be followed by U.
+            if self.onset.len() == 1 && is_q(self.onset[0]) {
+                return Err(SyllableError::InvalidOnset);
+            }
+            // The input may start the vowel nucleus.
+            if let Some(decoded) = decode_vowel(key) {
+                if self.push_vowel(decoded) {
+                    return Ok(InputEffect::StructurallyChanged);
+                }
+                return Err(SyllableError::InvalidNucleus);
+            }
+            return Err(SyllableError::InvalidOnset);
+        }
+
+        // ─────────────────────────── Nucleus ───────────────────────────
+        //
+        // A vowel nucleus and/or a coda exists: a transform key (tone /
+        // shape / stroke) is offered to the syllable once, then the input is
+        // parsed as a literal vowel or coda character.
+        if self.try_transform(keymap, key, None) == TransformEffect::Applied {
+            return Ok(InputEffect::Transformed);
+        }
+
+        if self.coda.is_empty() {
+            // Vowel literal.
+            if let Some(decoded) = decode_vowel(key) {
+                if self.push_vowel(decoded) {
+                    self.normalize_uo_horn();
+                    return Ok(InputEffect::StructurallyChanged);
+                }
+                return Err(SyllableError::InvalidNucleus);
+            }
+            // Coda fallback: push vowel failed then consider char as coda.
+            if self.push_coda(key) {
+                // fold a leftover `uơ` / `ưo` prefix into `ươ` once a coda lands
+                self.normalize_uo_horn();
+                return Ok(InputEffect::StructurallyChanged);
+            }
+            return Err(SyllableError::InvalidCoda);
+        }
+
+        // Coda literal.
+        if self.push_coda(key) {
+            return Ok(InputEffect::StructurallyChanged);
+        }
+        Err(SyllableError::InvalidCoda)
+    }
+
+    /// Handles a literal character while building the onset.
+    ///
+    /// Returns:
+    /// - `true` if the input was consumed by the onset.
+    /// - `false` if the input must be handled as a vowel.
+    ///
+    /// `q` is kept as a transitional prefix waiting for `u` (to form `qu`);
+    /// `i` is deliberately left for the vowel parser so that `gi` can remain
+    /// ambiguous until another vowel follows.
+    fn push_onset(&mut self, input: char) -> bool {
+        // `q` is a transitional onset prefix; wait for `u`.
+        if self.onset.is_empty() && is_q(input) {
+            self.onset.push(input);
+            return true;
+        }
+        // Do not accept `i` immediately as onset. Keep it as a vowel so
+        // `gi` can be resolved later if another vowel follows.
+        // A toned `i` (í, ì, ỉ, ị, ĩ) already fails `try_update_onset`, so no
+        // special care is needed here.
+        if is_i(input) {
+            return false;
+        }
+
+        self.try_update_onset(
+            |onset| onset.push(input),
+            |onset| {
+                onset.pop();
+            },
+        )
+    }
+
+    // ─────────────────────────── Vowel ───────────────────────────
+
+    /// Handles a literal character while in the `Vowel` phase.
+    ///
+    /// A vowel joins the nucleus (or falls through to kill); a possible coda
+    /// starter moves the phase into `Coda` and appends the character; anything
+    /// else (invalid coda, non-letter) kills the parse.
+    fn push_vowel(&mut self, (cased_base, tone): (CasedBaseVowel, Tone)) -> bool {
+        let vowels_len = self.vowels.len();
+        if vowels_len == 0 {
+            // First vowel; add it to the nucleus.
+            self.vowels.push(cased_base);
+            self.tone = tone;
+            return true;
+        }
+        // Vietnamese vowel sequence supports at most 3 vowels.
+        else if vowels_len >= 3 {
+            return false;
+        }
+
+        // Append the new vowel to the sequence.
+
+        let old_tone = self.tone;
+
+        // A pretoned vowel carrying a tone must not conflict with the tone
+        // already on the syllable. e.g. "á" is already typed and a raw "ắ" is
+        // pushed straight into the buffer - the two tones would collide (áắ)
+        if self.tone == Tone::Flat {
+            // If the tone is currently flat, a pretoned vowel can be used.
+            // For example `i` can be continued typing with a pretoned vowel `ế`, forming `iế`.
+            self.tone = tone;
+        } else if tone != Tone::Flat {
+            // Tone conflict
+            return false;
+        }
+
+        // ---------------------------------------------------------
+        // Special case: gi
+        // A syllable prefix of "gi" is ambiguous: if another vowel
+        // follows the 'i', "gi" becomes the onset; otherwise 'g'
+        // stays the onset and the 'i' is the nucleus.
+        // ---------------------------------------------------------
+        if vowels_len == 1 && self.vowels[0].value == BaseVowel::I && self.onset_kind == Onset::G {
+            let i = self.vowels.pop().expect("vowels must contain i ");
+            self.onset.push(if i.is_upper { 'I' } else { 'i' });
+            self.onset_kind = Onset::Gi;
+        }
+
+        self.vowels.push(cased_base);
+
+        if NucleusState::Dead == self.validate_vowels() {
+            // rollback state
+            self.vowels.pop();
+            self.tone = old_tone;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// Handles a literal character while building the coda.
+    ///
+    /// Returns `true` if the input was consumed as part of the coda;
+    /// otherwise returns `false`.
+    #[inline(always)]
+    fn push_coda(&mut self, input: char) -> bool {
+        self.try_update_coda(
+            |coda| coda.push(input),
+            |coda| {
+                coda.pop();
+            },
+        )
+    }
+}
+
+impl BuildingSyllableBuilder {
+    #[inline(always)]
+    pub fn insert<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        index: usize,
+        key: char,
+    ) -> Result<InputEffect, SyllableError> {
+        let onset_len = self.onset.len();
+        let vowels_len = self.vowels.len();
+        let vowel_boundary = onset_len + vowels_len;
+        let total_len = vowel_boundary + self.coda.len();
+
+        // Insert at the end == push.
+        if index >= total_len {
+            return self.push(keymap, key);
+        }
+
+        debug_assert!(index < total_len);
+
+        // ─────────────────────────── Onset ───────────────────────────
+
+        if index <= onset_len {
+            // The d/đ modifier is handled before literal insertion.
+            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
+                return Ok(InputEffect::Transformed);
+            }
+
+            // The onset consumes the input.
+            if self.insert_onset(index, key) {
+                self.normalize_i_placement();
+                return Ok(InputEffect::StructurallyChanged);
+            }
+
+            // Only the last onset boundary is allowed to fall through to vowel.
+            if index != onset_len {
+                return Err(SyllableError::InvalidOnset);
+            }
+
+            if let Some(decoded) = decode_vowel(key) {
+                if self.insert_vowel(0, decoded) {
+                    return Ok(InputEffect::StructurallyChanged);
+                }
+                return Err(SyllableError::InvalidNucleus);
+            }
+
+            return Err(SyllableError::InvalidOnset);
+        }
+
+        // ─────────────────────────── Vowel ───────────────────────────
+
+        if index <= vowel_boundary {
+            let vowel_index = index - onset_len;
+
+            // The modifier is handled before literal insertion.
+            if self.try_transform(keymap, key, Some(vowel_index)) == TransformEffect::Applied {
+                return Ok(InputEffect::Transformed);
+            }
+
+            if let Some(decoded) = decode_vowel(key) {
+                if self.insert_vowel(vowel_index, decoded) {
+                    self.normalize_uo_horn();
+                    return Ok(InputEffect::StructurallyChanged);
+                }
+                return Err(SyllableError::InvalidNucleus);
+            }
+
+            if vowel_index == vowels_len {
+                if self.insert_coda(0, key) {
+                    self.normalize_uo_horn();
+                    return Ok(InputEffect::StructurallyChanged);
+                }
+                return Err(SyllableError::InvalidCoda);
+            }
+
+            return Err(SyllableError::InvalidNucleus);
+        }
+
+        // ─────────────────────────── Coda ───────────────────────────
+
+        if self.try_transform(keymap, key, None) == TransformEffect::Applied {
+            return Ok(InputEffect::Transformed);
+        }
+
+        let coda_index = index - vowel_boundary;
+
+        if self.insert_coda(coda_index, key) {
+            return Ok(InputEffect::StructurallyChanged);
+        }
+
+        Err(SyllableError::InvalidCoda)
+    }
+
+    // ─────────────────────────── Insert Onset ───────────────────────────
+
+    /// Tries to insert a literal into the onset.
+    ///
+    /// `true`  -> the onset consumed the input.
+    /// `false` -> the onset does not accept the input.
+    ///
+    /// This function does NOT fall back to a vowel.
+    #[inline(always)]
+    fn insert_onset(&mut self, index: usize, input: char) -> bool {
+        self.try_update_onset(
+            |onset| onset.insert(index, input),
+            |onset| {
+                onset.remove(index);
+            },
+        )
+    }
+
+    // ─────────────────────────── Insert Vowel ───────────────────────────
+
+    /// Inserts a literal vowel into the nucleus.
+    ///
+    /// This function does not handle transforms.
+    /// The transform has already been handled by `insert()`.
+    ///
+    /// If the input is not a vowel and we are at the end of the nucleus,
+    /// the input is tried as a coda.
+    #[inline]
+    fn insert_vowel(
+        &mut self,
+        vowel_index: usize,
+        (cased_base, tone): (CasedBaseVowel, Tone),
+    ) -> bool {
+        debug_assert!(vowel_index <= self.vowels.len());
+        if self.vowels.len() >= 3 {
+            return false;
+        }
+
+        let old_tone = self.tone;
+
+        // A pretoned vowel carrying a tone must not conflict with the tone
+        // already on the syllable. e.g. "á" is already typed and a raw "ắ" is
+        // pushed straight into the buffer - the two tones would collide (áắ)
+        if self.tone == Tone::Flat {
+            // If the tone is currently flat, a pretoned vowel can be used.
+            // For example `i` can be continued typing with a pretoned vowel `ế`, forming `iế`.
+            self.tone = tone;
+        } else if tone != Tone::Flat {
+            // Tone conflict
+            return false;
+        }
+
+        self.vowels.insert(vowel_index, cased_base);
+
+        if self.validate_vowels() == NucleusState::Dead {
+            self.vowels.remove(vowel_index);
+            self.tone = old_tone;
+
+            return false;
+        }
+
+        true
+    }
+
+    // ─────────────────────────── Insert Coda ───────────────────────────
+
+    /// Tries to insert a literal into the coda.
+    ///
+    /// `true`  -> the coda consumed the input.
+    /// `false` -> the coda does not accept the input.
+    #[inline(always)]
+    fn insert_coda(&mut self, coda_index: usize, input: char) -> bool {
+        self.try_update_coda(
+            |coda| coda.insert(coda_index, input),
+            |coda| {
+                coda.remove(coda_index);
+            },
+        )
+    }
+}
+
+// NOTE: UNCHECKED
+impl BuildingSyllableBuilder {
+    #[inline]
+    pub fn remove(
+        &mut self,
+        index: usize,
+        tone_placement: TonePlacement,
+    ) -> Result<InputEffect, SyllableError> {
+        let onset_len = self.onset.len();
+        let vowels_len = self.vowels.len();
+        let total_len = onset_len + vowels_len + self.coda.len();
+
+        debug_assert!(index < total_len);
+
+        // This is not the hot path so a transaction is fine here; may be optimized later
+        self.transaction(|this| {
+            // ─────────────────────────── Onset ───────────────────────────
+
+            if index < onset_len {
+                if !this.remove_onset(index) {
+                    return Err(SyllableError::InvalidOnset);
+                }
+
+                // Removing onset may expose `I` and move it into the nucleus.
+                this.normalize_i_placement();
+
+                if this.validate_vowels() == NucleusState::Dead {
+                    return Err(SyllableError::InvalidNucleus);
+                }
+
+                return Ok(InputEffect::StructurallyChanged);
+            }
+
+            // ─────────────────────────── Vowel ───────────────────────────
+
+            let vowel_index = index - onset_len;
+
+            if vowel_index < vowels_len {
+                if !this.remove_vowel(vowel_index, tone_placement) {
+                    return Err(SyllableError::InvalidNucleus);
+                }
+
+                // Removing a vowel may expose `I` from the onset.
+                this.normalize_i_placement();
+
+                if this.validate_vowels() == NucleusState::Dead {
+                    return Err(SyllableError::InvalidNucleus);
+                }
+
+                return Ok(InputEffect::StructurallyChanged);
+            }
+
+            // ─────────────────────────── Coda ───────────────────────────
+
+            let coda_index = vowel_index - vowels_len;
+
+            if !this.remove_coda(coda_index) {
+                return Err(SyllableError::InvalidCoda);
+            }
+
+            Ok(InputEffect::StructurallyChanged)
+        })
+    }
+
+    // ─────────────────────────── Remove Onset ───────────────────────────
+
+    /// Removes one literal character from the onset and revalidates it.
+    ///
+    /// The operation is locally transactional: if the resulting onset is invalid,
+    /// the removed character is restored.
+    #[inline(always)]
+    fn remove_onset(&mut self, index: usize) -> bool {
+        debug_assert!(index < self.onset.len());
+
+        let removed = Cell::new(None);
+
+        self.try_update_onset(
+            |onset| {
+                removed.set(Some(onset.remove(index)));
+            },
+            |onset| {
+                onset.insert(index, removed.get().unwrap());
+            },
+        )
+    }
+
+    // ─────────────────────────── Remove Vowel ───────────────────────────
+
+    /// Removes one vowel from the nucleus.
+    ///
+    /// Returns `false` only when `index` is outside the vowel range.
+    #[inline(always)]
+    fn remove_vowel(&mut self, index: usize, tone_placement: TonePlacement) -> bool {
+        debug_assert!(index < self.vowels.len());
+
+        // Removing a vowel may change the tone position according to the
+        // selected tone scheme. Recalculate it here when that logic is added.
+        let tone_pos = tone_placement.vowel_index(&self.vowels, self.coda.is_empty());
+
+        if tone_pos == Some(index) {
+            self.tone = Tone::Flat;
+        }
+
+        // Do not recalculate UO normalization after deletion.
+        //
+        // For example:
+        //
+        //     ư ơ o
+        //
+        // Removing `ơ` leaves:
+        //
+        //     ư o
+        //
+        // It is ambiguous whether `o` should become `ơ`, so deletion preserves
+        // the remaining literal vowels.
+
+        if index >= self.vowels.len() {
+            return false;
+        }
+
+        self.vowels.remove(index);
+
+        // A tone without a vowel has no semantic target.
+        if self.vowels.is_empty() {
+            self.tone = Tone::Flat;
+        }
+
+        true
+    }
+
+    // ─────────────────────────── Remove Coda ───────────────────────────
+
+    /// Removes one literal character from the coda and revalidates it.
+    ///
+    /// The operation is locally transactional: if the resulting coda is invalid,
+    /// the removed character is restored.
+    #[inline(always)]
+    fn remove_coda(&mut self, index: usize) -> bool {
+        debug_assert!(index < self.coda.len());
+
+        let removed = Cell::new(None);
+
+        self.try_update_coda(
+            |coda| {
+                removed.set(Some(coda.remove(index)));
+            },
+            |coda| {
+                coda.insert(index, removed.get().unwrap());
+            },
+        )
     }
 }
 
@@ -153,30 +662,30 @@ impl BuildingSyllableBuilder {
             }
         }
     }
-    /// Thao tác trên `coda` một cách an toàn bằng cách truyền vào closure `mutate` và `revert`.
+    /// Safely operates on `coda` by passing in a `mutate` and a `revert` closure.
     ///
-    /// Nếu kiểm tra `Coda::from_chars` thành công, trạng thái `coda_kind` sẽ được cập nhật.
-    /// Nếu thất bại, closure `revert` sẽ được gọi để hoàn tác mảng `coda`.
+    /// If `Coda::from_chars` validation succeeds, `coda_kind` is updated.
+    /// If it fails, the `revert` closure is called to undo the `coda` change.
     #[inline(always)]
     pub fn try_update_coda<F, R>(&mut self, update: F, revert: R) -> bool
     where
-        F: FnOnce(&mut ArrayVec<char, { Coda::MAX_CHARS }>),
-        R: FnOnce(&mut ArrayVec<char, { Coda::MAX_CHARS }>),
+        F: FnOnce(&mut ArrayVec<char, { Coda::MAX_LEN }>),
+        R: FnOnce(&mut ArrayVec<char, { Coda::MAX_LEN }>),
     {
-        if self.coda.len() >= Coda::MAX_CHARS {
+        if self.coda.len() >= Coda::MAX_LEN {
             return false;
         }
-        // 1. Thực hiện thao tác sửa đổi mảng coda
+        // 1. Apply the edit to the coda array.
         update(&mut self.coda);
 
-        // 2. Validation ngữ âm coda
+        // 2. Validate the coda phonology.
         match Coda::from_chars(&self.coda) {
             Ok(kind) => {
                 self.coda_kind = kind;
                 true
             }
             Err(_) => {
-                // 3. Revert nếu coda không hợp lệ
+                // 3. Revert if the coda is invalid.
                 revert(&mut self.coda);
                 false
             }
@@ -186,24 +695,24 @@ impl BuildingSyllableBuilder {
     #[inline(always)]
     pub fn try_update_onset<F, R>(&mut self, update: F, revert: R) -> bool
     where
-        F: FnOnce(&mut ArrayVec<char, { Onset::MAX_CHARS }>),
-        R: FnOnce(&mut ArrayVec<char, { Onset::MAX_CHARS }>),
+        F: FnOnce(&mut ArrayVec<char, { Onset::MAX_LEN }>),
+        R: FnOnce(&mut ArrayVec<char, { Onset::MAX_LEN }>),
     {
-        if self.onset.len() >= Onset::MAX_CHARS {
+        if self.onset.len() >= Onset::MAX_LEN {
             return false;
         }
 
-        // 1. Thực hiện thao tác sửa đổi mảng onset
+        // 1. Apply the edit to the onset array.
         update(&mut self.onset);
 
-        // 2. Validation ngữ âm onset
+        // 2. Validate the onset phonology.
         match Onset::from_chars(&self.onset) {
             Ok(kind) => {
                 self.onset_kind = kind;
                 true
             }
             Err(_) => {
-                // 3. Revert nếu onset không hợp lệ
+                // 3. Revert if the onset is invalid.
                 revert(&mut self.onset);
                 false
             }
@@ -340,24 +849,24 @@ impl BuildingSyllableBuilder {
 
         let old = self.vowels[vowel_index].value;
 
-        // Nếu đã có hình dạng (shape) này -> Toggle/Undo về dạng gốc
+        // If the vowel already has this shape -> Toggle/Undo back to the base form
         if old.has_shape(shape) && shape.is_some() {
             self.vowels[vowel_index].value = old.remove_shape();
             return TransformEffect::Reverted;
         }
 
-        // Thử thay thế hình dạng mới
+        // Try applying the new shape
         let Ok(new) = old.replace_shape(shape) else {
             return TransformEffect::Ignored;
         };
 
         self.vowels[vowel_index].value = new;
 
-        // Nguyên âm đơn luôn hợp lệ
+        // A single vowel is always valid
         if self.vowels.len() < 2 {
             return TransformEffect::Applied;
         }
-        // 4. Kiểm tra tính hợp lệ của tổ hợp nguyên âm (Nucleus)
+        // 4. Check the validity of the vowel combination (Nucleus)
         match self.validate_vowels() {
             NucleusState::Valid => TransformEffect::Applied,
             NucleusState::InComplete => TransformEffect::Applied,
@@ -382,13 +891,13 @@ impl BuildingSyllableBuilder {
                 TransformEffect::Reverted
             }
 
-            // ưô, ưo, uo, uô -> biến đổi phần tử index 1 thành Horn
+            // ưô, ưo, uo, uô -> transform element at index 1 into Horn
             (BaseVowel::UHorn, BaseVowel::OCircumflex | BaseVowel::O)
             | (BaseVowel::U, BaseVowel::O | BaseVowel::OCircumflex) => {
                 self.apply_vowel_shape(1, Shape::Horn)
             }
 
-            // uơ -> biến đổi phần tử index 0 thành Horn (thành ươ)
+            // uơ -> transform element at index 0 into Horn (becomes ươ)
             (BaseVowel::U, BaseVowel::OHorn) => self.apply_vowel_shape(0, Shape::Horn),
 
             _ => TransformEffect::Ignored,
@@ -412,14 +921,14 @@ impl BuildingSyllableBuilder {
                 TransformEffect::Reverted
             }
 
-            // ươ, ưo -> uô (Cần đổi v0 từ UHorn về U, rồi áp dụng Circumflex lên v1)
+            // ươ, ưo -> uô (switch v0 from UHorn to U, then apply Circumflex to v1)
             (BaseVowel::UHorn, BaseVowel::OHorn | BaseVowel::O) => {
                 let prev_u = self.vowels[0].value;
                 self.vowels[0].value = BaseVowel::U;
 
                 match self.apply_vowel_shape(1, Shape::Circumflex) {
                     TransformEffect::Ignored => {
-                        self.vowels[0].value = prev_u; // Rollback nếu không áp dụng được
+                        self.vowels[0].value = prev_u; // Rollback if it could not be applied
                         TransformEffect::Ignored
                     }
                     effect => effect,
@@ -438,18 +947,18 @@ impl BuildingSyllableBuilder {
         key: char,
         vowel_upper_bound_idx: Option<usize>,
     ) -> TransformEffect {
-        // 1. Xác định giới hạn con trỏ (upper bound)
+        // 1. Determine the cursor upper bound.
         let max_len = match vowel_upper_bound_idx {
             Some(idx) => idx.min(self.vowels.len()),
             None => self.vowels.len(),
         };
 
-        // Nếu con trỏ ở ngay vị trí 0, không có nguyên âm nào bên trái -> Bỏ qua ngay lập tức!
+        // If the cursor is at position 0 there are no vowels to its left -> skip immediately!
         if max_len == 0 {
             return TransformEffect::Ignored;
         }
-        // 2. Xử lý trường hợp đặc biệt "uo" (uow -> ươ, uoo -> uô)
-        // ĐIỀU KIỆN MỚI: Chỉ check "uo" khi con trỏ nằm SAU chữ 'u' (tức max_len >= 1)
+        // 2. Handle the special "uo" case (uow -> ươ, uoo -> uô).
+        // NEW CONDITION: only check "uo" when the cursor is AFTER the 'u' (i.e. max_len >= 1)
         else if self.vowels_starts_with_uo() {
             if let Some(shape) = keymap
                 .decode_shape(key, RootVowel::O)
@@ -463,7 +972,7 @@ impl BuildingSyllableBuilder {
             }
         }
 
-        // 3. Duyệt ngược từ (max_len - 1) lùi về 0 (CHỈ xét các nguyên âm đứng TRƯỚC con trỏ)
+        // 3. Scan backwards from (max_len - 1) to 0 (only vowels BEFORE the cursor)
         for index in (0..max_len).rev() {
             let base = self.vowels[index].value;
 
@@ -494,519 +1003,18 @@ impl BuildingSyllableBuilder {
         vowel_upper_bound_idx: Option<usize>,
     ) -> TransformEffect {
         if !self.vowels.is_empty() {
-            // 1. Dấu thanh (Tone)
+            // 1. Tone
             if let Some(tone) = keymap.decode_tone(key) {
                 return self.apply_tone(tone);
             }
 
-            // 2. Dấu phụ nguyên âm (Shape: mũ, móc, trăng)
+            // 2. Vowel diacritic (Shape: hat, hook, crescent)
             if keymap.is_shape_key(key) {
                 return self.try_transform_shape(keymap, key, vowel_upper_bound_idx);
             }
         }
 
-        // 3. Đ gạch ngang (D-stroke)
+        // 3. D-stroke
         self.try_toggle_d_stroke(keymap, key)
-    }
-}
-
-impl BuildingSyllableBuilder {
-    #[inline(always)]
-    pub fn insert<KM: Keymap>(
-        &mut self,
-        keymap: &KM,
-        index: usize,
-        key: char,
-    ) -> Result<InputEffect, SyllableError> {
-        let onset_len = self.onset.len();
-        let vowels_len = self.vowels.len();
-        let vowel_boundary = onset_len + vowels_len;
-        let total_len = vowel_boundary + self.coda.len();
-
-        // Insert ở cuối == push.
-        if index >= total_len {
-            return self.push(keymap, key);
-        }
-
-        debug_assert!(index < total_len);
-
-        // ─────────────────────────── Onset ───────────────────────────
-
-        if index <= onset_len {
-            // Modifier d/đ được xử lý trước literal insertion.
-            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
-                return Ok(InputEffect::Transformed);
-            }
-
-            // Onset ăn được input.
-            if self.insert_onset(index, key) {
-                self.normalize_i_placement();
-                return Ok(InputEffect::StructurallyChanged);
-            }
-
-            // Chỉ boundary cuối onset mới được phép rơi xuống vowel.
-            if index != onset_len {
-                return Err(SyllableError::InvalidOnset);
-            }
-
-            if let Some(decoded) = decode_vowel(key) {
-                if self.insert_vowel(0, decoded) {
-                    return Ok(InputEffect::StructurallyChanged);
-                }
-                return Err(SyllableError::InvalidNucleus);
-            }
-
-            return Err(SyllableError::InvalidOnset);
-        }
-
-        // ─────────────────────────── Vowel ───────────────────────────
-
-        if index <= vowel_boundary {
-            let vowel_index = index - onset_len;
-
-            // Modifier được xử lý trước literal insertion.
-            if self.try_transform(keymap, key, Some(vowel_index)) == TransformEffect::Applied {
-                return Ok(InputEffect::Transformed);
-            }
-
-            if let Some(decoded) = decode_vowel(key) {
-                if self.insert_vowel(vowel_index, decoded) {
-                    self.normalize_uo_horn();
-                    return Ok(InputEffect::StructurallyChanged);
-                }
-                return Err(SyllableError::InvalidNucleus);
-            }
-
-            if vowel_index == vowels_len {
-                if self.insert_coda(0, key) {
-                    self.normalize_uo_horn();
-                    return Ok(InputEffect::StructurallyChanged);
-                }
-                return Err(SyllableError::InvalidCoda);
-            }
-
-            return Err(SyllableError::InvalidNucleus);
-        }
-
-        // ─────────────────────────── Coda ───────────────────────────
-
-        if self.try_transform(keymap, key, None) == TransformEffect::Applied {
-            return Ok(InputEffect::Transformed);
-        }
-
-        let coda_index = index - vowel_boundary;
-
-        if self.insert_coda(coda_index, key) {
-            return Ok(InputEffect::StructurallyChanged);
-        }
-
-        Err(SyllableError::InvalidCoda)
-    }
-
-    // ─────────────────────────── Insert Onset ───────────────────────────
-
-    /// Thử chèn literal vào onset.
-    ///
-    /// `true`  -> onset đã consume input.
-    /// `false` -> onset không nhận input.
-    ///
-    /// Hàm này KHÔNG fallback sang vowel.
-    #[inline(always)]
-    fn insert_onset(&mut self, index: usize, input: char) -> bool {
-        self.try_update_onset(
-            |onset| onset.insert(index, input),
-            |onset| {
-                onset.remove(index);
-            },
-        )
-    }
-
-    // ─────────────────────────── Insert Vowel ───────────────────────────
-
-    /// Chèn literal vowel vào nucleus.
-    ///
-    /// Hàm này không xử lý transform.
-    /// Transform đã được `insert()` xử lý trước đó.
-    ///
-    /// Nếu input không phải vowel và đang ở cuối nucleus,
-    /// input được thử như coda.
-    #[inline]
-    fn insert_vowel(
-        &mut self,
-        vowel_index: usize,
-        (cased_base, tone): (CasedBaseVowel, Tone),
-    ) -> bool {
-        debug_assert!(vowel_index <= self.vowels.len());
-        if self.vowels.len() >= 3 {
-            return false;
-        }
-
-        let old_tone = self.tone;
-
-        // A pretoned vowel carrying a tone must not conflict with the tone
-        // already on the syllable. e.g. "á" is already typed and a raw "ắ" is
-        // pushed straight into the buffer - the two tones would collide (áắ)
-        if self.tone == Tone::Flat {
-            // If the tone is currently flat, a pretoned vowel can be used.
-            // For example `i` can be contiued typed with an pretoned vowel `ế`. to `iế`
-            self.tone = tone;
-        } else if tone != Tone::Flat {
-            // Tone conflict
-            return false;
-        }
-
-        self.vowels.insert(vowel_index, cased_base);
-
-        if self.validate_vowels() == NucleusState::Dead {
-            self.vowels.remove(vowel_index);
-            self.tone = old_tone;
-
-            return false;
-        }
-
-        true
-    }
-
-    // ─────────────────────────── Insert Coda ───────────────────────────
-
-    /// Thử chèn literal vào coda.
-    ///
-    /// `true`  -> coda đã consume input.
-    /// `false` -> coda không nhận input.
-    #[inline(always)]
-    fn insert_coda(&mut self, coda_index: usize, input: char) -> bool {
-        self.try_update_coda(
-            |coda| coda.insert(coda_index, input),
-            |coda| {
-                coda.remove(coda_index);
-            },
-        )
-    }
-}
-
-impl BuildingSyllableBuilder {
-    #[inline(always)]
-    pub fn push<KM: Keymap>(
-        &mut self,
-        keymap: &KM,
-        key: char,
-    ) -> Result<InputEffect, SyllableError> {
-        // ─────────────────────────── Onset ───────────────────────────
-        //
-        // No vowel and no coda means we are still parsing the onset.
-        //
-        // A stroke key can modify an existing D/Đ onset before being
-        // interpreted as a literal character.
-        if self.coda.is_empty() && self.vowels.is_empty() {
-            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
-                return Ok(InputEffect::Transformed);
-            }
-            // Try to consume the input as part of the onset.
-            if self.push_onset(key) {
-                return Ok(InputEffect::StructurallyChanged);
-            }
-            // Alone Q is a transitional onset and can only be followed by U.
-            if self.onset.len() == 1 && is_q(self.onset[0]) {
-                return Err(SyllableError::InvalidOnset);
-            }
-            // The input may start the vowel nucleus.
-            if let Some(decoded) = decode_vowel(key) {
-                if self.push_vowel(decoded) {
-                    return Ok(InputEffect::StructurallyChanged);
-                }
-                return Err(SyllableError::InvalidNucleus);
-            }
-            return Err(SyllableError::InvalidOnset);
-        }
-
-        // ─────────────────────────── Nucleus ───────────────────────────
-        //
-        // A vowel nucleus and/or a coda exists: a transform key (tone /
-        // shape / stroke) is offered to the syllable once, then the input is
-        // parsed as a literal vowel or coda character.
-        if self.try_transform(keymap, key, None) == TransformEffect::Applied {
-            return Ok(InputEffect::Transformed);
-        }
-
-        if self.coda.is_empty() {
-            // Vowel literal.
-            if let Some(decoded) = decode_vowel(key) {
-                if self.push_vowel(decoded) {
-                    self.normalize_uo_horn();
-                    return Ok(InputEffect::StructurallyChanged);
-                }
-                return Err(SyllableError::InvalidNucleus);
-            }
-            // Coda fallback: push vowel failed then consider char as coda.
-            if self.push_coda(key) {
-                // fold a leftover `uơ` / `ưo` prefix into `ươ` once a coda lands
-                self.normalize_uo_horn();
-                return Ok(InputEffect::StructurallyChanged);
-            }
-            return Err(SyllableError::InvalidCoda);
-        }
-
-        // Coda literal.
-        if self.push_coda(key) {
-            return Ok(InputEffect::StructurallyChanged);
-        }
-        Err(SyllableError::InvalidCoda)
-    }
-
-    /// Handles a literal character while building the onset.
-    ///
-    /// Returns:
-    /// - `true` if the input was consumed by the onset.
-    /// - `false` if the input must be handled as a vowel.
-    ///
-    /// `q` is kept as a transitional prefix waiting for `u` (to form `qu`);
-    /// `i` is deliberately left for the vowel parser so that `gi` can remain
-    /// ambiguous until another vowel follows.
-    fn push_onset(&mut self, input: char) -> bool {
-        // `q` is a transitional onset prefix; wait for `u`.
-        if self.onset.is_empty() && is_q(input) {
-            self.onset.push(input);
-            return true;
-        }
-        // Do not accept `i` immediately as onset. Keep it as a vowel so
-        // `gi` can be resolved later if another vowel follows.
-        // if input is i with tone like í, ì, ỉ, ị, ĩ try_update_onset_will auto failed so don't need to wonder it
-        if is_i(input) {
-            return false;
-        }
-
-        self.try_update_onset(
-            |onset| onset.push(input),
-            |onset| {
-                onset.pop();
-            },
-        )
-    }
-
-    // ─────────────────────────── Vowel ───────────────────────────
-
-    /// Handles a literal character while in the `Vowel` phase.
-    ///
-    /// A vowel joins the nucleus (or falls through to kill); a possible coda
-    /// starter moves the phase into `Coda` and appends the character; anything
-    /// else (invalid coda, non-letter) kills the parse.
-    fn push_vowel(&mut self, (cased_base, tone): (CasedBaseVowel, Tone)) -> bool {
-        let vowels_len = self.vowels.len();
-        if vowels_len == 0 {
-            // First vowel; add it to the nucleus.
-            self.vowels.push(cased_base);
-            self.tone = tone;
-            return true;
-        }
-        // Vietnamese vowel sequence supports at most 3 vowels.
-        else if vowels_len >= 3 {
-            return false;
-        }
-
-        // Append the new vowel to the sequence.
-
-        let old_tone = self.tone;
-
-        // A pretoned vowel carrying a tone must not conflict with the tone
-        // already on the syllable. e.g. "á" is already typed and a raw "ắ" is
-        // pushed straight into the buffer - the two tones would collide (áắ)
-        if self.tone == Tone::Flat {
-            // If the tone is currently flat, a pretoned vowel can be used.
-            // For example `i` can be contiued typed with an pretoned vowel `ế`. to `iế`
-            self.tone = tone;
-        } else if tone != Tone::Flat {
-            // Tone conflict
-            return false;
-        }
-
-        // ---------------------------------------------------------
-        // Special case: gi
-        // A syllable prefix of "gi" is ambiguous: if another vowel
-        // follows the 'i', "gi" becomes the onset; otherwise 'g'
-        // stays the onset and the 'i' is the nucleus.
-        // ---------------------------------------------------------
-        if vowels_len == 1 && self.vowels[0].value == BaseVowel::I && self.onset_kind == Onset::G {
-            let i = self.vowels.pop().expect("vowels must contain i ");
-            self.onset.push(if i.is_upper { 'I' } else { 'i' });
-            self.onset_kind = Onset::Gi;
-        }
-
-        self.vowels.push(cased_base);
-
-        if NucleusState::Dead == self.validate_vowels() {
-            // rollback state
-            self.vowels.pop();
-            self.tone = old_tone;
-            return false;
-        }
-
-        return true;
-    }
-
-    /// Handles a literal character while building the coda.
-    ///
-    /// Returns `true` if the input was consumed as part of the coda;
-    /// otherwise returns `false`.
-    #[inline(always)]
-    fn push_coda(&mut self, input: char) -> bool {
-        self.try_update_coda(
-            |coda| coda.push(input),
-            |coda| {
-                coda.pop();
-            },
-        )
-    }
-}
-
-// NOTE: UNCHECKED
-impl BuildingSyllableBuilder {
-    #[inline]
-    pub fn remove(
-        &mut self,
-        index: usize,
-        tone_scheme: TonePlacement,
-    ) -> Result<InputEffect, SyllableError> {
-        let onset_len = self.onset.len();
-        let vowels_len = self.vowels.len();
-        let total_len = onset_len + vowels_len + self.coda.len();
-
-        debug_assert!(index < total_len);
-
-        // This is not hot path so we can use transaction here but may be improve in future
-        self.transaction(|this| {
-            // ─────────────────────────── Onset ───────────────────────────
-
-            if index < onset_len {
-                if !this.remove_onset(index) {
-                    return Err(SyllableError::InvalidOnset);
-                }
-
-                // Removing onset may expose `I` and move it into the nucleus.
-                this.normalize_i_placement();
-
-                if this.validate_vowels() == NucleusState::Dead {
-                    return Err(SyllableError::InvalidNucleus);
-                }
-
-                return Ok(InputEffect::StructurallyChanged);
-            }
-
-            // ─────────────────────────── Vowel ───────────────────────────
-
-            let vowel_index = index - onset_len;
-
-            if vowel_index < vowels_len {
-                if !this.remove_vowel(vowel_index, tone_scheme) {
-                    return Err(SyllableError::InvalidNucleus);
-                }
-
-                // Removing a vowel may expose `I` from the onset.
-                this.normalize_i_placement();
-
-                if this.validate_vowels() == NucleusState::Dead {
-                    return Err(SyllableError::InvalidNucleus);
-                }
-
-                return Ok(InputEffect::StructurallyChanged);
-            }
-
-            // ─────────────────────────── Coda ───────────────────────────
-
-            let coda_index = vowel_index - vowels_len;
-
-            if !this.remove_coda(coda_index) {
-                return Err(SyllableError::InvalidCoda);
-            }
-
-            Ok(InputEffect::StructurallyChanged)
-        })
-    }
-
-    // ─────────────────────────── Remove Onset ───────────────────────────
-
-    /// Removes one literal character from the onset and revalidates it.
-    ///
-    /// The operation is locally transactional: if the resulting onset is invalid,
-    /// the removed character is restored.
-    #[inline(always)]
-    fn remove_onset(&mut self, index: usize) -> bool {
-        debug_assert!(index < self.onset.len());
-
-        let removed = Cell::new(None);
-
-        self.try_update_onset(
-            |onset| {
-                removed.set(Some(onset.remove(index)));
-            },
-            |onset| {
-                onset.insert(index, removed.get().unwrap());
-            },
-        )
-    }
-
-    // ─────────────────────────── Remove Vowel ───────────────────────────
-
-    /// Removes one vowel from the nucleus.
-    ///
-    /// Returns `false` only when `index` is outside the vowel range.
-    #[inline(always)]
-    fn remove_vowel(&mut self, index: usize, tone_scheme: TonePlacement) -> bool {
-        debug_assert!(index < self.vowels.len());
-
-        // Removing a vowel may change the tone position according to the
-        // selected tone scheme. Recalculate it here when that logic is added.
-        let tone_pos = tone_scheme.tone_index(&self.vowels, self.coda.is_empty());
-
-        if tone_pos == Some(index) {
-            self.tone = Tone::Flat;
-        }
-
-        // Do not recalculate UO normalization after deletion.
-        //
-        // For example:
-        //
-        //     ư ơ o
-        //
-        // Removing `ơ` leaves:
-        //
-        //     ư o
-        //
-        // It is ambiguous whether `o` should become `ơ`, so deletion preserves
-        // the remaining literal vowels.
-
-        if index >= self.vowels.len() {
-            return false;
-        }
-
-        self.vowels.remove(index);
-
-        // A tone without a vowel has no semantic target.
-        if self.vowels.is_empty() {
-            self.tone = Tone::Flat;
-        }
-
-        true
-    }
-
-    // ─────────────────────────── Remove Coda ───────────────────────────
-
-    /// Removes one literal character from the coda and revalidates it.
-    ///
-    /// The operation is locally transactional: if the resulting coda is invalid,
-    /// the removed character is restored.
-    #[inline(always)]
-    fn remove_coda(&mut self, index: usize) -> bool {
-        debug_assert!(index < self.coda.len());
-
-        let removed = Cell::new(None);
-
-        self.try_update_coda(
-            |coda| {
-                removed.set(Some(coda.remove(index)));
-            },
-            |coda| {
-                coda.insert(index, removed.get().unwrap());
-            },
-        )
     }
 }

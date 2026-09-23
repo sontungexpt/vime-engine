@@ -6,61 +6,61 @@ use crate::phonology::{RootVowel, Shape, Tone};
 pub(crate) const CONFIG: &Rules = &Rules::new(
     &[
         ToneRule {
-            key: '`',
+            key: b'`',
             tone: Tone::Grave,
         },
         ToneRule {
-            key: '?',
+            key: b'?',
             tone: Tone::Hook,
         },
         ToneRule {
-            key: '~',
+            key: b'~',
             tone: Tone::Tilde,
         },
         ToneRule {
-            key: '\'',
+            key: b'\'',
             tone: Tone::Acute,
         },
         ToneRule {
-            key: '.',
+            key: b'.',
             tone: Tone::Dot,
         },
         ToneRule {
-            key: 'z',
+            key: b'z',
             tone: Tone::Flat,
         },
     ],
     &[
         ShapeRule {
-            key: '^',
+            key: b'^',
             on: RootVowel::A,
             shape: Shape::Circumflex,
         },
         ShapeRule {
-            key: '^',
+            key: b'^',
             on: RootVowel::E,
             shape: Shape::Circumflex,
         },
         ShapeRule {
-            key: '^',
+            key: b'^',
             on: RootVowel::O,
             shape: Shape::Circumflex,
         },
         ShapeRule {
-            key: '(',
+            key: b'(',
             on: RootVowel::A,
             shape: Shape::Breve,
         },
         ShapeRule {
-            key: '+',
+            key: b'+',
             on: RootVowel::O,
             shape: Shape::Horn,
         },
         ShapeRule {
-            key: '+',
+            key: b'+',
             on: RootVowel::U,
             shape: Shape::Horn,
         },
     ],
-    &['d'],
+    &[b'd'],
 );
