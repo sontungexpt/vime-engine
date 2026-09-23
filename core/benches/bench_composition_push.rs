@@ -12,7 +12,9 @@
 use std::hint::black_box;
 use std::time::Instant;
 
+use vime_engine::composition::syllable::SyllableBuilder;
 use vime_engine::composition::Composition;
+use vime_engine::phonology::rules::TonePlacement;
 use vime_engine::DefaultKeymap;
 
 fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
@@ -32,7 +34,7 @@ fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
 fn run_workload(workload: &[&str], keymap: &DefaultKeymap) -> usize {
     let mut pushes = 0;
     for &word in workload {
-        let mut composition = Composition::new(*keymap);
+        let mut composition = Composition::new(SyllableBuilder::new(*keymap, TonePlacement::Modern));
         for ch in word.chars() {
             black_box(composition.insert(ch));
             pushes += 1;

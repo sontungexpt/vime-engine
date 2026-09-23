@@ -170,7 +170,7 @@ fn main() {
     };
 
     let keymap = DefaultKeymap::telex();
-    let rules: &Rules = keymap.config();
+    let rules: &Rules = keymap.rules();
     let (tone_mask, shape_mask, stroke_mask) = build_masks(rules);
 
     // Correctness: all three strategies must agree for every probed character,
@@ -217,15 +217,15 @@ fn main() {
     // `'~'` (0x7E), which is exactly the VIQR Tilde tone key — so the branchless
     // variant reports `^` as a tone key and MISSES it as a shape key.
     let viqr = DefaultKeymap::viqr();
-    let (viqr_tone, viqr_shape, _) = build_masks(viqr.config());
-    assert!(is_tone_key_linear(viqr.config(), '^') == is_tone_key_mask(viqr_tone, '^'));
+    let (viqr_tone, viqr_shape, _) = build_masks(viqr.rules());
+    assert!(is_tone_key_linear(viqr.rules(), '^') == is_tone_key_mask(viqr_tone, '^'));
     assert_ne!(
-        is_tone_key_linear(viqr.config(), '^'),
+        is_tone_key_linear(viqr.rules(), '^'),
         is_tone_key_branchless(viqr_tone, '^'),
         "expected branchless collision: '^' misdetected as the '~' tone key"
     );
     assert!(
-        is_shape_key_linear(viqr.config(), '^') != is_shape_key_branchless(viqr_shape, '^'),
+        is_shape_key_linear(viqr.rules(), '^') != is_shape_key_branchless(viqr_shape, '^'),
         "expected branchless to miss '^' as a shape key"
     );
 
@@ -272,14 +272,25 @@ fn main() {
 
     let linear_ns = linear_time.as_nanos() as f64 / (iters as f64 * probes_per_pass);
     let mask_ns = mask_time.as_nanos() as f64 / (iters as f64 * probes_per_pass);
-    let branchless_ns =
-        branchless_time.as_nanos() as f64 / (iters as f64 * probes_per_pass);
+    let branchless_ns = branchless_time.as_nanos() as f64 / (iters as f64 * probes_per_pass);
 
     println!("probes per pass: {}", probes_per_pass as usize);
-    println!("linear impl:     {:>8.2} ns/probe  (best of {rounds})", linear_ns);
-    println!("mask   impl:     {:>8.2} ns/probe  (best of {rounds})", mask_ns);
-    println!("branchless impl: {:>8.2} ns/probe  (best of {rounds})", branchless_ns);
+    println!(
+        "linear impl:     {:>8.2} ns/probe  (best of {rounds})",
+        linear_ns
+    );
+    println!(
+        "mask   impl:     {:>8.2} ns/probe  (best of {rounds})",
+        mask_ns
+    );
+    println!(
+        "branchless impl: {:>8.2} ns/probe  (best of {rounds})",
+        branchless_ns
+    );
     println!("ratio linear/mask:        {:.2}x", linear_ns / mask_ns);
-    println!("ratio linear/branchless:  {:.2}x", linear_ns / branchless_ns);
+    println!(
+        "ratio linear/branchless:  {:.2}x",
+        linear_ns / branchless_ns
+    );
     println!("ratio branchless/mask:    {:.2}x", branchless_ns / mask_ns);
 }

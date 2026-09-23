@@ -1,8 +1,10 @@
 use crate::{
+    composition::syllable::SyllableBuilder,
     composition::Composition,
     config::Config,
     event::{Key, KeyEvent},
     keymap::{DefaultKeymap, Keymap},
+    phonology::rules::TonePlacement,
     result::Result,
 };
 
@@ -15,20 +17,42 @@ pub struct Engine<KM: Keymap> {
     composition: Composition<KM>,
 }
 
-impl<KM> Engine<KM>
-where
-    KM: Keymap + Copy,
-{
+impl<KM: Keymap> Engine<KM> {
+    // ------------------------------------------------------------- constructor
+
+    /// Creates an engine with the given configuration and `keymap`, using the
+    /// modern tone-placement convention.
+    #[inline]
+    pub fn new(config: Config, keymap: KM) -> Self {
+        Self::with_tone_placement(config, keymap, TonePlacement::Modern)
+    }
+
+    /// Creates an engine with the given configuration, `keymap` and
+    /// `tone_placement`.
+    #[inline]
+    pub fn with_tone_placement(config: Config, keymap: KM, tone_placement: TonePlacement) -> Self {
+        Self {
+            config,
+            composition: Composition::new(SyllableBuilder::new(keymap, tone_placement)),
+        }
+    }
+
+    // ------------------------------------------------------------- config
+
     /// The engine configuration.
+    #[inline(always)]
     pub fn config(&self) -> &Config {
         &self.config
     }
 
-    /// Renders the current buffer as Vietnamese text, or as the raw
-    /// characters when the composition can no longer form a valid syllable.
-    pub fn rendered(&self) -> String {
-        self.composition.syllable().to_chars().iter().collect()
+    /// Replaces the tone-placement scheme, re-rendering the live composition
+    /// without discarding the current buffer.
+    #[inline]
+    pub fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
+        self.composition.set_tone_placement(tone_placement);
     }
+
+    // --------------------------------------------------------------- state
 
     /// Resets the engine's composition to its initial empty state.
     pub fn reset(&mut self) -> Result {
@@ -36,8 +60,16 @@ where
         Result::Changed
     }
 
-    /// Processes a full keyboard event. Handles modifier policy (Ctrl/Alt/Super
-    /// are forwarded) and dispatches the key to the engine.
+    /// Renders the current buffer as Vietnamese text, or as the raw characters
+    /// when the composition can no longer form a valid syllable.
+    #[inline]
+    pub fn rendered(&self) -> String {
+        self.composition.syllable().to_chars().iter().collect()
+    }
+
+    // ------------------------------------------------------------ key event
+
+    /// Processes a full keyboard event and dispatches it to the engine.
     pub fn process_key(&mut self, event: KeyEvent) -> Result {
         // if event
         //     .state
@@ -74,56 +106,75 @@ where
         Result::Commit(text)
     }
 
+    // ------------------------------------------------------------- editing
+
+    #[inline]
     fn insert(&mut self, character: char) -> Result {
         self.composition.insert(character);
         Result::Changed
     }
 
+    #[inline]
     fn backspace(&mut self) -> Result {
-        self.apply(Composition::backspace)
-    }
-
-    fn delete(&mut self) -> Result {
-        self.apply(Composition::delete)
-    }
-
-    fn move_left(&mut self) -> Result {
-        self.apply(Composition::move_left)
-    }
-
-    fn move_right(&mut self) -> Result {
-        self.apply(Composition::move_right)
-    }
-
-    fn apply(&mut self, operation: fn(&mut Composition<KM>)) -> Result {
-        if self.composition.is_empty() {
+        if self.composition.cursor() == 0 {
             return Result::Forward;
         }
 
-        operation(&mut self.composition);
+        self.composition.backspace();
+        Result::Changed
+    }
+
+    #[inline]
+    fn delete(&mut self) -> Result {
+        if self.composition.cursor() >= self.composition.len() {
+            return Result::Forward;
+        }
+
+        self.composition.delete();
+        Result::Changed
+    }
+
+    #[inline]
+    fn move_left(&mut self) -> Result {
+        if self.composition.cursor() == 0 {
+            return Result::Forward;
+        }
+
+        self.composition.move_left();
+        Result::Changed
+    }
+
+    #[inline]
+    fn move_right(&mut self) -> Result {
+        if self.composition.cursor() >= self.composition.len() {
+            return Result::Forward;
+        }
+
+        self.composition.move_right();
         Result::Changed
     }
 }
 
 impl Engine<DefaultKeymap<'static>> {
+    // -------------------------------------------------- convenience ctor
+
     /// Creates a Telex engine with the given configuration.
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-
-            composition: Composition::new(DefaultKeymap::telex()),
-        }
+    #[inline]
+    pub fn telex(config: Config) -> Self {
+        Self::new(config, DefaultKeymap::telex())
     }
 
-    /// Switches the active input keymap (Telex, VNI, …), resetting the
-    /// composition to its initial empty state.
-    pub fn set_layout(&mut self, keymap: DefaultKeymap<'static>) {
-        self.composition = Composition::new(keymap);
+    /// Creates a VNI engine with the given configuration.
+    #[inline]
+    pub fn vni(config: Config) -> Self {
+        Self::new(config, DefaultKeymap::vni())
     }
-}
 
-impl Default for Engine<DefaultKeymap<'static>> {
-    fn default() -> Self {
-        Self::new(Config::default())
+    /// Switches the active keymap, resetting the composition to its initial
+    /// empty state.
+    #[inline]
+    pub fn set_keymap(&mut self, keymap: DefaultKeymap<'static>) {
+        self.composition.set_keymap(keymap);
+        self.composition.reset();
     }
 }

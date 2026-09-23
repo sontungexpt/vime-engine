@@ -1,6 +1,7 @@
 use std::ffi::{c_char, CString};
 use std::ptr;
 
+use vime_engine::phonology::rules::TonePlacement;
 use vime_engine::{DefaultKeymap, Engine, Result};
 
 #[repr(C)]
@@ -11,6 +12,15 @@ pub struct VimeEngineHandle {
 }
 
 impl VimeEngineHandle {
+    /// Wraps an engine in a hand-rolled buffer-owning handle.
+    pub(crate) fn new(engine: Engine<DefaultKeymap<'static>>) -> Self {
+        Self {
+            engine,
+            rendered: None,
+            commit: None,
+        }
+    }
+
     /// Builds a `VimeOutput` view whose text lives in buffers owned by this
     /// handle. Any previously returned pointers become invalidated by this call.
     pub(crate) fn output(&mut self, result: Result) -> VimeOutput {
@@ -46,6 +56,26 @@ pub enum VimeInputMethod {
     #[default]
     Telex = 1,
     Vni = 2,
+    Viqr = 3,
+}
+
+/// Tone-placement scheme; values mirror the ABI agreement with the Rust core.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VimeTonePlacement {
+    #[default]
+    Modern = 1,
+    Old = 2,
+}
+
+impl From<VimeTonePlacement> for TonePlacement {
+    #[inline]
+    fn from(value: VimeTonePlacement) -> Self {
+        match value {
+            VimeTonePlacement::Modern => TonePlacement::Modern,
+            VimeTonePlacement::Old => TonePlacement::Old,
+        }
+    }
 }
 
 #[repr(u32)]

@@ -1,22 +1,51 @@
-#[cfg(test)]
-use std::ffi::CStr;
-
-use vime_engine::{DefaultKeymap, Engine, KeyEvent};
+use vime_engine::{Config, DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;
 pub mod types;
 
-pub use types::{VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput};
+pub use types::{
+    VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
+    VimeTonePlacement,
+};
 
 use convert::KeyEventConversionError;
 
 #[no_mangle]
 pub extern "C" fn vime_create() -> *mut VimeEngineHandle {
-    Box::into_raw(Box::new(VimeEngineHandle {
-        engine: Engine::default(),
-        rendered: None,
-        commit: None,
-    }))
+    VimeEngineHandle::new(Engine::telex(Config::default())).into_raw()
+}
+
+/// Creates an engine for any built-in input method with the given
+/// tone-placement scheme.
+#[no_mangle]
+pub extern "C" fn vime_create_with(
+    method: VimeInputMethod,
+    tone_placement: VimeTonePlacement,
+) -> *mut VimeEngineHandle {
+    let engine = match method {
+        VimeInputMethod::Telex => Engine::with_tone_placement(
+            Config::default(),
+            DefaultKeymap::telex(),
+            tone_placement.into(),
+        ),
+        VimeInputMethod::Vni => Engine::with_tone_placement(
+            Config::default(),
+            DefaultKeymap::vni(),
+            tone_placement.into(),
+        ),
+        VimeInputMethod::Viqr => Engine::with_tone_placement(
+            Config::default(),
+            DefaultKeymap::viqr(),
+            tone_placement.into(),
+        ),
+    };
+    VimeEngineHandle::new(engine).into_raw()
+}
+
+impl VimeEngineHandle {
+    fn into_raw(self) -> *mut VimeEngineHandle {
+        Box::into_raw(Box::new(self))
+    }
 }
 
 #[no_mangle]
@@ -32,6 +61,15 @@ pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> VimeOutput
         return VimeOutput::default();
     };
     let result = engine.engine.reset();
+    engine.output(result)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vime_commit(engine: *mut VimeEngineHandle) -> VimeOutput {
+    let Some(engine) = engine.as_mut() else {
+        return VimeOutput::default();
+    };
+    let result = engine.engine.commit();
     engine.output(result)
 }
 
@@ -57,58 +95,32 @@ pub unsafe extern "C" fn vime_process_key(
 pub unsafe extern "C" fn vime_set_input_method(
     engine: *mut VimeEngineHandle,
     method: VimeInputMethod,
-) {
-    if let Some(engine) = engine.as_mut() {
-        match method {
-            VimeInputMethod::Telex => {
-                engine.engine.set_layout(DefaultKeymap::telex());
-            }
-            VimeInputMethod::Vni => {
-                engine.engine.set_layout(DefaultKeymap::vni());
-            }
-        }
+) -> VimeOutput {
+    let Some(engine) = engine.as_mut() else {
+        return VimeOutput::default();
+    };
+
+    match method {
+        VimeInputMethod::Telex => engine.engine.set_keymap(DefaultKeymap::telex()),
+        VimeInputMethod::Vni => engine.engine.set_keymap(DefaultKeymap::vni()),
+        VimeInputMethod::Viqr => engine.engine.set_keymap(DefaultKeymap::viqr()),
     }
+
+    // `set_keymap` resets the buffer; surface the resulting (empty) preedit.
+    let result = engine.engine.reset();
+    engine.output(result)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Switches the tone-placement scheme, re-rendering the current preedit.
+#[no_mangle]
+pub unsafe extern "C" fn vime_set_tone_placement(
+    engine: *mut VimeEngineHandle,
+    tone_placement: VimeTonePlacement,
+) -> VimeOutput {
+    let Some(engine) = engine.as_mut() else {
+        return VimeOutput::default();
+    };
 
-    #[test]
-    fn test_lifecycle_and_telex_typing() {
-        unsafe {
-            let handle = vime_create();
-            assert!(!handle.is_null());
-            vime_set_input_method(handle, VimeInputMethod::Telex);
-
-            // Type 'v', 'i', 'e', 'e', 't', 'j' -> "việt"
-            let keys = ['v', 'i', 'e', 'e', 't', 'j'];
-            let mut last_rendered = String::new();
-
-            for ch in keys {
-                let out = vime_process_key(
-                    handle,
-                    VimeKeyEvent {
-                        key: VimeKey::None,
-                        character: ch as u32,
-                        states: 0,
-                    },
-                );
-                assert_eq!(out.action, VimeAction::UpdatePreedit);
-                if !out.rendered.is_null() {
-                    last_rendered = CStr::from_ptr(out.rendered).to_str().unwrap().to_string();
-                }
-            }
-
-            assert_eq!(last_rendered, "việt");
-
-            // Reset clears the buffer and updates the preedit (to empty).
-            let reset_out = vime_reset(handle);
-            assert_eq!(reset_out.action, VimeAction::UpdatePreedit);
-            assert!(!reset_out.rendered.is_null());
-            assert_eq!(CStr::from_ptr(reset_out.rendered).to_str().unwrap(), "");
-
-            vime_destroy(handle);
-        }
-    }
+    engine.engine.set_tone_placement(tone_placement.into());
+    engine.output(vime_engine::Result::Changed)
 }

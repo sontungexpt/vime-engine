@@ -9,7 +9,9 @@
 use std::hint::black_box;
 use std::time::Instant;
 
+use vime_engine::composition::syllable::SyllableBuilder;
 use vime_engine::composition::Composition;
+use vime_engine::phonology::rules::TonePlacement;
 use vime_engine::DefaultKeymap;
 
 fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
@@ -27,7 +29,8 @@ fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
 /// Append a keystroke sequence at the caret.
 fn run_append(workload: &[&str], keymap: &DefaultKeymap) {
     for &word in workload {
-        let mut composition = Composition::new(*keymap);
+        let mut composition =
+            Composition::new(SyllableBuilder::new(*keymap, TonePlacement::Modern));
         for ch in word.chars() {
             black_box(composition.insert(ch));
         }
@@ -39,7 +42,8 @@ fn run_append(workload: &[&str], keymap: &DefaultKeymap) {
 /// 'n' at mid positions.
 fn run_edit(workload: &[&str], keymap: &DefaultKeymap) {
     for &word in workload {
-        let mut composition = Composition::new(*keymap);
+        let mut composition =
+            Composition::new(SyllableBuilder::new(*keymap, TonePlacement::Modern));
         for ch in word.chars() {
             black_box(composition.insert(ch));
         }

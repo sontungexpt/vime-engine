@@ -1,7 +1,3 @@
+/// Immutable engine settings.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Config {}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {}
-    }
-}

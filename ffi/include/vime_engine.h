@@ -48,7 +48,16 @@ typedef enum VimeAction {
 typedef enum VimeInputMethod {
     VIME_INPUT_METHOD_TELEX = 1u,
     VIME_INPUT_METHOD_VNI   = 2u,
+    VIME_INPUT_METHOD_VIQR  = 3u,
 } VimeInputMethod;
+
+/**
+ * Tone-placement scheme. Values reflect the ABI agreement with Rust backend.
+ */
+typedef enum VimeTonePlacement {
+    VIME_TONE_PLACEMENT_MODERN = 1u, /* "hóa", "thúy"                       */
+    VIME_TONE_PLACEMENT_OLD    = 2u, /* "hoá", "thúy"                       */
+} VimeTonePlacement;
 
 /**
  * Discrete key codes. Values match the engine's internal Key enum.
@@ -95,14 +104,23 @@ typedef struct VimeOutput {
 /** Creates a new engine instance. Returns NULL on allocation failure. */
 VimeEngineHandle *vime_create(void);
 
+/** Creates an engine for the given input method and tone-placement scheme. */
+VimeEngineHandle *vime_create_with(VimeInputMethod method, VimeTonePlacement tone_placement);
+
 /** Destroys an engine instance and frees associated memory. */
 void vime_destroy(VimeEngineHandle *engine);
 
-/** Sets the active input method engine (Telex / VNI). */
-void vime_set_input_method(VimeEngineHandle *engine, VimeInputMethod method);
+/** Sets the active input method engine, clearing the buffer. */
+VimeOutput vime_set_input_method(VimeEngineHandle *engine, VimeInputMethod method);
+
+/** Switches the tone-placement scheme, re-rendering the current preedit. */
+VimeOutput vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_placement);
 
 /** Resets the engine buffer state. */
 VimeOutput vime_reset(VimeEngineHandle *engine);
+
+/** Commits the pending buffer as text and clears the preedit. */
+VimeOutput vime_commit(VimeEngineHandle *engine);
 
 /* ========================================================================= */
 /* Event Processing & Utilities                                              */

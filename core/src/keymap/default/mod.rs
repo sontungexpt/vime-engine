@@ -93,11 +93,15 @@ impl<'a> DefaultKeymap<'a> {
 
     /// The underlying configuration.
     #[inline(always)]
-    pub const fn config(&self) -> &Rules<'a> {
+    pub const fn rules(&self) -> &Rules<'a> {
         self.rules
     }
 
     /// Checks whether an ASCII key is present in the mask.
+    ///
+    /// Fastest variant on realistic (ASCII) input — see `bench_has_key`;
+    /// branchless alternatives (lowercase via bit-tricks, clamped shifts)
+    /// measurably lose because a real IME overwhelmingly receives ASCII keys.
     #[inline(always)]
     fn has_key(mask: u128, input: char) -> bool {
         let lower = input.to_ascii_lowercase() as u32;
@@ -107,23 +111,23 @@ impl<'a> DefaultKeymap<'a> {
 
 impl Keymap for DefaultKeymap<'_> {
     #[inline(always)]
-    fn is_tone_key(&self, input: char) -> bool {
-        Self::has_key(self.tone_mask, input)
+    fn is_tone_key(&self, key: char) -> bool {
+        Self::has_key(self.tone_mask, key)
     }
 
     #[inline(always)]
-    fn is_shape_key(&self, input: char) -> bool {
-        Self::has_key(self.shape_mask, input)
+    fn is_shape_key(&self, key: char) -> bool {
+        Self::has_key(self.shape_mask, key)
     }
 
     #[inline(always)]
-    fn is_stroke_key(&self, input: char) -> bool {
-        Self::has_key(self.stroke_mask, input)
+    fn is_stroke_key(&self, key: char) -> bool {
+        Self::has_key(self.stroke_mask, key)
     }
 
     #[inline(always)]
-    fn decode_tone(&self, input: char) -> Option<Tone> {
-        let lower = input.to_ascii_lowercase();
+    fn decode_tone(&self, key: char) -> Option<Tone> {
+        let lower = key.to_ascii_lowercase();
         self.rules
             .tones
             .iter()
@@ -132,8 +136,8 @@ impl Keymap for DefaultKeymap<'_> {
     }
 
     #[inline(always)]
-    fn decode_shape(&self, input: char, target: RootVowel) -> Option<Shape> {
-        let lower = input.to_ascii_lowercase();
+    fn decode_shape(&self, key: char, target: RootVowel) -> Option<Shape> {
+        let lower = key.to_ascii_lowercase();
 
         self.rules
             .shapes

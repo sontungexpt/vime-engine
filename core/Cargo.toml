@@ -29,6 +29,10 @@ name = "bench_from_id"
 harness = false
 
 [[bench]]
+name = "bench_has_key"
+harness = false
+
+[[bench]]
 name = "bench_is_ascii"
 harness = false
 

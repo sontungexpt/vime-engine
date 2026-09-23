@@ -13,14 +13,6 @@ impl Cursor {
         Self { position: 0 }
     }
 
-    /// Creates a cursor at a specific `position`, bounded by `len`.
-    #[inline(always)]
-    pub const fn from_position(position: usize, len: usize) -> Self {
-        Self {
-            position: if position < len { position } else { len },
-        }
-    }
-
     /// Returns the current 0-based position index.
     #[inline(always)]
     pub const fn position(self) -> usize {

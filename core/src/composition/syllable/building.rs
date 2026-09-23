@@ -21,13 +21,13 @@ const fn is_i(ch: char) -> bool {
 
 /// Effect of applying a transform key (shape/tone mark) to the syllable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransformEffect {
+enum TransformResult {
     /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
     Applied,
     /// Undid an existing mark back to base (e.g. `ă` + `w` -> `a`).
     Reverted,
     /// The key cannot transform the current state; pass through as a literal char.
-    Ignored,
+    NotApplicable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,7 +101,7 @@ impl BuildingSyllableBuilder {
     }
 
     #[inline(always)]
-    pub fn tone_index(&self, tone_placement: TonePlacement) -> Option<usize> {
+    pub fn tone_vowel_index(&self, tone_placement: TonePlacement) -> Option<usize> {
         tone_placement.vowel_index(&self.vowels, self.coda.is_empty())
     }
 
@@ -114,7 +114,7 @@ impl BuildingSyllableBuilder {
 
         // 2. Vowels
         if self.tone.is_some() {
-            let tone_pos = self.tone_index(tone_placement);
+            let tone_pos = self.tone_vowel_index(tone_placement);
             output.extend(self.vowels.iter().enumerate().map(|(idx, vowel)| {
                 let active_tone = if Some(idx) == tone_pos {
                     self.tone
@@ -146,7 +146,7 @@ impl BuildingSyllableBuilder {
         // No vowel and no coda: still parsing the onset. A stroke key can
         // modify an existing D/Đ before being read as a literal character.
         if self.coda.is_empty() && self.vowels.is_empty() {
-            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
+            if self.try_toggle_d_stroke(keymap, key) == TransformResult::Applied {
                 return Ok(InputEffect::Transformed);
             }
 
@@ -173,7 +173,7 @@ impl BuildingSyllableBuilder {
         //
         // Vowels and/or a coda exist: offer the transform keys (tone / shape /
         // stroke) once, then parse the input as a literal vowel or coda.
-        if self.try_transform(keymap, key, None) == TransformEffect::Applied {
+        if self.try_transform(keymap, key, None) == TransformResult::Applied {
             return Ok(InputEffect::Transformed);
         }
 
@@ -313,7 +313,7 @@ impl BuildingSyllableBuilder {
 
         if index <= onset_len {
             // The d/đ stroke is toggled before literal insertion.
-            if self.try_toggle_d_stroke(keymap, key) == TransformEffect::Applied {
+            if self.try_toggle_d_stroke(keymap, key) == TransformResult::Applied {
                 return Ok(InputEffect::Transformed);
             }
 
@@ -344,7 +344,7 @@ impl BuildingSyllableBuilder {
             let vowel_index = index - onset_len;
 
             // Transforms are handled before literal insertion.
-            if self.try_transform(keymap, key, Some(vowel_index)) == TransformEffect::Applied {
+            if self.try_transform(keymap, key, Some(vowel_index)) == TransformResult::Applied {
                 return Ok(InputEffect::Transformed);
             }
 
@@ -369,7 +369,7 @@ impl BuildingSyllableBuilder {
 
         // ─────────────────────────── Coda ───────────────────────────
 
-        if self.try_transform(keymap, key, None) == TransformEffect::Applied {
+        if self.try_transform(keymap, key, None) == TransformResult::Applied {
             return Ok(InputEffect::Transformed);
         }
 
@@ -723,19 +723,19 @@ impl BuildingSyllableBuilder {
     /// Tapping the same tone again reverts to `Flat`; a different tone replaces
     /// the current one.
     #[inline]
-    fn apply_tone(&mut self, tone: Tone) -> TransformEffect {
+    fn apply_tone(&mut self, tone: Tone) -> TransformResult {
         if self.vowels.is_empty() {
-            return TransformEffect::Ignored;
+            return TransformResult::NotApplicable;
         }
         // Same tone toggles back to flat.
         if self.tone == tone {
             self.tone = Tone::Flat;
-            return TransformEffect::Reverted;
+            return TransformResult::Reverted;
         }
 
         // Replace the current tone.
         self.tone = tone;
-        TransformEffect::Applied
+        TransformResult::Applied
     }
 
     /// Toggles the D-stroke on the onset cluster (`d` ↔ `đ`, `D` ↔ `Đ`).
@@ -743,7 +743,7 @@ impl BuildingSyllableBuilder {
     /// Only applies when the onset is a lone `D`/`Đ`; otherwise the stroke key
     /// cannot act here.
     #[inline]
-    fn toggle_d_stroke(&mut self) -> TransformEffect {
+    fn toggle_d_stroke(&mut self) -> TransformResult {
         debug_assert!(!self.onset.is_empty());
         let onset_chars = &mut self.onset;
 
@@ -751,14 +751,14 @@ impl BuildingSyllableBuilder {
             Onset::D => {
                 onset_chars[0] = if onset_chars[0] == 'd' { 'đ' } else { 'Đ' };
                 self.onset_kind = Onset::DStroke;
-                TransformEffect::Applied
+                TransformResult::Applied
             }
             Onset::DStroke => {
                 onset_chars[0] = if onset_chars[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
-                TransformEffect::Reverted
+                TransformResult::Reverted
             }
-            _ => TransformEffect::Ignored,
+            _ => TransformResult::NotApplicable,
         }
     }
 
@@ -774,7 +774,7 @@ impl BuildingSyllableBuilder {
     ///
     /// Applying the shape it already has reverts it; an invalid result rolls
     /// the vowel back.
-    fn apply_vowel_shape(&mut self, vowel_index: usize, shape: Shape) -> TransformEffect {
+    fn apply_vowel_shape(&mut self, vowel_index: usize, shape: Shape) -> TransformResult {
         debug_assert!(vowel_index < self.vowels.len());
 
         let old = *self.vowels[vowel_index].value();
@@ -782,35 +782,35 @@ impl BuildingSyllableBuilder {
         // Shape already present -> revert to base.
         if old.has_shape(shape) && shape.is_some() {
             self.vowels[vowel_index].set_value(old.remove_shape());
-            return TransformEffect::Reverted;
+            return TransformResult::Reverted;
         }
 
         // Try applying the new shape.
         let Ok(new) = old.replace_shape(shape) else {
-            return TransformEffect::Ignored;
+            return TransformResult::NotApplicable;
         };
 
         self.vowels[vowel_index].set_value(new);
 
         // A lone vowel is always valid.
         if self.vowels.len() < 2 {
-            return TransformEffect::Applied;
+            return TransformResult::Applied;
         }
         // Re-validate the vowel combination.
         match self.validate_vowels() {
-            NucleusState::Valid => TransformEffect::Applied,
-            NucleusState::InComplete => TransformEffect::Applied,
+            NucleusState::Valid => TransformResult::Applied,
+            NucleusState::InComplete => TransformResult::Applied,
             NucleusState::Dead => {
                 self.vowels[vowel_index].set_value(old);
-                TransformEffect::Ignored
+                TransformResult::NotApplicable
             }
         }
     }
 
     /// Applies a Horn shape to the `u o` prefix (needs at least 2 vowels).
-    fn apply_uo_horn(&mut self) -> TransformEffect {
+    fn apply_uo_horn(&mut self) -> TransformResult {
         if self.vowels.len() < 2 {
-            return TransformEffect::Ignored;
+            return TransformResult::NotApplicable;
         }
 
         match (*self.vowels[0].value(), *self.vowels[1].value()) {
@@ -818,7 +818,7 @@ impl BuildingSyllableBuilder {
             (BaseVowel::UHorn, BaseVowel::OHorn) => {
                 self.vowels[0].set_value(BaseVowel::U);
                 self.vowels[1].set_value(BaseVowel::O);
-                TransformEffect::Reverted
+                TransformResult::Reverted
             }
 
             // ưô, ưo, uo, uô -> Horn the vowel at index 1.
@@ -830,13 +830,13 @@ impl BuildingSyllableBuilder {
             // uơ -> Horn index 0 (becomes ươ).
             (BaseVowel::U, BaseVowel::OHorn) => self.apply_vowel_shape(0, Shape::Horn),
 
-            _ => TransformEffect::Ignored,
+            _ => TransformResult::NotApplicable,
         }
     }
 
-    fn apply_uo_circumflex(&mut self) -> TransformEffect {
+    fn apply_uo_circumflex(&mut self) -> TransformResult {
         if self.vowels.len() < 2 {
-            return TransformEffect::Ignored;
+            return TransformResult::NotApplicable;
         }
 
         match (*self.vowels[0].value(), *self.vowels[1].value()) {
@@ -848,7 +848,7 @@ impl BuildingSyllableBuilder {
             // uô -> uo (revert).
             (BaseVowel::U, BaseVowel::OCircumflex) => {
                 self.vowels[1].set_value(BaseVowel::O);
-                TransformEffect::Reverted
+                TransformResult::Reverted
             }
 
             // ươ, ưo -> uô: drop the Horn on `ư`, then Circumflex the `o`.
@@ -857,15 +857,15 @@ impl BuildingSyllableBuilder {
                 self.vowels[0].set_value(BaseVowel::U);
 
                 match self.apply_vowel_shape(1, Shape::Circumflex) {
-                    TransformEffect::Ignored => {
+                    TransformResult::NotApplicable => {
                         self.vowels[0].set_value(prev_u);
-                        TransformEffect::Ignored
+                        TransformResult::NotApplicable
                     }
                     effect => effect,
                 }
             }
 
-            _ => TransformEffect::Ignored,
+            _ => TransformResult::NotApplicable,
         }
     }
 
@@ -876,7 +876,7 @@ impl BuildingSyllableBuilder {
         keymap: &KM,
         key: char,
         vowel_upper_bound_idx: Option<usize>,
-    ) -> TransformEffect {
+    ) -> TransformResult {
         // Scan vowels up to the cursor.
         let max_len = match vowel_upper_bound_idx {
             Some(idx) => idx.min(self.vowels.len()),
@@ -885,7 +885,7 @@ impl BuildingSyllableBuilder {
 
         // No vowel before the cursor -> nothing to transform.
         if max_len == 0 {
-            return TransformEffect::Ignored;
+            return TransformResult::NotApplicable;
         }
         // Special "uo" case (uow -> ươ, uoo -> uô) when the cursor is after the `u`.
         else if self.vowels_starts_with_uo() {
@@ -907,21 +907,21 @@ impl BuildingSyllableBuilder {
 
             if let Some(shape) = keymap.decode_shape(key, base.root()) {
                 let effect = self.apply_vowel_shape(index, shape);
-                if effect != TransformEffect::Ignored {
+                if effect != TransformResult::NotApplicable {
                     return effect;
                 }
             }
         }
 
-        TransformEffect::Ignored
+        TransformResult::NotApplicable
     }
 
     #[inline]
-    fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformEffect {
+    fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformResult {
         if !self.onset.is_empty() && keymap.is_stroke_key(key) {
             return self.toggle_d_stroke();
         }
-        TransformEffect::Ignored
+        TransformResult::NotApplicable
     }
 
     #[inline]
@@ -930,7 +930,7 @@ impl BuildingSyllableBuilder {
         keymap: &KM,
         key: char,
         vowel_upper_bound_idx: Option<usize>,
-    ) -> TransformEffect {
+    ) -> TransformResult {
         if !self.vowels.is_empty() {
             // 1. Tone.
             if let Some(tone) = keymap.decode_tone(key) {
