@@ -3,7 +3,6 @@ use crate::{
     config::Config,
     event::{Key, KeyEvent},
     keymap::{DefaultKeymap, Keymap},
-    renderer::{DefaultRenderer, Renderer},
     result::Result,
 };
 
@@ -11,16 +10,14 @@ const SUFFIX_SPACE: &str = " ";
 
 /// The core input method state machine: buffers raw keystrokes and renders
 /// them into Vietnamese text.
-pub struct Engine<R: Renderer, KM: Keymap> {
+pub struct Engine<KM: Keymap> {
     config: Config,
     composition: Composition<KM>,
-    renderer: R,
 }
 
-impl<R, RE> Engine<R, RE>
+impl<KM> Engine<KM>
 where
-    R: Renderer,
-    RE: Keymap + Copy,
+    KM: Keymap + Copy,
 {
     /// The engine configuration.
     pub fn config(&self) -> &Config {
@@ -30,7 +27,7 @@ where
     /// Renders the current buffer as Vietnamese text, or as the raw
     /// characters when the composition can no longer form a valid syllable.
     pub fn rendered(&self) -> String {
-        self.renderer.render(&self.composition)
+        self.composition.syllable().to_chars().iter().collect()
     }
 
     /// Resets the engine's composition to its initial empty state.
@@ -98,7 +95,7 @@ where
         self.apply(Composition::move_right)
     }
 
-    fn apply(&mut self, operation: fn(&mut Composition<RE>)) -> Result {
+    fn apply(&mut self, operation: fn(&mut Composition<KM>)) -> Result {
         if self.composition.is_empty() {
             return Result::Forward;
         }
@@ -108,13 +105,12 @@ where
     }
 }
 
-impl Engine<DefaultRenderer, DefaultKeymap<'static>> {
+impl Engine<DefaultKeymap<'static>> {
     /// Creates a Telex engine with the given configuration.
     pub fn new(config: Config) -> Self {
         Self {
             config,
 
-            renderer: DefaultRenderer::default(),
             composition: Composition::new(DefaultKeymap::telex()),
         }
     }
@@ -126,7 +122,7 @@ impl Engine<DefaultRenderer, DefaultKeymap<'static>> {
     }
 }
 
-impl Default for Engine<DefaultRenderer, DefaultKeymap<'static>> {
+impl Default for Engine<DefaultKeymap<'static>> {
     fn default() -> Self {
         Self::new(Config::default())
     }

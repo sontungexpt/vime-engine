@@ -12,7 +12,7 @@ pub enum NucleusState {
 }
 
 impl NucleusState {
-    pub fn from_vowels(vowels: &[BaseVowel]) -> Self {
+    pub fn check(vowels: &[BaseVowel]) -> Self {
         use BaseVowel::*;
         use NucleusState::*;
 

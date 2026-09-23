@@ -54,8 +54,8 @@
 //! the declared edges. All intermediate name/status maps are compile-time
 //! only.
 
-use super::vowel::BaseVowel;
 pub use super::rules::Nucleus;
+use super::vowel::BaseVowel;
 
 use crate::Shape;
 
@@ -673,7 +673,18 @@ mod tests {
     use crate::BaseVowel::*;
 
     const VOWELS: [BaseVowel; 12] = [
-        Y, U, I, E, O, A, UHorn, ACircumflex, OCircumflex, ABreve, ECircumflex, OHorn,
+        Y,
+        U,
+        I,
+        E,
+        O,
+        A,
+        UHorn,
+        ACircumflex,
+        OCircumflex,
+        ABreve,
+        ECircumflex,
+        OHorn,
     ];
 
     fn dfa(vowels: &[BaseVowel]) -> Nucleus {
@@ -725,11 +736,7 @@ mod tests {
         for &v1 in &VOWELS {
             assert_eq!(dfa(&[v1]), reference(&[v1]), "1 [{v1:?}]");
             for &v2 in &VOWELS {
-                assert_eq!(
-                    dfa(&[v1, v2]),
-                    reference(&[v1, v2]),
-                    "2 [{v1:?}{v2:?}]"
-                );
+                assert_eq!(dfa(&[v1, v2]), reference(&[v1, v2]), "2 [{v1:?}{v2:?}]");
                 for &v3 in &VOWELS {
                     let seq = [v1, v2, v3];
                     assert_eq!(
@@ -761,41 +768,41 @@ mod tests {
             (&[U], Valid),
             (&[UHorn], Valid),
             // a family
-            (&[A, I], Valid),        // ai
-            (&[A, O], Valid),        // ao
-            (&[A, U], Valid),        // au
-            (&[A, Y], Valid),        // ay
+            (&[A, I], Valid),           // ai
+            (&[A, O], Valid),           // ao
+            (&[A, U], Valid),           // au
+            (&[A, Y], Valid),           // ay
             (&[ACircumflex, U], Valid), // âu
             (&[ACircumflex, Y], Valid), // ây
             // i family
-            (&[I, A], Valid),        // ia
-            (&[I, E], InComplete),   // ie
-            (&[I, ECircumflex], Valid), // iê
-            (&[I, E, U], InComplete),   // ieu
+            (&[I, A], Valid),              // ia
+            (&[I, E], InComplete),         // ie
+            (&[I, ECircumflex], Valid),    // iê
+            (&[I, E, U], InComplete),      // ieu
             (&[I, ECircumflex, U], Valid), // iêu
-            (&[I, U], Valid),        // iu
+            (&[I, U], Valid),              // iu
             // y family
-            (&[Y, E], InComplete),   // ye
-            (&[Y, ECircumflex], Valid), // yê
-            (&[Y, E, U], InComplete),   // yeu
+            (&[Y, E], InComplete),         // ye
+            (&[Y, ECircumflex], Valid),    // yê
+            (&[Y, E, U], InComplete),      // yeu
             (&[Y, ECircumflex, U], Valid), // yêu
             // e family
-            (&[E, O], Valid),        // eo
-            (&[E, U], InComplete),   // eu
+            (&[E, O], Valid),           // eo
+            (&[E, U], InComplete),      // eu
             (&[ECircumflex, U], Valid), // êu
             // o family
-            (&[O, A], Valid),        // oa
-            (&[O, ABreve], Valid),   // oă
-            (&[O, A, I], Valid),     // oai
-            (&[O, A, O], Valid),     // oao
-            (&[O, A, U], Valid),     // oau
-            (&[O, A, Y], Valid),     // oay
-            (&[O, E], Valid),        // oe
-            (&[O, E, O], Valid),     // oeo
-            (&[O, I], Valid),        // oi
+            (&[O, A], Valid),           // oa
+            (&[O, ABreve], Valid),      // oă
+            (&[O, A, I], Valid),        // oai
+            (&[O, A, O], Valid),        // oao
+            (&[O, A, U], Valid),        // oau
+            (&[O, A, Y], Valid),        // oay
+            (&[O, E], Valid),           // oe
+            (&[O, E, O], Valid),        // oeo
+            (&[O, I], Valid),           // oi
             (&[OCircumflex, I], Valid), // ôi
-            (&[OHorn, I], Valid),    // ơi
-            (&[O, O], InComplete),   // oo
+            (&[OHorn, I], Valid),       // ơi
+            (&[O, O], InComplete),      // oo
             // u + y family
             (&[U, Y], Valid),              // uy
             (&[U, Y, U], Valid),           // uyu
@@ -808,12 +815,12 @@ mod tests {
             (&[U, ACircumflex], Valid),    // uâ
             (&[U, ACircumflex, Y], Valid), // uây
             // u + o family
-            (&[U, O], InComplete),      // uo
-            (&[U, OHorn], Valid),       // uơ
-            (&[U, OCircumflex], Valid), // uô
-            (&[U, O, I], InComplete),   // uoi
+            (&[U, O], InComplete),         // uo
+            (&[U, OHorn], Valid),          // uơ
+            (&[U, OCircumflex], Valid),    // uô
+            (&[U, O, I], InComplete),      // uoi
             (&[U, OCircumflex, I], Valid), // uôi
-            (&[U, O, U], InComplete),   // uou
+            (&[U, O, U], InComplete),      // uou
             // (uơi / uơu are not listed: the prefix folds to ươi / ươu,
             //  see uo_fold_transitions below)
             // u + e family
@@ -821,10 +828,10 @@ mod tests {
             (&[U, ECircumflex], Valid), // uê
             (&[U, I], Valid),           // ui
             // ư + o family
-            (&[UHorn, O], InComplete),      // ưo
-            (&[UHorn, OHorn], Valid),       // ươ
-            (&[UHorn, OHorn, I], Valid),    // ươi
-            (&[UHorn, OHorn, U], Valid),    // ươu
+            (&[UHorn, O], InComplete),   // ưo
+            (&[UHorn, OHorn], Valid),    // ươ
+            (&[UHorn, OHorn, I], Valid), // ươi
+            (&[UHorn, OHorn, U], Valid), // ươu
             // (ưoi / ưou are not listed: the prefix folds to ươi / ươu)
             // ư family
             (&[UHorn, A], Valid),  // ưa
@@ -841,7 +848,11 @@ mod tests {
         ];
         for (sequence, want) in cases {
             assert_eq!(dfa(sequence), *want, "rule spot-check: {sequence:?}");
-            assert_eq!(reference(sequence), *want, "reference disagrees: {sequence:?}");
+            assert_eq!(
+                reference(sequence),
+                *want,
+                "reference disagrees: {sequence:?}"
+            );
         }
     }
 
@@ -855,12 +866,8 @@ mod tests {
         let ưo = resolve(&[UHorn, O]);
         let ươi = resolve(&[UHorn, OHorn, I]);
         let ươu = resolve(&[UHorn, OHorn, U]);
-        for (src, input, dst) in [
-            (uơ, I, ươi),
-            (uơ, U, ươu),
-            (ưo, I, ươi),
-            (ưo, U, ươu),
-        ] {
+        for (src, input, dst) in [(uơ, I, ươi), (uơ, U, ươu), (ưo, I, ươi), (ưo, U, ươu)]
+        {
             assert_eq!(transition(src, input.id() as u8), Some(dst), "fold edge");
         }
         // The folded nuclei classify as Valid, and the second vowel alone is
@@ -1251,10 +1258,22 @@ mod tests {
         assert_eq!(transition(UHorn.id() as u8, h), Some(U.id() as u8));
 
         // shaped vowel + a different existing shape composes crosswise
-        assert_eq!(transition(ACircumflex.id() as u8, b), Some(ABreve.id() as u8));
-        assert_eq!(transition(ABreve.id() as u8, c), Some(ACircumflex.id() as u8));
-        assert_eq!(transition(OCircumflex.id() as u8, h), Some(OHorn.id() as u8));
-        assert_eq!(transition(OHorn.id() as u8, c), Some(OCircumflex.id() as u8));
+        assert_eq!(
+            transition(ACircumflex.id() as u8, b),
+            Some(ABreve.id() as u8)
+        );
+        assert_eq!(
+            transition(ABreve.id() as u8, c),
+            Some(ACircumflex.id() as u8)
+        );
+        assert_eq!(
+            transition(OCircumflex.id() as u8, h),
+            Some(OHorn.id() as u8)
+        );
+        assert_eq!(
+            transition(OHorn.id() as u8, c),
+            Some(OCircumflex.id() as u8)
+        );
 
         // no shape rehearsals for impossible combinations
         assert_eq!(transition(ACircumflex.id() as u8, h), None);

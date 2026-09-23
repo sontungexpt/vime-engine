@@ -27,7 +27,7 @@ impl<const N: usize> NucleusView for ArrayVec<CasedBaseVowel, N> {
 
     #[inline(always)]
     fn at(&self, index: usize) -> BaseVowel {
-        self[index].value
+        *self[index].value()
     }
 }
 
@@ -59,102 +59,102 @@ impl TonePlacement {
             0 => None,
             1 => Some(0),
             2 => Some(match self {
-                Self::Modern => tone_index_2_modern(vowels),
-                Self::Old => tone_index_2_old(vowels, coda_is_empty),
+                Self::Modern => Self::tone_index_2_modern(vowels),
+                Self::Old => Self::tone_index_2_old(vowels, coda_is_empty),
             }),
-            3 => Some(tone_index_3(vowels)),
-            _ => fallback_tone_index(vowels),
-        }
-    }
-}
-
-/// Tone placement for 2-vowel nucleus under Modern standard.
-#[inline(always)]
-fn tone_index_2_modern<V>(vowels: &V) -> usize
-where
-    V: NucleusView + ?Sized,
-{
-    let v0 = vowels.at(0);
-    let v1 = vowels.at(1);
-
-    // Rule 1: Diacritic/shaped vowel always takes the tone (e.g., "thuế" -> ê, "cuối" -> ô).
-    if v1.is_shaped() {
-        return 1;
-    }
-    if v0.is_shaped() {
-        return 0;
-    }
-
-    // Rule 2: Open diphthongs "oa", "oe", "uy" place tone on the second vowel ("hóa", "hoe", "thúy").
-    match (v0, v1) {
-        (BaseVowel::O, BaseVowel::A | BaseVowel::E) | (BaseVowel::U, BaseVowel::Y) => 1,
-        // Default: First vowel takes tone ("mía", "ai", "ao").
-        _ => 0,
-    }
-}
-
-/// Tone placement for 2-vowel nucleus under Old/Classic standard.
-#[inline(always)]
-fn tone_index_2_old<V>(vowels: &V, coda_is_empty: bool) -> usize
-where
-    V: NucleusView + ?Sized,
-{
-    let v0 = vowels.at(0);
-    let v1 = vowels.at(1);
-
-    // Rule 1: Diacritic/shaped vowel always takes the tone ("thuế" -> ê, "cuối" -> ô).
-    if v1.is_shaped() {
-        return 1;
-    }
-    if v0.is_shaped() {
-        return 0;
-    }
-
-    // Rule 2: Open syllable -> first vowel ("hoá", "thúy"). Closed syllable -> second vowel ("hoán", "thuýth").
-    if coda_is_empty {
-        0
-    } else {
-        1
-    }
-}
-
-/// Tone placement for 3-vowel nucleus (e.g., "oai", "uôi", "uyu").
-#[inline(always)]
-fn tone_index_3<V>(vowels: &V) -> usize
-where
-    V: NucleusView + ?Sized,
-{
-    // Rightmost shaped vowel wins (e.g., "uôi" -> index 1 'ô')
-    if vowels.at(2).is_shaped() {
-        2
-    } else if vowels.at(1).is_shaped() {
-        1
-    } else if vowels.at(0).is_shaped() {
-        0
-    } else {
-        // Unshaped triphthong (e.g., "oai", "uye") -> center vowel
-        1
-    }
-}
-
-/// Fallback for >3 vowels: the one with the highest [`BaseVowel::id`]. Never
-/// reached by the composition model, which caps nuclei at three.
-#[inline]
-fn fallback_tone_index<V>(vowels: &V) -> Option<usize>
-where
-    V: NucleusView + ?Sized,
-{
-    let mut best = vowels.at(0);
-    let mut at = 0;
-
-    for index in 1..vowels.len() {
-        let v = vowels.at(index);
-
-        if v > best {
-            best = v;
-            at = index;
+            3 => Some(Self::tone_index_3(vowels)),
+            _ => Self::tone_index_fallback(vowels),
         }
     }
 
-    Some(at)
+    /// Tone placement for 2-vowel nucleus under Modern standard.
+    #[inline(always)]
+    fn tone_index_2_modern<V>(vowels: &V) -> usize
+    where
+        V: NucleusView + ?Sized,
+    {
+        let v0 = vowels.at(0);
+        let v1 = vowels.at(1);
+
+        // Rule 1: Diacritic/shaped vowel always takes the tone (e.g., "thuế" -> ê, "cuối" -> ô).
+        if v1.is_shaped() {
+            return 1;
+        }
+        if v0.is_shaped() {
+            return 0;
+        }
+
+        // Rule 2: Open diphthongs "oa", "oe", "uy" place tone on the second vowel ("hóa", "hoe", "thúy").
+        match (v0, v1) {
+            (BaseVowel::O, BaseVowel::A | BaseVowel::E) | (BaseVowel::U, BaseVowel::Y) => 1,
+            // Default: First vowel takes tone ("mía", "ai", "ao").
+            _ => 0,
+        }
+    }
+
+    /// Tone placement for 2-vowel nucleus under Old/Classic standard.
+    #[inline(always)]
+    fn tone_index_2_old<V>(vowels: &V, coda_is_empty: bool) -> usize
+    where
+        V: NucleusView + ?Sized,
+    {
+        let v0 = vowels.at(0);
+        let v1 = vowels.at(1);
+
+        // Rule 1: Diacritic/shaped vowel always takes the tone ("thuế" -> ê, "cuối" -> ô).
+        if v1.is_shaped() {
+            return 1;
+        }
+        if v0.is_shaped() {
+            return 0;
+        }
+
+        // Rule 2: Open syllable -> first vowel ("hoá", "thúy"). Closed syllable -> second vowel ("hoán", "thuýth").
+        if coda_is_empty {
+            0
+        } else {
+            1
+        }
+    }
+
+    /// Tone placement for 3-vowel nucleus (e.g., "oai", "uôi", "uyu").
+    #[inline(always)]
+    fn tone_index_3<V>(vowels: &V) -> usize
+    where
+        V: NucleusView + ?Sized,
+    {
+        // Rightmost shaped vowel wins (e.g., "uôi" -> index 1 'ô')
+        if vowels.at(2).is_shaped() {
+            2
+        } else if vowels.at(1).is_shaped() {
+            1
+        } else if vowels.at(0).is_shaped() {
+            0
+        } else {
+            // Unshaped triphthong (e.g., "oai", "uye") -> center vowel
+            1
+        }
+    }
+
+    /// Fallback for >3 vowels: the one with the highest [`BaseVowel::id`]. Never
+    /// reached by the composition model, which caps nuclei at three.
+    #[inline]
+    fn tone_index_fallback<V>(vowels: &V) -> Option<usize>
+    where
+        V: NucleusView + ?Sized,
+    {
+        let mut best = vowels.at(0);
+        let mut at = 0;
+
+        for index in 1..vowels.len() {
+            let v = vowels.at(index);
+
+            if v > best {
+                best = v;
+                at = index;
+            }
+        }
+
+        Some(at)
+    }
 }

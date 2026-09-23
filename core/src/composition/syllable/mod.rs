@@ -2,15 +2,14 @@ mod building;
 mod dead;
 mod input_effect;
 
-use building::BuildingSyllableBuilder;
-use dead::DeadSyllableBuilder;
-
 use crate::{
     keymap::Keymap,
     phonology::{rules::TonePlacement, CasedBaseVowel, Coda, Onset},
 };
 
-pub(crate) use input_effect::InputEffect;
+pub use building::BuildingSyllableBuilder;
+pub use dead::DeadSyllableBuilder;
+pub use input_effect::InputEffect;
 
 #[cfg(test)]
 mod tests;

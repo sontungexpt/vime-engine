@@ -24,15 +24,13 @@ mod result;
 
 pub mod composition;
 pub mod phonology;
-pub mod renderer;
 
 pub use composition::Composition;
 pub use config::Config;
 pub use engine::Engine;
-pub use event::{Key, KeyEvent, KeyState};
+pub use event::{Key, KeyEvent, KeyStates};
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
 pub use phonology::{
     decode_vowel, encode_vowel, is_vowel, BaseVowel, Cased, CasedBaseVowel, RootVowel, Shape, Tone,
 };
-pub use renderer::{DefaultRenderer, Renderer};
 pub use result::Result;

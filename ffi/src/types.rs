@@ -1,11 +1,11 @@
 use std::ffi::{c_char, CString};
 use std::ptr;
 
-use vime_engine::{DefaultKeymap, DefaultRenderer, Engine, Result};
+use vime_engine::{DefaultKeymap, Engine, Result};
 
 #[repr(C)]
 pub struct VimeEngineHandle {
-    pub(crate) engine: Engine<DefaultRenderer, DefaultKeymap<'static>>,
+    pub(crate) engine: Engine<DefaultKeymap<'static>>,
     pub(crate) rendered: Option<CString>,
     pub(crate) commit: Option<CString>,
 }

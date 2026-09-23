@@ -11,6 +11,3 @@ pub use onset::{Onset, OnsetParseError};
 pub use vowel::{
     decode_vowel, encode_vowel, is_vowel, BaseVowel, CasedBaseVowel, RootVowel, Shape, Tone,
 };
-
-#[cfg(test)]
-mod tests;

@@ -1,4 +1,4 @@
-use vime_engine::{Key, KeyEvent, KeyState};
+use vime_engine::{Key, KeyEvent, KeyStates};
 
 use crate::types::{VimeKey, VimeKeyEvent};
 
@@ -28,7 +28,7 @@ impl TryFrom<VimeKeyEvent> for KeyEvent {
 
         Ok(KeyEvent {
             key,
-            states: KeyState::from_bits_truncate(event.states),
+            states: KeyStates::from_bits_truncate(event.states),
         })
     }
 }
@@ -48,7 +48,7 @@ mod tests {
         let result = KeyEvent::try_from(event).unwrap();
 
         assert_eq!(result.key, Key::Backspace);
-        assert_eq!(result.states, KeyState::empty());
+        assert_eq!(result.states, KeyStates::empty());
     }
 
     #[test]
@@ -74,7 +74,7 @@ mod tests {
 
         let result = KeyEvent::try_from(event).unwrap();
 
-        assert!(result.states.contains(KeyState::SHIFT));
+        assert!(result.states.contains(KeyStates::SHIFT));
     }
 
     #[test]

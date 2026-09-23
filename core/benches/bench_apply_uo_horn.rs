@@ -1,8 +1,8 @@
 //! Micro-benchmark of `apply_uo_horn` body style.
 //!
 //! Current working tree (slice-let) vs the indexed form we restored:
-//! - new (working tree):   `let [v0, v1, ..] = &mut vowels[..]`, then `match (v0.value, v1.value)`
-//! - old (restored here):  `let vowels = &vowels`, then `match (vowels[0].value, vowels[1].value)`
+//! - new (working tree):   `let [v0, v1, ..] = &mut vowels[..]`, then `match (*v0.value(), *v1.value())`
+//! - old (restored here):  `let vowels = &vowels`, then `match (*vowels[0].value(), *vowels[1].value())`
 //!
 //! The shape-toggle helper is identical on both sides (real `apply_vowel_shape`
 //! is shared and orthogonal to the body style). Run with:
@@ -27,15 +27,15 @@ fn v(b: BaseVowel) -> CasedBaseVowel {
 /// Shared shape-toggle: Horn on index `i` (reverts when already Horn).
 #[inline(always)]
 fn apply_horn(n: &mut Nucleus, i: usize) -> bool {
-    let old = n.vowels[i].value;
+    let old = *n.vowels[i].value();
     if old.has_shape(Shape::Horn) {
-        n.vowels[i].value = old.remove_shape();
+        n.vowels[i].set_value(old.remove_shape());
         return true;
     }
     let Ok(new) = old.replace_shape(Shape::Horn) else {
         return false;
     };
-    n.vowels[i].value = new;
+    n.vowels[i].set_value(new);
     true
 }
 
@@ -46,11 +46,11 @@ fn slicelet_uo_horn(n: &mut Nucleus) -> bool {
         return false;
     };
 
-    match (&mut v0.value, &mut v1.value) {
+    match (*v0.value(), *v1.value()) {
         // ươ -> uo (Revert)
-        (v0 @ BaseVowel::UHorn, v1 @ BaseVowel::OHorn) => {
-            *v0 = BaseVowel::U;
-            *v1 = BaseVowel::O;
+        (BaseVowel::UHorn, BaseVowel::OHorn) => {
+            v0.set_value(BaseVowel::U);
+            v1.set_value(BaseVowel::O);
             true
         }
         // ưô, ưo, uo, uô -> Horn on index 1
@@ -66,11 +66,11 @@ fn slicelet_uo_horn(n: &mut Nucleus) -> bool {
 #[inline(always)]
 fn indexed_uo_horn(n: &mut Nucleus) -> bool {
     let vowels = &n.vowels;
-    match (vowels[0].value, vowels[1].value) {
+    match (*vowels[0].value(), *vowels[1].value()) {
         // ươ -> uo (Revert)
         (BaseVowel::UHorn, BaseVowel::OHorn) => {
-            n.vowels[0].value = BaseVowel::U;
-            n.vowels[1].value = BaseVowel::O;
+            n.vowels[0].set_value(BaseVowel::U);
+            n.vowels[1].set_value(BaseVowel::O);
             true
         }
         // ưô, ưo, uo, uô -> Horn on index 1

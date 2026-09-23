@@ -31,7 +31,11 @@ pub enum Coda {
 impl Coda {
     pub const MAX_LEN: usize = 2;
     pub const COUNT: usize = 9;
-    pub const MAX_ID: usize = Self::COUNT - 1;
+
+    #[inline(always)]
+    pub const fn is_none(self) -> bool {
+        matches!(self, Self::None)
+    }
 
     #[inline(always)]
     pub const fn from_id(id: usize) -> Result<Self, CodaParseError> {

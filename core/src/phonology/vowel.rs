@@ -1,7 +1,7 @@
 use super::case::Cased;
 
 /// Base ASCII vowel letter independent of shape, tone, and case.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u8)]
 pub enum RootVowel {
     A = 0,
@@ -61,7 +61,7 @@ impl Tone {
 
     #[inline(always)]
     pub const fn is_some(self) -> bool {
-        self as u8 != Self::Flat as u8
+        !matches!(self, Self::Flat)
     }
 }
 
@@ -260,12 +260,12 @@ pub type CasedBaseVowel = Cased<BaseVowel>;
 impl CasedBaseVowel {
     #[inline(always)]
     pub const fn to_char(self) -> char {
-        encode_vowel(self.value, Tone::Flat, self.is_upper)
+        encode_vowel(*self.value(), Tone::Flat, self.is_upper())
     }
 
     #[inline(always)]
     pub const fn to_char_tone(self, tone: Tone) -> char {
-        encode_vowel(self.value, tone, self.is_upper)
+        encode_vowel(*self.value(), tone, self.is_upper())
     }
 }
 
@@ -294,11 +294,8 @@ pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char 
     ];
 
     // Compute index in a packed 144-element lookup table: (base * 6 + tone) * 2 + uppercase.
-    // Optimized without multiplication (0-byte memory overhead): base * 12 = (base << 3) + (base << 2).
-
-    // Simple: let idx = ((base.id() * 6 + tone as usize) << 1) | (uppercase as usize);
     let base_id = base.id();
-    let idx = (base_id << 3) + (base_id << 2) + ((tone as usize) << 1) | (uppercase as usize);
+    let idx = ((base_id * 6 + tone as usize) << 1) | (uppercase as usize);
     ENCODED_VOWELS[idx]
 }
 

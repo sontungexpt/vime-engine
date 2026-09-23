@@ -67,7 +67,11 @@ pub enum Onset {
 impl Onset {
     pub const MAX_LEN: usize = 3;
     pub const COUNT: usize = 28 as usize;
-    pub const MAX_ID: usize = Self::COUNT - 1;
+
+    #[inline(always)]
+    pub const fn is_none(self) -> bool {
+        matches!(self, Self::None)
+    }
 
     #[inline(always)]
     pub const fn from_id(id: usize) -> Result<Self, OnsetParseError> {

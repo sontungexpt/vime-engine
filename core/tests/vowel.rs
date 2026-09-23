@@ -18,9 +18,8 @@
 //! - rejection of non-vowels
 //! - shape replacement and `is_plain` / `is_shaped` consistency
 
-use crate::phonology::{
-    decode_vowel, encode_vowel, is_vowel, BaseVowel, CasedBaseVowel, Shape, Tone,
-};
+use vime_engine::{BaseVowel, CasedBaseVowel, Shape, Tone};
+use vime_engine::{decode_vowel, encode_vowel, is_vowel};
 
 const BASES: &[BaseVowel] = &[
     BaseVowel::Y,
@@ -210,7 +209,7 @@ fn decoder_coverage_round_trips_and_matches_is_vowel() {
         );
 
         assert_eq!(
-            encode_vowel(cased.value, tone, cased.is_upper),
+            encode_vowel(*cased.value(), tone, cased.is_upper()),
             ch,
             "decode/encode round-trip failed for U+{cp:04X} {ch:?}"
         );
