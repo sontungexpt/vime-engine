@@ -1,28 +1,39 @@
 /// A cursor position within a sequence.
 ///
-/// The position is expected to be in `0..=len`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+/// The position is guaranteed to remain bounded within `0..=len`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Cursor {
     position: usize,
 }
 
 impl Cursor {
+    /// Creates a new cursor starting at position `0`.
     #[inline(always)]
     pub const fn new() -> Self {
-        return Self { position: 0 };
+        Self { position: 0 }
     }
 
+    /// Creates a cursor at a specific `position`, bounded by `len`.
+    #[inline(always)]
+    pub const fn from_position(position: usize, len: usize) -> Self {
+        Self {
+            position: if position < len { position } else { len },
+        }
+    }
+
+    /// Returns the current 0-based position index.
     #[inline(always)]
     pub const fn position(self) -> usize {
         self.position
     }
 
+    /// Resets the cursor to position `0`.
     #[inline(always)]
     pub const fn reset(&mut self) {
-        self.position = 0
+        self.position = 0;
     }
 
-    /// Moves the cursor one position to the left.
+    /// Moves the cursor one position to the left (saturates at 0).
     #[inline(always)]
     pub const fn move_left(&mut self) {
         self.position = self.position.saturating_sub(1);
@@ -36,13 +47,13 @@ impl Cursor {
         }
     }
 
-    /// Moves the cursor to the beginning.
+    /// Moves the cursor to the beginning (position 0).
     #[inline(always)]
     pub const fn move_to_start(&mut self) {
         self.position = 0;
     }
 
-    /// Moves the cursor to the end of a sequence.
+    /// Moves the cursor to the end of a sequence (`len`).
     #[inline(always)]
     pub const fn move_to_end(&mut self, len: usize) {
         self.position = len;
@@ -54,22 +65,15 @@ impl Cursor {
         self.position = if position < len { position } else { len };
     }
 
-    /// Returns whether the cursor is at the beginning.
+    /// Returns whether the cursor is at the start (position 0).
     #[inline(always)]
     pub const fn is_at_start(self) -> bool {
         self.position == 0
     }
 
-    /// Returns whether the cursor is at the end.
+    /// Returns whether the cursor is at or past the end (`len`).
     #[inline(always)]
     pub const fn is_at_end(self, len: usize) -> bool {
         self.position >= len
-    }
-}
-
-impl Default for Cursor {
-    #[inline(always)]
-    fn default() -> Self {
-        Self::new()
     }
 }

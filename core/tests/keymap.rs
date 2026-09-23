@@ -8,7 +8,7 @@
 //!   shift-overflow panic.
 
 use vime_engine::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
-use vime_engine::{RootVowel, Shape, Tone};
+use vime_engine::phonology::{RootVowel, Shape, Tone};
 
 /// `(key, Tone)` pairs of the Telex layout.
 const TELEX_TONES: [(char, Tone); 6] = [

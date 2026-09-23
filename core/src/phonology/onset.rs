@@ -156,40 +156,30 @@ impl Onset {
 
     #[inline(always)]
     pub const fn is_possible_first_char(ch: char) -> bool {
-        let code = ch as u32;
-        matches!(
-            code,
-            0x0110 // Đ
-            | 0x0111 // đ
-        ) || matches!(
-            code | 0x20,
-            0x62 // b
-            | 0x63 // c
-            | 0x64 // d
-            | 0x67 // g
-            | 0x68 // h
-            | 0x6B // k
-            | 0x6C // l
-            | 0x6D // m
-            | 0x6E // n
-            | 0x70 // p
-            | 0x71 // q
-            | 0x72 // r
-            | 0x73 // s
-            | 0x74 // t
-            | 0x76 // v
-            | 0x78 // x
-        )
+        matches!(ch, 'Đ' | 'đ')
+            || matches!(
+                ch.to_ascii_lowercase(),
+                'b' | 'c'
+                    | 'd'
+                    | 'g'
+                    | 'h'
+                    | 'k'
+                    | 'l'
+                    | 'm'
+                    | 'n'
+                    | 'p'
+                    | 'q'
+                    | 'r'
+                    | 's'
+                    | 't'
+                    | 'v'
+                    | 'x'
+            )
     }
 
     #[inline(always)]
     pub const fn is_possible_char(ch: char) -> bool {
-        Self::is_possible_first_char(ch)
-            || matches!(
-                ch as u32 | 0x20,
-                0x69 // i (in "gi")
-                | 0x75 // u (in "qu")
-            )
+        Self::is_possible_first_char(ch) || matches!(ch.to_ascii_lowercase(), 'i' | 'u')
     }
 }
 

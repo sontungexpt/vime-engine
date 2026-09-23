@@ -48,24 +48,12 @@ impl Coda {
 
     #[inline(always)]
     pub const fn is_possible_first_char(ch: char) -> bool {
-        matches!(
-            ch as u32 | 0x20,
-            0x63 // c
-            | 0x6D // m
-            | 0x6E // n
-            | 0x70 // p
-            | 0x74 // t
-        )
+        matches!(ch.to_ascii_lowercase(), 'c' | 'm' | 'n' | 'p' | 't')
     }
 
     #[inline(always)]
     pub const fn is_possible_char(ch: char) -> bool {
-        Self::is_possible_first_char(ch)
-            || matches!(
-                ch as u32 | 0x20,
-                | 0x67 // g
-                | 0x68 // h
-            )
+        Self::is_possible_first_char(ch) || matches!(ch.to_ascii_lowercase(), 'g' | 'h')
     }
 
     /// Primary const parser for ASCII byte slices.

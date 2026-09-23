@@ -30,7 +30,4 @@ pub use config::Config;
 pub use engine::Engine;
 pub use event::{Key, KeyEvent, KeyStates};
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
-pub use phonology::{
-    decode_vowel, encode_vowel, is_vowel, BaseVowel, Cased, CasedBaseVowel, RootVowel, Shape, Tone,
-};
 pub use result::Result;

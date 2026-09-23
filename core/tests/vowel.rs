@@ -18,8 +18,7 @@
 //! - rejection of non-vowels
 //! - shape replacement and `is_plain` / `is_shaped` consistency
 
-use vime_engine::{BaseVowel, CasedBaseVowel, Shape, Tone};
-use vime_engine::{decode_vowel, encode_vowel, is_vowel};
+use vime_engine::phonology::{decode_vowel, encode_vowel, is_vowel, BaseVowel, CasedBaseVowel, Shape, Tone};
 
 const BASES: &[BaseVowel] = &[
     BaseVowel::Y,
