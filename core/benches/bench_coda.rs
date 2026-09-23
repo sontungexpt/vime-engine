@@ -5,7 +5,7 @@
 //!   single- and two-byte arms to `from_byte` / `from_two_bytes`.
 //!
 //! Run with:
-//!   cargo run --release --example bench_coda
+//!   cargo bench --bench bench_coda
 
 use std::hint::black_box;
 use std::time::Instant;

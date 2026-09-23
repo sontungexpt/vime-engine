@@ -8,3 +8,39 @@ license = "MIT"
 [dependencies]
 arrayvec = "0.7"
 bitflags = "2"
+
+[[bench]]
+name = "bench_apply_uo_horn"
+harness = false
+
+[[bench]]
+name = "bench_coda"
+harness = false
+
+[[bench]]
+name = "bench_composition_insert"
+harness = false
+
+[[bench]]
+name = "bench_composition_push"
+harness = false
+
+[[bench]]
+name = "bench_from_id"
+harness = false
+
+[[bench]]
+name = "bench_keylookup"
+harness = false
+
+[[bench]]
+name = "bench_normalize_uo"
+harness = false
+
+[[bench]]
+name = "bench_onset"
+harness = false
+
+[[bench]]
+name = "bench_vowels_uo"
+harness = false

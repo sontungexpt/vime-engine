@@ -97,7 +97,7 @@ impl<'a> DefaultKeymap<'a> {
         self.rules
     }
 
-    /// Branchless check whether a character matches the mask.
+    /// Checks whether an ASCII key is present in the mask.
     #[inline(always)]
     fn has_key(mask: u128, input: char) -> bool {
         let lower = input.to_ascii_lowercase() as u32;

@@ -20,11 +20,12 @@
 //! the returned `InputEffect`/`SyllableError` **and** the final syllable
 //! (transform side-effects that survive an `Err` are asserted exactly).
 
-use crate::common::{check_syllable_eq, ExpectedSyllable, C, V};
+use super::common::{check_syllable_eq, ExpectedSyllable, C, V};
 
-use vime_engine::composition::{BuildingSyllableBuilder, InputEffect, SyllableError};
-use vime_engine::phonology::{Coda, Onset, Tone};
-use vime_engine::DefaultKeymap;
+use crate::composition::syllable::building::{BuildingSyllableBuilder, SyllableError};
+use crate::composition::syllable::InputEffect;
+use crate::keymap::DefaultKeymap;
+use crate::phonology::{Coda, Onset, Tone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Effect {

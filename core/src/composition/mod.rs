@@ -2,13 +2,9 @@ pub mod cursor;
 pub mod syllable;
 
 pub use cursor::Cursor;
-pub use syllable::{
-    BuildingSyllableBuilder, CharStatus, DeadSyllableBuilder, InputEffect, SyllableError,
-    SyllableState, TransformEffect,
-};
 
 use crate::{
-    composition::syllable::SyllableBuilder, keymap::Keymap, phonology::rules::TonePlacement,
+    composition::syllable::{InputEffect, SyllableBuilder}, keymap::Keymap, phonology::rules::TonePlacement,
 };
 
 /// Incremental syllable parser driven by a [`RuleEngine`].
@@ -83,55 +79,14 @@ impl<KM: Keymap> Composition<KM> {
     /// falls through to [`Self::append`].
     pub fn insert(&mut self, input: char) {
         self.raw.insert(self.raw_cursor.position(), input);
+        self.raw_cursor.move_right(self.raw.len());
 
-        let composed_len = self.syllable.len();
-
-        // If the index is beyond the end of the syllable, push the input as-is.
-        if self.syllable_cursor.is_at_end(composed_len) {
-            self.syllable.push(input);
+        match self.syllable.insert(self.syllable_cursor.position(), input) {
+            InputEffect::StructurallyChanged => {
+                self.syllable_cursor.move_right(self.syllable.len());
+            }
+            InputEffect::Transformed => {}
         }
-        // Example: "trường"
-        //
-        // chars: ['t', 'r', 'ư', 'ờ', 'n', 'g']
-        //        [0]  [1]  [2]  [3]  [4]  [5]
-        //
-        // onset: ['t', 'r']
-        // vowels: ['ư', 'ờ']
-        // coda: ['n', 'g']
-        //
-        // Vowel range is between onset end and coda start:
-        //
-        // "tr|ườ|ng"
-        //     ^   ^
-        //     2   4
-        //
-        // onset_end = 2
-        // coda_start = 4
-
-        // Onset insertion positions: 0..=1 in example
-        // if index < onset_len {
-        // Only one effect can happens that is stroke d
-        // }
-        // Vowel insertion positions: 2..=4 in example
-        // else if index < onset_len + vowel_len + 1 {
-        // 1. Stroke modifiers:
-        //    Any position in the vowel sequence may update/revert the stroke.
-        //
-        // 2. Tone modifiers:
-        //    Any position in the vowel sequence may update/revert the tone.
-        //    Tone is stored at syllable level; the renderer recalculates
-        //    the tone position.
-        //
-        // 3. Shape modifiers:
-        //    Apply/revert only when the modifier is immediately after
-        //    a compatible vowel.
-        // }
-        // Coda insertion positions: 5.. in example
-        // else {
-        // 1. Any stroke modifier key typed in any position in coda sequence will update or revert the stroke
-        // 2. Any tone modifier key typed in any position in coda sequence will update or revert the tone
-        // 3. Any shape modifier key typed in any position in coda sequence will update or revert the shape
-        // }
     }
 
     /// Removes the character at `index` from the syllable.

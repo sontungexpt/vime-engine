@@ -11,7 +11,7 @@
 //! `Ắ`, …) are kept as-is; the corpus never decomposes them.
 //!
 //! The shared [`ExpectedSyllable`] model, the `C` / `V` field shorthands and
-//! [`check_syllable_eq`] live in the sibling [`common`](crate::common) module;
+//! [`check_syllable_eq`] live in the sibling [`common`](super::common) module;
 //! this module holds only the push-specific case model, runner and data.
 //!
 //! # Case model
@@ -84,11 +84,11 @@ pub mod prelude {
     //! `ExpectedSyllable` / `C` / `V` and the phonology types.
 
     pub(crate) use super::{alive_case, case, dead_case, Case};
-    pub(crate) use crate::common::{ExpectedSyllable, C, V};
-    pub(crate) use vime_engine::phonology::{Coda, Onset, Tone};
+    pub(crate) use super::super::common::{ExpectedSyllable, C, V};
+    pub(crate) use crate::phonology::{Coda, Onset, Tone};
 }
 
-use crate::common::{check_syllable_eq, ExpectedSyllable};
+use super::common::{check_syllable_eq, ExpectedSyllable};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Case model
@@ -113,18 +113,18 @@ pub enum Outcome {
 
 macro_rules! case {
     ([$($ch:expr),* $(,)?], $syllable:expr $(,)?) => {
-        $crate::corpus::Case {
+        $crate::composition::syllable::tests::corpus::Case {
             input: &[$($ch),*],
-            outcome: $crate::corpus::Outcome::Alive($syllable),
+            outcome: $crate::composition::syllable::tests::corpus::Outcome::Alive($syllable),
         }
     };
 }
 
 macro_rules! dead_case {
     ([$($ch:expr),* $(,)?], $syllable:expr $(,)?) => {
-        $crate::corpus::Case {
+        $crate::composition::syllable::tests::corpus::Case {
             input: &[$($ch),*],
-            outcome: $crate::corpus::Outcome::Dead($syllable),
+            outcome: $crate::composition::syllable::tests::corpus::Outcome::Dead($syllable),
         }
     };
 }
@@ -133,9 +133,9 @@ macro_rules! dead_case {
 /// is `Ok`, but the final syllable is not inspected.
 macro_rules! alive_case {
     ([$($ch:expr),* $(,)?]) => {
-        $crate::corpus::Case {
+        $crate::composition::syllable::tests::corpus::Case {
             input: &[$($ch),*],
-            outcome: $crate::corpus::Outcome::AliveOnly,
+            outcome: $crate::composition::syllable::tests::corpus::Outcome::AliveOnly,
         }
     };
 }
@@ -148,8 +148,8 @@ pub(crate) use dead_case;
 // Runners
 // ─────────────────────────────────────────────────────────────────────────────
 
-use vime_engine::composition::BuildingSyllableBuilder;
-use vime_engine::Keymap;
+use crate::composition::syllable::building::BuildingSyllableBuilder;
+use crate::keymap::Keymap;
 
 /// Pushes every character in order, requiring each `push` to be accepted, and
 /// hands back the resulting builder.

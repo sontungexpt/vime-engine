@@ -7,7 +7,7 @@
 //!
 //! So we also run a hybrid (old guard, new body) to separate the two effects.
 //! Run with:
-//!   cargo run --release --example bench_normalize_uo
+//!   cargo bench --bench bench_normalize_uo
 
 use std::hint::black_box;
 use std::time::Instant;

@@ -4,7 +4,7 @@
 //! - `loop_from_chars` — the proposed loop + stack-buffer implementation.
 //!
 //! Run with:
-//!   cargo run --release --example bench_onset
+//!   cargo bench --bench bench_onset
 
 use std::hint::black_box;
 use std::time::Instant;

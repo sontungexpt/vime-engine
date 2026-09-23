@@ -11,12 +11,12 @@
 //! report every mismatch through [`check_syllable_eq`], so a failure prints
 //! the expected and actual onset / vowels / tone / coda side by side.
 
-use vime_engine::composition::BuildingSyllableBuilder;
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel, Coda, Onset, Tone};
+use crate::composition::syllable::building::BuildingSyllableBuilder;
+use crate::phonology::{BaseVowel, CasedBaseVowel, Coda, Onset, Tone};
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
 /// much faster than `(BaseVowel::VowelCase::Lower)`.
-pub use vime_engine::phonology::BaseVowel as V;
+pub use crate::phonology::BaseVowel as V;
 
 /// Vowel case, kept as a tiny local enum so the corpus cases can write
 /// `C::Lower` / `C::Upper` without depending on the production casing type.

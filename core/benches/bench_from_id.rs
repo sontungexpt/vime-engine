@@ -4,7 +4,7 @@
 //! - `match_from_id` — the proposed 12-arm match implementation.
 //!
 //! Run with:
-//!   cargo run --release --example bench_from_id
+//!   cargo bench --bench bench_from_id
 
 use std::hint::black_box;
 use std::time::Instant;

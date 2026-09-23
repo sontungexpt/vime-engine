@@ -1,17 +1,14 @@
-//! Integration tests for the configuration-driven [`DefaultKeymap`] and the
-//! compile-time bitmask lookups built from a [`Rules`] layout.
+//! Mask-lookup tests for the configuration-driven [`DefaultKeymap`] and its
+//! compile-time `u128` bitmask lookups.
 //!
-//! Two layers are exercised:
-//!
-//! - **Mask lookups** — `is_tone_key` / `is_shape_key` / `is_stroke_key` are
-//!   backed by `u128` bitmasks precomputed in `DefaultKeymap::new`. These tests
-//!   verify bit positions for ASCII keys, case-insensitivity via
-//!   `to_ascii_lowercase`, and that non-ASCII / out-of-range input is safely
-//!   rejected without a shift-overflow panic.
-//! - **Layout validation** — `Rules::new` rejects overlapping, duplicate, or
-//!   non-ASCII keys with a panic (so a bad layout fails at compile time).
+//! - `is_tone_key` / `is_shape_key` / `is_stroke_key` are backed by `u128`
+//!   bitmasks precomputed in `DefaultKeymap::new`. These tests verify bit
+//!   positions for ASCII keys, case-insensitivity via `to_ascii_lowercase`,
+//!   and that non-ASCII / out-of-range input is safely rejected without a
+//!   shift-overflow panic.
 
-use vime_engine::{DefaultKeymap, Keymap, RootVowel, Rules, Shape, ShapeRule, Tone, ToneRule};
+use crate::keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
+use crate::phonology::{RootVowel, Shape, Tone};
 
 /// `(key, Tone)` pairs of the Telex layout.
 const TELEX_TONES: [(char, Tone); 6] = [

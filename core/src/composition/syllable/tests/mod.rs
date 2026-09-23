@@ -1,4 +1,4 @@
-//! Integration tests for `BuildingSyllableBuilder`.
+//! Unit tests for the syllable builder.
 //!
 //! Two entry points exercise the builder's public API:
 //!

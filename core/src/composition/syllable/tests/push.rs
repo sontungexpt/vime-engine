@@ -5,9 +5,9 @@
 //! entry points below sweep each module's rows with one keymap and assert the
 //! corpus never silently shrinks.
 
-use crate::corpus::{dead_cases, gi, incomplete, onsets, precomposed, syllables, telex_shapes, telex_tones, toggles, tones_shapes, uo_sequences, uppercase, viqr, vni, Corpus};
+use super::corpus::{dead_cases, gi, incomplete, onsets, precomposed, syllables, telex_shapes, telex_tones, toggles, tones_shapes, uo_sequences, uppercase, viqr, vni, Corpus};
 
-use vime_engine::DefaultKeymap;
+use crate::keymap::DefaultKeymap;
 
 #[test]
 fn telex_corpus() {

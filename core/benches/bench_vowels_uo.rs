@@ -3,7 +3,7 @@
 //! transcribed verbatim from the crate.
 //!
 //! Run with:
-//!   cargo run --release --example bench_vowels_uo
+//!   cargo bench --bench bench_vowels_uo
 
 use std::hint::black_box;
 use std::time::Instant;

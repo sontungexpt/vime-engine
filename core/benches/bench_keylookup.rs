@@ -11,7 +11,7 @@
 //!   the collision against the real VIQR layout. Do not use — use `has_key`.
 //!
 //! Run with:
-//!   cargo run --release --example bench_keylookup
+//!   cargo bench --bench bench_keylookup
 //!
 //! Verifies all strategies agree on every probed character, then reports the
 //! best-of wall time per probe for each.

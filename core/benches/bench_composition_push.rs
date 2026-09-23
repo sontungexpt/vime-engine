@@ -1,17 +1,18 @@
-//! Micro-benchmark of `BuildingSyllableBuilder::push` through a representative
-//! Vietnamese (telex) keystroke workload.
+//! Micro-benchmark of `Composition` append (the public string build path).
 //!
-//! Run against a checkout and compare results between revisions:
-//!   cargo run --release --example bench_push
+//! `Composition::insert` appends at the caret; transforms keep the caret on the
+//! transformed character, so built-in Vietnamese words type naturally.
+//!   cargo bench --bench bench_composition_push
 //!
-//! Measures wall time per push and per syllable over a deterministic workload
-//! covering onsets (single/cluster/`qu`), plain and precomposed vowels, the
-//! `uo`/`ươ` family, shape/tone transforms, codas and uppercase input.
+//! Measures wall time per pass, per input sequence and per push over a
+//! deterministic telex workload covering onsets (single/cluster/`qu`), plain
+//! and precomposed vowels, the `uo`/`ươ` family, shape/tone transforms, codas
+//! and uppercase input.
 
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::composition::BuildingSyllableBuilder;
+use vime_engine::composition::Composition;
 use vime_engine::DefaultKeymap;
 
 fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
@@ -26,14 +27,14 @@ fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
     best
 }
 
-/// Runs one iteration over the whole workload on fresh builders, returning the
-/// number of pushes performed (to normalize times).
-fn run_workload(workload: &[&str], keymap: &DefaultKeymap<'_>) -> usize {
+/// Appends every keystroke of every word through a fresh `Composition`, returning
+/// the number of pushes performed (to normalize times).
+fn run_workload(workload: &[&str], keymap: &DefaultKeymap) -> usize {
     let mut pushes = 0;
     for &word in workload {
-        let mut builder = BuildingSyllableBuilder::default();
+        let mut composition = Composition::new(*keymap);
         for ch in word.chars() {
-            black_box(black_box(&mut builder).push(keymap, ch));
+            black_box(composition.insert(ch));
             pushes += 1;
         }
     }

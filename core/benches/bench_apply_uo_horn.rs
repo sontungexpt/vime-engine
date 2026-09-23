@@ -6,7 +6,7 @@
 //!
 //! The shape-toggle helper is identical on both sides (real `apply_vowel_shape`
 //! is shared and orthogonal to the body style). Run with:
-//!   cargo run --release --example bench_apply_uo_horn
+//!   cargo bench --bench bench_apply_uo_horn
 
 use std::hint::black_box;
 use std::time::Instant;
