@@ -27,7 +27,7 @@ fn v(b: BaseVowel) -> CasedBaseVowel {
 /// Shared shape-toggle: Horn on index `i` (reverts when already Horn).
 #[inline(always)]
 fn apply_horn(n: &mut Nucleus, i: usize) -> bool {
-    let old = *n.vowels[i].value();
+    let old = *n.vowels[i].get();
     if old.has_shape(Shape::Horn) {
         n.vowels[i].set_value(old.remove_shape());
         return true;
@@ -46,7 +46,7 @@ fn slicelet_uo_horn(n: &mut Nucleus) -> bool {
         return false;
     };
 
-    match (*v0.value(), *v1.value()) {
+    match (*v0.get(), *v1.get()) {
         // ươ -> uo (Revert)
         (BaseVowel::UHorn, BaseVowel::OHorn) => {
             v0.set_value(BaseVowel::U);
@@ -66,7 +66,7 @@ fn slicelet_uo_horn(n: &mut Nucleus) -> bool {
 #[inline(always)]
 fn indexed_uo_horn(n: &mut Nucleus) -> bool {
     let vowels = &n.vowels;
-    match (*vowels[0].value(), *vowels[1].value()) {
+    match (*vowels[0].get(), *vowels[1].get()) {
         // ươ -> uo (Revert)
         (BaseVowel::UHorn, BaseVowel::OHorn) => {
             n.vowels[0].set_value(BaseVowel::U);

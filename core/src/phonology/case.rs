@@ -46,3 +46,10 @@ impl<T> Cased<T> {
         self.is_upper = is_upper;
     }
 }
+
+impl<T: Copy> Cased<T> {
+    #[inline(always)]
+    pub const fn get(&self) -> T {
+        self.value
+    }
+}

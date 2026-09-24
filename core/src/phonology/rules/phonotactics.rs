@@ -222,7 +222,7 @@ pub const fn cased_nucleus_flags(vowels: &[CasedBaseVowel]) -> PhonotacticFlags 
     let len = if vowels.len() > 3 { 3 } else { vowels.len() };
     let mut i = 0;
     while i < len {
-        bits |= vowels[i].value().phonotactic_flags().bits();
+        bits |= vowels[i].get().phonotactic_flags().bits();
         i += 1;
     }
     PhonotacticFlags(bits)

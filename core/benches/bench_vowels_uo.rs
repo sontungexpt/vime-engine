@@ -15,8 +15,8 @@ use vime_engine::phonology::{BaseVowel, CasedBaseVowel, RootVowel};
 fn old_starts_with_uo(vowels: &[CasedBaseVowel]) -> bool {
     let vowels = vowels;
     vowels.len() > 1
-        && vowels[0].value().root() == RootVowel::U
-        && vowels[1].value().root() == RootVowel::O
+        && vowels[0].get().root() == RootVowel::U
+        && vowels[1].get().root() == RootVowel::O
 }
 
 /// New form (working tree): `matches!` with a slice pattern and guard.
@@ -24,7 +24,7 @@ fn old_starts_with_uo(vowels: &[CasedBaseVowel]) -> bool {
 fn new_starts_with_uo(vowels: &[CasedBaseVowel]) -> bool {
     matches!(
         vowels,
-        [v0, v1, ..] if v0.value().root() == RootVowel::U && v1.value().root() == RootVowel::O
+        [v0, v1, ..] if v0.get().root() == RootVowel::U && v1.get().root() == RootVowel::O
     )
 }
 

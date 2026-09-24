@@ -1,5 +1,3 @@
-use super::case::Cased;
-
 /// Base ASCII vowel letter independent of shape, tone, and case.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u8)]
@@ -101,8 +99,7 @@ pub enum BaseVowel {
 
 impl BaseVowel {
     // ─────────────── Cardinality ───────────────
-    pub const COUNT: u8 = 12;
-    pub const MAX_ID: u8 = Self::COUNT - 1;
+    pub const COUNT: usize = 12;
 
     // ─────────────── Bit-field layout ───────────────
     // Packed `u16`: [Reserved | Priority ID | Shape | Root], matching the
@@ -114,17 +111,24 @@ impl BaseVowel {
     /// Width of the [`Shape`] field — 2 bits cover `Shape::None..=Horn` (0..=3).
     const SHAPE_WIDTH: u32 = 2;
 
+    const ID_WIDTH: u32 = 4;
+
     // ── field shifts ──
+    const ROOT_OFFSET: u32 = 0;
     /// Shift of the [`Shape`] field (sits directly above the root field).
     const SHAPE_OFFSET: u32 = Self::ROOT_WIDTH;
     /// Shift of the Priority ID field (sits directly above the shape field).
     const ID_OFFSET: u32 = Self::SHAPE_OFFSET + Self::SHAPE_WIDTH;
+    /// First bit available after the BaseVowel bit-field.
+    const NEXT_OFFSET: u32 = Self::ID_OFFSET + Self::ID_WIDTH;
 
     // ── field masks ──
     /// Bitmask for the [`RootVowel`] field.
     const ROOT_MASK: u16 = (1u16 << Self::ROOT_WIDTH) - 1;
     /// Bitmask for the [`Shape`] field.
     const SHAPE_MASK: u16 = (1u16 << Self::SHAPE_WIDTH) - 1;
+
+    const ID_MASK: u16 = ((1 << Self::ID_WIDTH) - 1) << Self::ID_OFFSET;
 
     /// Fully positioned mask for the [`Shape`] field (`0b11000` / `0x18`).
     const SHAPE_MASK_FULL: u16 = Self::SHAPE_MASK << Self::SHAPE_OFFSET;
@@ -156,11 +160,18 @@ impl BaseVowel {
     /// Returns the base vowel for the given priority ID, or `Err` if out of range.
     #[inline(always)]
     pub const fn from_id(id: usize) -> Result<Self, ()> {
-        if id < Self::COUNT as usize {
+        if id < Self::COUNT {
             Ok(Self::VARIANTS_BY_ID[id])
         } else {
             Err(())
         }
+    }
+
+    #[inline(always)]
+    pub unsafe fn from_id_unchecked(id: usize) -> Self {
+        // Hoặc dùng core::hint::unreachable_unchecked() nếu muốn LLVM tự optimize
+        debug_assert!(id < Self::COUNT);
+        *Self::VARIANTS_BY_ID.get_unchecked(id)
     }
 
     /// The [`BaseVowel`] for a root letter and shape, or `Err` for a
@@ -255,19 +266,76 @@ impl BaseVowel {
     }
 }
 
-pub type CasedBaseVowel = Cased<BaseVowel>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct CasedBaseVowel(u16);
 
 impl CasedBaseVowel {
-    #[inline(always)]
-    pub const fn to_char(self) -> char {
-        encode_vowel(*self.value(), Tone::Flat, self.is_upper())
+    const UPPER_OFFSET: u32 = BaseVowel::NEXT_OFFSET;
+    const UPPER_MASK: u16 = 1 << Self::UPPER_OFFSET;
+    const VALUE_MASK: u16 = Self::UPPER_MASK - 1;
+
+    #[inline]
+    pub const fn new(value: BaseVowel, is_upper: bool) -> Self {
+        Self((value as u16) | ((is_upper as u16) << Self::UPPER_OFFSET))
     }
 
-    #[inline(always)]
+    #[inline]
+    pub const fn upper(value: BaseVowel) -> Self {
+        Self((value as u16) | Self::UPPER_MASK)
+    }
+
+    #[inline]
+    pub const fn lower(value: BaseVowel) -> Self {
+        Self(value as u16)
+    }
+
+    #[inline]
+    pub const fn get(self) -> BaseVowel {
+        // SAFETY: bits below UPPER_OFFSET contain a valid BaseVowel.
+        unsafe { core::mem::transmute(self.0 & Self::VALUE_MASK) }
+    }
+
+    #[inline]
+    pub const fn is_upper(self) -> bool {
+        self.0 & Self::UPPER_MASK != 0
+    }
+
+    #[inline]
+    pub const fn set_upper(&mut self, is_upper: bool) {
+        let mask = (is_upper as u16) * Self::UPPER_MASK;
+        self.0 = (self.0 & !Self::UPPER_MASK) | mask;
+    }
+
+    #[inline]
+    pub const fn set_value(&mut self, value: BaseVowel) {
+        self.0 = (self.0 & Self::UPPER_MASK) | value as u16;
+    }
+
+    #[inline]
+    pub const fn to_char(self) -> char {
+        encode_vowel(self.get(), Tone::Flat, self.is_upper())
+    }
+
+    #[inline]
     pub const fn to_char_tone(self, tone: Tone) -> char {
-        encode_vowel(*self.value(), tone, self.is_upper())
+        encode_vowel(self.get(), tone, self.is_upper())
     }
 }
+
+// pub type CasedBaseVowel = Cased<BaseVowel>;
+
+// impl CasedBaseVowel {
+//     #[inline(always)]
+//     pub const fn to_char(self) -> char {
+//         encode_vowel(*self.value(), Tone::Flat, self.is_upper())
+//     }
+
+//     #[inline(always)]
+//     pub const fn to_char_tone(self, tone: Tone) -> char {
+//         encode_vowel(*self.value(), tone, self.is_upper())
+//     }
+// }
 
 /// Encodes a `(base, tone, uppercase)` triple as a precomposed character.
 ///

@@ -1,5 +1,7 @@
 use super::super::vowel::BaseVowel;
 
+pub const NUCLEUS_MAX_LEN: usize = 3;
+
 /// Whether a vowel nucleus is a known Vietnamese sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NucleusState {
