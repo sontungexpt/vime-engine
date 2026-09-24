@@ -69,10 +69,10 @@ impl Coda {
                 b't' => Ok(Self::T),
                 _ => Err(CodaParseError),
             },
-            &[b0, b1] => match (b0 | 0x20, b1 | 0x20) {
-                (b'c', b'h') => Ok(Self::Ch),
-                (b'n', b'g') => Ok(Self::Ng),
-                (b'n', b'h') => Ok(Self::Nh),
+            &[b0, b1] => match [b0 | 0x20, b1 | 0x20] {
+                [b'c', b'h'] => Ok(Self::Ch),
+                [b'n', b'g'] => Ok(Self::Ng),
+                [b'n', b'h'] => Ok(Self::Nh),
                 _ => Err(CodaParseError),
             },
             _ => Err(CodaParseError),

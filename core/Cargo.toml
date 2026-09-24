@@ -6,6 +6,8 @@ description = "Frontend-independent Vietnamese input method engine"
 license = "MIT"
 
 [dependencies]
+
+[dev-dependencies]
 arrayvec = "0.7"
 
 [[bench]]
@@ -22,6 +24,10 @@ harness = false
 
 [[bench]]
 name = "bench_composition_push"
+harness = false
+
+[[bench]]
+name = "bench_inline_vec"
 harness = false
 
 [[bench]]

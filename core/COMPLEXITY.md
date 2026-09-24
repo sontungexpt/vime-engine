@@ -7,9 +7,9 @@ Time-complexity analysis of each function in `core/src`, as of HEAD.
 >
 > | component | capacity |
 > |-----------|----------|
-> | onset     | `Onset::MAX_CHARS = 3` (`ArrayVec<char, 3>`) |
-> | vowels    | `3` (`ArrayVec<CasedBaseVowel, 3>`) |
-> | coda      | `Coda::MAX_CHARS = 2` (`ArrayVec<char, 2>`) |
+> | onset     | `Onset::MAX_CHARS = 3` (`InlineVec<char, 3>`) |
+> | vowels    | `3` (`InlineVec<CasedBaseVowel, 3>`) |
+> | coda      | `Coda::MAX_CHARS = 2` (`InlineVec<char, 2>`) |
 >
 > So a building syllable holds **at most 8 chars** and every operation on it is
 > physically bounded. Whenever a function is labeled `O(1)` below it means
@@ -38,7 +38,7 @@ Legend: `V` = vowels.len() (≤ 3), `P` = onset.len() (≤ 3), `C` = coda.len()
 | `try_update_coda` | O(1) | at most 2 chars; `Coda::from_chars` on ≤2 |
 | `try_update_onset` | O(1) | at most 3 chars |
 | `normalize_uo_horn` | O(1) | peeks `vowels[0..2]` |
-| `normalize_i_placement` | O(1) | constant `ArrayVec` shifts |
+| `normalize_i_placement` | O(1) | constant `InlineVec` shifts |
 | `validate_vowels` | O(1) | copies ≤3 vowels into a `[BaseVowel; 3]`, then `from_vowels` |
 | `apply_tone` | O(1) | |
 | `toggle_d_stroke` | O(1) | indexes `onset[0]` |
@@ -48,17 +48,17 @@ Legend: `V` = vowels.len() (≤ 3), `P` = onset.len() (≤ 3), `C` = coda.len()
 | `try_transform_shape` | O(V·S), V ≤ 3 | loops `(0..V).rev()`; each iteration calls `keymap.decode_shape`, which linearly scans the shape rules (`S` = # shape rules, small fixed table for the built-in keymaps). Effectively constant |
 | `try_toggle_d_stroke` | O(1) | `keymap.is_stroke_key` on a small fixed list |
 | `try_transform` | O(T + S), small | tone-table scan + shape-table scan on tiny rule slices |
-| `insert` | O(1) | bounded partition of the 8-char syllable; `ArrayVec::insert` shifts ≤7 elements |
+| `insert` | O(1) | bounded partition of the 8-char syllable; `InlineVec::insert` shifts ≤7 elements |
 | `insert_onset` | O(1) | via `try_update_onset` |
-| `insert_vowel` | O(V), V ≤ 3 | `ArrayVec::insert` shifts ≤3 |
+| `insert_vowel` | O(V), V ≤ 3 | `InlineVec::insert` shifts ≤3 |
 | `insert_coda` | O(1) | via `try_update_coda` |
 | `push` | O(1) | same bounded helpers as `insert` |
 | `push_onset` | O(1) | |
 | `push_vowel` | O(V), V ≤ 3 | push + validate + rollback |
 | `push_coda` | O(1) | |
-| `remove` | O(1) | `transaction` (fixed clone) + bounded removals; `ArrayVec::remove` shifts ≤7 |
+| `remove` | O(1) | `transaction` (fixed clone) + bounded removals; `InlineVec::remove` shifts ≤7 |
 | `remove_onset` | O(1) | `Cell` capture + reinsert into ≤3 buffer |
-| `remove_vowel` | O(1) | one `ArrayVec::remove` on ≤3 + tone recompute |
+| `remove_vowel` | O(1) | one `InlineVec::remove` on ≤3 + tone recompute |
 | `remove_coda` | O(1) | |
 
 ## `composition/syllable/dead.rs`  *(unbounded buffer — `Vec<CharStatus>`)*

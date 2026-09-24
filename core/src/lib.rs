@@ -22,6 +22,8 @@ mod event;
 mod keymap;
 mod result;
 
+pub mod util;
+
 pub mod composition;
 pub mod phonology;
 

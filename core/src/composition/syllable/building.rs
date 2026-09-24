@@ -6,16 +6,16 @@ use crate::{
         rules::{NucleusState, TonePlacement},
         BaseVowel, CasedBaseVowel, Coda, Onset, RootVowel, Shape, Tone,
     },
+    util::InlineVec,
 };
-use arrayvec::ArrayVec;
 
 #[inline(always)]
-const fn is_q(ch: char) -> bool {
+const fn is_q_ignore_case(ch: char) -> bool {
     matches!(ch, 'q' | 'Q')
 }
 
 #[inline(always)]
-const fn is_i(ch: char) -> bool {
+const fn is_i_ignore_case(ch: char) -> bool {
     matches!(ch, 'i' | 'I')
 }
 
@@ -44,12 +44,12 @@ pub enum SyllableBuildError {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuildingSyllable {
     onset_kind: Onset,
-    onset: ArrayVec<char, { Onset::MAX_LEN }>,
+    onset: InlineVec<char, { Onset::MAX_LEN }>,
 
-    nucleus: ArrayVec<CasedBaseVowel, 3>,
+    nucleus: InlineVec<CasedBaseVowel, 3>,
 
     coda_kind: Coda,
-    coda: ArrayVec<char, { Coda::MAX_LEN }>,
+    coda: InlineVec<char, { Coda::MAX_LEN }>,
 
     tone: Tone,
 }
@@ -102,7 +102,10 @@ impl BuildingSyllable {
 
     #[inline(always)]
     pub fn tone_vowel_index(&self, tone_placement: TonePlacement) -> Option<usize> {
-        tone_placement.vowel_index(&self.nucleus, self.coda.is_empty())
+        tone_placement.vowel_index(
+            &self.nucleus_bases()[..self.nucleus.len()],
+            self.coda.is_empty(),
+        )
     }
 
     #[inline(always)]
@@ -155,7 +158,7 @@ impl BuildingSyllable {
             }
 
             // A lone Q must be followed by U to be valid.
-            if self.onset.len() == 1 && is_q(self.onset[0]) {
+            if self.onset.len() == 1 && is_q_ignore_case(self.onset[0]) {
                 return Err(SyllableBuildError::InvalidOnset);
             }
 
@@ -207,20 +210,20 @@ impl BuildingSyllable {
     /// back to the vowel parser. `q` is a transitional prefix waiting for `u`;
     /// `i` is left for the nucleus so `gi` stays ambiguous until another vowel.
     #[inline]
-    fn push_onset(&mut self, input: char) -> bool {
+    fn push_onset(&mut self, key: char) -> bool {
         // Keep `i` in the nucleus so `g + i + V` can later become `gi`.
-        if is_i(input) {
+        if is_i_ignore_case(key) {
             return false;
         }
 
-        if self.onset.is_empty() && is_q(input) {
-            self.onset.push(input);
+        if self.onset.is_empty() && is_q_ignore_case(key) {
+            self.onset.push(key);
             return true;
         }
 
         self.try_update_onset(
             |onset| {
-                onset.push(input);
+                onset.push(key);
             },
             |onset, _| {
                 onset.pop();
@@ -279,10 +282,10 @@ impl BuildingSyllable {
     /// Consumes a literal char into the coda; returns `false` if the coda does
     /// not accept the input.
     #[inline]
-    fn push_coda(&mut self, input: char) -> bool {
+    fn push_coda(&mut self, key: char) -> bool {
         self.try_update_coda(
             |coda| {
-                coda.push(input);
+                coda.push(key);
             },
             |coda, _| {
                 coda.pop();
@@ -542,7 +545,9 @@ impl BuildingSyllable {
         debug_assert!(index < self.nucleus.len());
 
         // Recalculate the tone position after a removal shifts the vowels.
-        let tone_pos = tone_placement.vowel_index(&self.nucleus, self.coda.is_empty());
+        let bases = self.nucleus_bases();
+        let tone_pos =
+            tone_placement.vowel_index(&bases[..self.nucleus.len()], self.coda.is_empty());
 
         if tone_pos == Some(index) {
             self.tone = Tone::Flat;
@@ -603,8 +608,8 @@ impl BuildingSyllable {
     #[inline(always)]
     pub fn try_update_coda<F, R, T>(&mut self, update: F, revert: R) -> bool
     where
-        F: FnOnce(&mut ArrayVec<char, { Coda::MAX_LEN }>) -> T,
-        R: FnOnce(&mut ArrayVec<char, { Coda::MAX_LEN }>, T),
+        F: FnOnce(&mut InlineVec<char, { Coda::MAX_LEN }>) -> T,
+        R: FnOnce(&mut InlineVec<char, { Coda::MAX_LEN }>, T),
     {
         if self.coda.len() >= Coda::MAX_LEN {
             return false;
@@ -631,8 +636,8 @@ impl BuildingSyllable {
     #[inline(always)]
     pub fn try_update_onset<F, R, T>(&mut self, update: F, revert: R) -> bool
     where
-        F: FnOnce(&mut ArrayVec<char, { Onset::MAX_LEN }>) -> T,
-        R: FnOnce(&mut ArrayVec<char, { Onset::MAX_LEN }>, T),
+        F: FnOnce(&mut InlineVec<char, { Onset::MAX_LEN }>) -> T,
+        R: FnOnce(&mut InlineVec<char, { Onset::MAX_LEN }>, T),
     {
         if self.onset.len() >= Onset::MAX_LEN {
             return false;
@@ -701,7 +706,7 @@ impl BuildingSyllable {
         }
 
         // A lone `i` left in the onset drops back into the nucleus (I + V).
-        if self.onset.len() == 1 && is_i(self.onset[0]) {
+        if self.onset.len() == 1 && is_i_ignore_case(self.onset[0]) {
             let i = self.onset.pop().unwrap();
             self.onset_kind = Onset::None;
             self.nucleus
@@ -709,17 +714,21 @@ impl BuildingSyllable {
         }
     }
 
+    /// Copies the nucleus vowels into a `[BaseVowel; 3]` scratch buffer.
+    #[inline(always)]
+    fn nucleus_bases(&self) -> [BaseVowel; 3] {
+        let mut buf = [BaseVowel::A; 3];
+        for (dst, vowel) in buf.iter_mut().zip(self.nucleus.iter()) {
+            *dst = *vowel.value();
+        }
+        buf
+    }
+
     /// Validates the vowel nucleus against the rule table.
     #[inline(always)]
     fn check_nucleus(&self) -> NucleusState {
-        let mut buf = [BaseVowel::A; 3];
-        let len = self.nucleus.len().min(3);
-
-        for i in 0..len {
-            buf[i] = *self.nucleus[i].value();
-        }
-
-        NucleusState::check(&buf[..len])
+        let buf = self.nucleus_bases();
+        NucleusState::check(&buf[..self.nucleus.len()])
     }
 
     /// Applies or toggles a tone on the syllable.
@@ -748,26 +757,25 @@ impl BuildingSyllable {
     /// cannot act here.
     #[inline]
     fn toggle_d_stroke(&mut self) -> TransformResult {
-        let onset_chars = &mut self.onset;
         match self.onset_kind {
             Onset::D => {
                 debug_assert!(
-                    matches!(onset_chars[0], 'd' | 'D'),
+                    matches!(self.onset[0], 'd' | 'D'),
                     "Onset state desync: onset_kind is D, but onset[0] is {:?}",
-                    onset_chars[0]
+                    self.onset[0]
                 );
-                onset_chars[0] = if onset_chars[0] == 'd' { 'đ' } else { 'Đ' };
+                self.onset[0] = if self.onset[0] == 'd' { 'đ' } else { 'Đ' };
                 self.onset_kind = Onset::DStroke;
                 TransformResult::Applied
             }
             Onset::DStroke => {
                 debug_assert!(
-                    matches!(onset_chars[0], 'đ' | 'Đ'),
+                    matches!(self.onset[0], 'đ' | 'Đ'),
                     "Onset state desync: onset_kind is D, but onset[0] is {:?}",
-                    onset_chars[0]
+                    self.onset[0]
                 );
 
-                onset_chars[0] = if onset_chars[0] == 'đ' { 'd' } else { 'D' };
+                self.onset[0] = if self.onset[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
                 TransformResult::Reverted
             }

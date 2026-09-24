@@ -1,5 +1,4 @@
-use super::super::{BaseVowel, CasedBaseVowel};
-use arrayvec::ArrayVec;
+use super::super::BaseVowel;
 
 /// A read-only view over a vowel nucleus.
 pub trait NucleusView {
@@ -16,18 +15,6 @@ impl NucleusView for [BaseVowel] {
     #[inline(always)]
     fn at(&self, index: usize) -> BaseVowel {
         self[index]
-    }
-}
-
-impl<const N: usize> NucleusView for ArrayVec<CasedBaseVowel, N> {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        *self[index].value()
     }
 }
 

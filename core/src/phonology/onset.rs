@@ -89,7 +89,7 @@ impl Onset {
             [] => Ok(Self::None),
 
             // One-byte onset (A-Z, a-z).
-            &[byte] => match byte | 0x20 {
+            &[b] => match b | 0x20 {
                 b'b' => Ok(Self::B),
                 b'c' => Ok(Self::C),
                 b'd' => Ok(Self::D),
@@ -112,7 +112,7 @@ impl Onset {
             [0xC4, 0x91 | 0x90] => Ok(Self::DStroke),
 
             // Two-byte ASCII onsets.
-            &[first, second] => match [first | 0x20, second | 0x20] {
+            &[b1, b2] => match [b1 | 0x20, b2 | 0x20] {
                 [b'c', b'h'] => Ok(Self::Ch),
                 [b'g', b'h'] => Ok(Self::Gh),
                 [b'g', b'i'] => Ok(Self::Gi),
@@ -127,7 +127,7 @@ impl Onset {
             },
 
             // Three-byte onset ("ngh").
-            &[first, second, third] => match [first | 0x20, second | 0x20, third | 0x20] {
+            &[b1, b2, b3] => match [b1 | 0x20, b2 | 0x20, b3 | 0x20] {
                 [b'n', b'g', b'h'] => Ok(Self::Ngh),
                 _ => Err(OnsetParseError),
             },
