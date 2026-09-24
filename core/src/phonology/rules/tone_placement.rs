@@ -1,8 +1,17 @@
-use super::super::BaseVowel;
+use super::super::{BaseVowel, CasedBaseVowel};
 
 /// A read-only view over a vowel nucleus.
 pub trait NucleusView {
     fn len(&self) -> usize;
+    /// Returns the vowel at `index`.
+    ///
+    /// # Safety
+    ///
+    /// `index` must be `< len()`. All call sites are private helpers of
+    /// [`TonePlacement::vowel_index`], which dispatches only after matching on
+    /// the length (`2`, `3`, or a ≥4 fallback), so they always pass an
+    /// in-bounds index. `get_unchecked` also keeps a `debug_assert!`, catching
+    /// any future misuse in debug/test builds.
     fn at(&self, index: usize) -> BaseVowel;
 }
 
@@ -14,7 +23,25 @@ impl NucleusView for [BaseVowel] {
 
     #[inline(always)]
     fn at(&self, index: usize) -> BaseVowel {
-        self[index]
+        // SAFETY: call sites are the `vowel_index` length-matched helpers
+        // (2 / 3 / ≥4), so `index` is always `< self.len()`. `BaseVowel` is
+        // `Copy`, so a by-value read is sound.
+        unsafe { *self.get_unchecked(index) }
+    }
+}
+
+impl NucleusView for [CasedBaseVowel] {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    #[inline(always)]
+    fn at(&self, index: usize) -> BaseVowel {
+        // SAFETY: callers only reach this via the `len`-matched helpers, so
+        // `index < self.len()`. `get()` then masks the case bit back to a valid
+        // `BaseVowel` discriminant.
+        unsafe { self.get_unchecked(index).get() }
     }
 }
 

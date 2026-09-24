@@ -34,12 +34,12 @@ fn old_normalize(n: &mut Nucleus) {
         return;
     }
 
-    match (*vowels[0].get(), *vowels[1].get()) {
+    match (vowels[0].get(), vowels[1].get()) {
         (BaseVowel::U, BaseVowel::OHorn) => {
-            vowels[0].set_value(BaseVowel::UHorn);
+            vowels[0].set(BaseVowel::UHorn);
         }
         (BaseVowel::UHorn, BaseVowel::O) => {
-            vowels[1].set_value(BaseVowel::OHorn);
+            vowels[1].set(BaseVowel::OHorn);
         }
         _ => {}
     }
@@ -53,9 +53,9 @@ fn new_normalize(n: &mut Nucleus) {
     }
 
     if let [v0, v1, ..] = &mut n.vowels[..n.len] {
-        match (*v0.get(), *v1.get()) {
-            (BaseVowel::U, BaseVowel::OHorn) => v0.set_value(BaseVowel::UHorn),
-            (BaseVowel::UHorn, BaseVowel::O) => v1.set_value(BaseVowel::OHorn),
+        match (v0.get(), v1.get()) {
+            (BaseVowel::U, BaseVowel::OHorn) => v0.set(BaseVowel::UHorn),
+            (BaseVowel::UHorn, BaseVowel::O) => v1.set(BaseVowel::OHorn),
             _ => {}
         }
     }
@@ -69,9 +69,9 @@ fn hybrid_normalize(n: &mut Nucleus) {
     }
 
     if let [v0, v1, ..] = &mut n.vowels[..n.len] {
-        match (*v0.get(), *v1.get()) {
-            (BaseVowel::U, BaseVowel::OHorn) => v0.set_value(BaseVowel::UHorn),
-            (BaseVowel::UHorn, BaseVowel::O) => v1.set_value(BaseVowel::OHorn),
+        match (v0.get(), v1.get()) {
+            (BaseVowel::U, BaseVowel::OHorn) => v0.set(BaseVowel::UHorn),
+            (BaseVowel::UHorn, BaseVowel::O) => v1.set(BaseVowel::OHorn),
             _ => {}
         }
     }

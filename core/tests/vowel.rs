@@ -360,7 +360,7 @@ fn cased_base_vowel_setters_preserve_the_other_field() {
             assert_eq!(cased.is_upper(), !initial_case);
 
             for &replacement in BASES {
-                cased.set_value(replacement);
+                cased.set(replacement);
 
                 assert_eq!(cased.get(), replacement, "set_value failed");
                 assert_eq!(cased.is_upper(), !initial_case, "set_value changed case");
@@ -385,6 +385,31 @@ fn cased_base_vowel_character_methods_match_encoder() {
                     cased.to_char_tone(tone),
                     encode_vowel(base, tone, is_upper),
                     "toned character mismatch for {base:?} {tone:?}, upper={is_upper}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn cased_base_vowel_decoded_value_stays_in_bounds() {
+    // `get()` / `is_upper()` must invert `new` for every value the codec can
+    // produce: the packed form always decomposes back into a valid
+    // BaseVowel × case pair, never a value outside `BaseVowel`'s range.
+    for &base in BASES {
+        for &tone in TONES {
+            for case in [false, true] {
+                let ch = encode_vowel(base, tone, case);
+                let (cased, decoded_tone) =
+                    decode_vowel(ch).expect("codec must round-trip its own output");
+
+                assert_eq!(decoded_tone, tone);
+                assert_eq!(cased.get(), base);
+                assert_eq!(cased.is_upper(), case);
+                assert_eq!(
+                    CasedBaseVowel::new(cased.get(), cased.is_upper()),
+                    cased,
+                    "decomposition must reconstruct the exact packed value for {ch:?}"
                 );
             }
         }

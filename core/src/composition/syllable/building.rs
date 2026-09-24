@@ -40,16 +40,32 @@ pub enum SyllableBuildError {
     InvalidCoda,
 }
 
+type Nucleus = InlineVec<CasedBaseVowel, NUCLEUS_MAX_LEN>;
+type OnsetChars = InlineVec<char, { Onset::MAX_LEN }>;
+type CodaChars = InlineVec<char, { Coda::MAX_LEN }>;
+
+impl Nucleus {
+    /// Copies the vowels into `dst`, returning the number copied.
+    #[inline(always)]
+    fn bases(&self, dst: &mut [BaseVowel]) -> usize {
+        let count = self.len().min(dst.len());
+        for (src, dst) in self.iter().take(count).zip(&mut dst[..count]) {
+            *dst = src.get();
+        }
+        count
+    }
+}
+
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuildingSyllable {
     onset_kind: Onset,
-    onset: InlineVec<char, { Onset::MAX_LEN }>,
+    onset: OnsetChars,
 
-    nucleus: InlineVec<CasedBaseVowel, NUCLEUS_MAX_LEN>,
+    nucleus: Nucleus,
 
     coda_kind: Coda,
-    coda: InlineVec<char, { Coda::MAX_LEN }>,
+    coda: CodaChars,
 
     tone: Tone,
 }
@@ -102,10 +118,7 @@ impl BuildingSyllable {
 
     #[inline(always)]
     pub fn tone_vowel_index(&self, tone_placement: TonePlacement) -> Option<usize> {
-        tone_placement.vowel_index(
-            &self.nucleus_bases()[..self.nucleus.len()],
-            self.coda.is_empty(),
-        )
+        tone_placement.vowel_index(&self.nucleus[..], self.coda.is_empty())
     }
 
     #[inline(always)]
@@ -542,9 +555,8 @@ impl BuildingSyllable {
         debug_assert!(index < self.nucleus.len());
 
         // Recalculate the tone position after a removal shifts the vowels.
-        let bases = self.nucleus_bases();
         let tone_pos =
-            tone_placement.vowel_index(&bases[..self.nucleus.len()], self.coda.is_empty());
+            tone_placement.vowel_index(&self.nucleus[..], self.coda.is_empty());
 
         if tone_pos == Some(index) {
             self.tone = Tone::Flat;
@@ -605,8 +617,8 @@ impl BuildingSyllable {
     #[inline(always)]
     pub fn try_update_coda<F, R, T>(&mut self, update: F, revert: R) -> bool
     where
-        F: FnOnce(&mut InlineVec<char, { Coda::MAX_LEN }>) -> T,
-        R: FnOnce(&mut InlineVec<char, { Coda::MAX_LEN }>, T),
+        F: FnOnce(&mut CodaChars) -> T,
+        R: FnOnce(&mut CodaChars, T),
     {
         if self.coda.len() >= Coda::MAX_LEN {
             return false;
@@ -633,8 +645,8 @@ impl BuildingSyllable {
     #[inline(always)]
     pub fn try_update_onset<F, R, T>(&mut self, update: F, revert: R) -> bool
     where
-        F: FnOnce(&mut InlineVec<char, { Onset::MAX_LEN }>) -> T,
-        R: FnOnce(&mut InlineVec<char, { Onset::MAX_LEN }>, T),
+        F: FnOnce(&mut OnsetChars) -> T,
+        R: FnOnce(&mut OnsetChars, T),
     {
         if self.onset.len() >= Onset::MAX_LEN {
             return false;
@@ -668,10 +680,10 @@ impl BuildingSyllable {
 
         match (self.nucleus[0].get(), self.nucleus[1].get()) {
             (BaseVowel::U, BaseVowel::OHorn) => {
-                self.nucleus[0].set_value(BaseVowel::UHorn);
+                self.nucleus[0].set(BaseVowel::UHorn);
             }
             (BaseVowel::UHorn, BaseVowel::O) => {
-                self.nucleus[1].set_value(BaseVowel::OHorn);
+                self.nucleus[1].set(BaseVowel::OHorn);
             }
             _ => {}
         }
@@ -708,25 +720,12 @@ impl BuildingSyllable {
         }
     }
 
-    /// Copies the nucleus vowels into a `[BaseVowel; 3]` scratch buffer.
-    #[inline(always)]
-    fn nucleus_bases(&self) -> [BaseVowel; NUCLEUS_MAX_LEN] {
-        use BaseVowel::A;
-
-        match &self.nucleus[..] {
-            [] => [A; 3],
-            [a] => [a.get(), A, A],
-            [a, b] => [a.get(), b.get(), A],
-            [a, b, c] => [a.get(), b.get(), c.get()],
-            _ => unreachable!("nucleus capacity is 3"),
-        }
-    }
-
     /// Validates the vowel nucleus against the rule table.
     #[inline(always)]
     fn check_nucleus(&self) -> NucleusState {
-        let buf = self.nucleus_bases();
-        NucleusState::check(&buf[..self.nucleus.len()])
+        let mut buf = [BaseVowel::A; NUCLEUS_MAX_LEN];
+        let count = self.nucleus.bases(&mut buf);
+        NucleusState::check(&buf[..count])
     }
 
     /// Applies or toggles a tone on the syllable.
@@ -800,7 +799,7 @@ impl BuildingSyllable {
 
         // Shape already present -> revert to base.
         if old.has_shape(shape) && shape.is_some() {
-            self.nucleus[vowel_index].set_value(old.remove_shape());
+            self.nucleus[vowel_index].set(old.remove_shape());
             return TransformResult::Reverted;
         }
 
@@ -809,7 +808,7 @@ impl BuildingSyllable {
             return TransformResult::NotApplicable;
         };
 
-        self.nucleus[vowel_index].set_value(new);
+        self.nucleus[vowel_index].set(new);
 
         // A lone vowel is always valid.
         if self.nucleus.len() < 2 {
@@ -820,7 +819,7 @@ impl BuildingSyllable {
             NucleusState::Valid => TransformResult::Applied,
             NucleusState::InComplete => TransformResult::Applied,
             NucleusState::Dead => {
-                self.nucleus[vowel_index].set_value(old);
+                self.nucleus[vowel_index].set(old);
                 TransformResult::NotApplicable
             }
         }
@@ -836,8 +835,8 @@ impl BuildingSyllable {
             Shape::Horn => match (self.nucleus[0].get(), self.nucleus[1].get()) {
                 // ươ -> uo (revert).
                 (BaseVowel::UHorn, BaseVowel::OHorn) => {
-                    self.nucleus[0].set_value(BaseVowel::U);
-                    self.nucleus[1].set_value(BaseVowel::O);
+                    self.nucleus[0].set(BaseVowel::U);
+                    self.nucleus[1].set(BaseVowel::O);
                     TransformResult::Reverted
                 }
 
@@ -861,18 +860,18 @@ impl BuildingSyllable {
 
                 // uô -> uo (revert).
                 (BaseVowel::U, BaseVowel::OCircumflex) => {
-                    self.nucleus[1].set_value(BaseVowel::O);
+                    self.nucleus[1].set(BaseVowel::O);
                     TransformResult::Reverted
                 }
 
                 // ươ, ưo -> uô: drop the Horn on `ư`, then Circumflex the `o`.
                 (BaseVowel::UHorn, BaseVowel::OHorn | BaseVowel::O) => {
                     let prev_u = self.nucleus[0].get();
-                    self.nucleus[0].set_value(BaseVowel::U);
+                    self.nucleus[0].set(BaseVowel::U);
 
                     match self.apply_vowel_shape(1, Shape::Circumflex) {
                         TransformResult::NotApplicable => {
-                            self.nucleus[0].set_value(prev_u);
+                            self.nucleus[0].set(prev_u);
                             TransformResult::NotApplicable
                         }
                         effect => effect,

@@ -169,7 +169,6 @@ impl BaseVowel {
 
     #[inline(always)]
     pub unsafe fn from_id_unchecked(id: usize) -> Self {
-        // Hoặc dùng core::hint::unreachable_unchecked() nếu muốn LLVM tự optimize
         debug_assert!(id < Self::COUNT);
         *Self::VARIANTS_BY_ID.get_unchecked(id)
     }
@@ -275,67 +274,137 @@ impl CasedBaseVowel {
     const UPPER_MASK: u16 = 1 << Self::UPPER_OFFSET;
     const VALUE_MASK: u16 = Self::UPPER_MASK - 1;
 
-    #[inline]
-    pub const fn new(value: BaseVowel, is_upper: bool) -> Self {
-        Self((value as u16) | ((is_upper as u16) << Self::UPPER_OFFSET))
+    #[inline(always)]
+    pub const fn new(value: BaseVowel, upper: bool) -> Self {
+        Self((value as u16) | ((upper as u16) << Self::UPPER_OFFSET))
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn upper(value: BaseVowel) -> Self {
-        Self((value as u16) | Self::UPPER_MASK)
+        Self::new(value, true)
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn lower(value: BaseVowel) -> Self {
-        Self(value as u16)
+        Self::new(value, false)
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn get(self) -> BaseVowel {
         // SAFETY: bits below UPPER_OFFSET contain a valid BaseVowel.
         unsafe { core::mem::transmute(self.0 & Self::VALUE_MASK) }
     }
 
-    #[inline]
+    #[inline(always)]
+    pub const fn set(&mut self, value: BaseVowel) {
+        self.0 = (self.0 & Self::UPPER_MASK) | value as u16;
+    }
+
+    #[inline(always)]
     pub const fn is_upper(self) -> bool {
         self.0 & Self::UPPER_MASK != 0
     }
 
-    #[inline]
-    pub const fn set_upper(&mut self, is_upper: bool) {
-        let mask = (is_upper as u16) * Self::UPPER_MASK;
-        self.0 = (self.0 & !Self::UPPER_MASK) | mask;
+    #[inline(always)]
+    pub const fn set_upper(&mut self, upper: bool) {
+        self.0 = (self.0 & !Self::UPPER_MASK) | ((upper as u16) * Self::UPPER_MASK);
     }
 
-    #[inline]
-    pub const fn set_value(&mut self, value: BaseVowel) {
-        self.0 = (self.0 & Self::UPPER_MASK) | value as u16;
-    }
-
-    #[inline]
+    #[inline(always)]
     pub const fn to_char(self) -> char {
         encode_vowel(self.get(), Tone::Flat, self.is_upper())
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn to_char_tone(self, tone: Tone) -> char {
         encode_vowel(self.get(), tone, self.is_upper())
     }
 }
 
-// pub type CasedBaseVowel = Cased<BaseVowel>;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-// impl CasedBaseVowel {
-//     #[inline(always)]
-//     pub const fn to_char(self) -> char {
-//         encode_vowel(*self.value(), Tone::Flat, self.is_upper())
-//     }
+    /// Canonical list of every [`BaseVowel`], kept in lockstep with the enum.
+    const ALL_BASES: [BaseVowel; BaseVowel::COUNT] = BaseVowel::VARIANTS_BY_ID;
 
-//     #[inline(always)]
-//     pub const fn to_char_tone(self, tone: Tone) -> char {
-//         encode_vowel(*self.value(), tone, self.is_upper())
-//     }
-// }
+    /// Every [`BaseVowel`] discriminant must fit entirely below the case bit,
+    /// otherwise `CasedBaseVowel::get()`'s mask would silently drop it and the
+    /// round-trip would be lossy.
+    #[test]
+    fn base_vowel_discriminants_fit_below_the_case_bit() {
+        for &base in &ALL_BASES {
+            let raw = base as u16;
+            assert!(
+                raw < CasedBaseVowel::UPPER_MASK,
+                "{base:?} (0x{raw:x}) overlaps the case bit at bit {}",
+                CasedBaseVowel::UPPER_OFFSET,
+            );
+        }
+    }
+
+    /// All 24 `(base, case)` combinations must pack into distinct `u16`s, with
+    /// the lower form equal to the bare discriminant and the upper form exactly
+    /// one case-bit away. Reserved bits above the case bit stay clear.
+    #[test]
+    fn all_base_case_combinations_pack_distinctly() {
+        const PACK_SPACE: usize = 1 << (BaseVowel::NEXT_OFFSET as usize + 1);
+        let mut seen = [false; PACK_SPACE];
+
+        for &base in &ALL_BASES {
+            let lower = CasedBaseVowel::lower(base);
+            let upper = CasedBaseVowel::upper(base);
+
+            assert_eq!(
+                lower.0, base as u16,
+                "lower form must be the bare discriminant"
+            );
+            assert_eq!(
+                upper.0,
+                base as u16 | CasedBaseVowel::UPPER_MASK,
+                "upper form must set exactly the case bit",
+            );
+
+            for cased in [lower, upper] {
+                assert_eq!(
+                    cased.0 >> (CasedBaseVowel::UPPER_OFFSET + 1),
+                    0,
+                    "reserved bits above the case bit are set in {cased:?}",
+                );
+                assert!(
+                    !seen[cased.0 as usize],
+                    "duplicate packed value for {cased:?}",
+                );
+                seen[cased.0 as usize] = true;
+            }
+        }
+    }
+
+    /// Setters must never push the packed value outside the `(base, case)` space.
+    #[test]
+    fn setters_preserve_packed_bounds() {
+        for &base in &ALL_BASES {
+            let mut cased = CasedBaseVowel::lower(base);
+
+            cased.set_upper(true);
+            assert_eq!(cased, CasedBaseVowel::upper(base));
+
+            cased.set_upper(false);
+            assert_eq!(cased, CasedBaseVowel::lower(base));
+
+            for &replacement in &ALL_BASES {
+                cased.set(replacement);
+                assert_eq!(cased.get(), replacement);
+                assert!(
+                    cased.0 < CasedBaseVowel::UPPER_MASK
+                        || cased.0 - CasedBaseVowel::UPPER_MASK < CasedBaseVowel::UPPER_MASK,
+                    "{replacement:?} pushed the pack out of bounds: 0x{:x}",
+                    cased.0,
+                );
+            }
+        }
+    }
+}
 
 /// Encodes a `(base, tone, uppercase)` triple as a precomposed character.
 ///

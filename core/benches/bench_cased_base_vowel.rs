@@ -134,6 +134,32 @@ const TONES: [Tone; 6] = [
     Tone::Dot,
 ];
 
+// ─── Candidate B: packed-u128 priority-ID → BaseVowel LUT ───
+
+const LUT_SLOT_WIDTH: u32 = 9;
+const LUT_SLOT_MASK: u128 = (1u128 << LUT_SLOT_WIDTH) - 1;
+
+const BASE_VOWEL_LUT: u128 = (BaseVowel::Y as u128)
+    | ((BaseVowel::U as u128) << (LUT_SLOT_WIDTH * 1))
+    | ((BaseVowel::I as u128) << (LUT_SLOT_WIDTH * 2))
+    | ((BaseVowel::E as u128) << (LUT_SLOT_WIDTH * 3))
+    | ((BaseVowel::O as u128) << (LUT_SLOT_WIDTH * 4))
+    | ((BaseVowel::A as u128) << (LUT_SLOT_WIDTH * 5))
+    | ((BaseVowel::UHorn as u128) << (LUT_SLOT_WIDTH * 6))
+    | ((BaseVowel::ACircumflex as u128) << (LUT_SLOT_WIDTH * 7))
+    | ((BaseVowel::OCircumflex as u128) << (LUT_SLOT_WIDTH * 8))
+    | ((BaseVowel::ABreve as u128) << (LUT_SLOT_WIDTH * 9))
+    | ((BaseVowel::ECircumflex as u128) << (LUT_SLOT_WIDTH * 10))
+    | ((BaseVowel::OHorn as u128) << (LUT_SLOT_WIDTH * 11));
+
+#[inline(always)]
+fn from_id_lut(id: u8) -> BaseVowel {
+    debug_assert!((id as usize) < BaseVowel::COUNT);
+    let raw = ((BASE_VOWEL_LUT >> (id as u32 * LUT_SLOT_WIDTH)) & LUT_SLOT_MASK) as u16;
+    // SAFETY: valid id ⇒ the slot holds a real BaseVowel discriminant.
+    unsafe { std::mem::transmute(raw) }
+}
+
 fn time(mut f: impl FnMut(), rounds: usize, iters: usize) -> Duration {
     let mut best = Duration::MAX;
     for _ in 0..rounds {
@@ -165,7 +191,7 @@ fn report(
 fn nucleus_bases_loop(vowels: &[CasedBaseVowel]) -> [BaseVowel; 3] {
     let mut bases = [BaseVowel::A; 3];
     for (dst, vowel) in bases.iter_mut().zip(vowels) {
-        *dst = *vowel.get();
+        *dst = vowel.get();
     }
     bases
 }
@@ -175,9 +201,9 @@ fn nucleus_bases_match(vowels: &[CasedBaseVowel]) -> [BaseVowel; 3] {
     use BaseVowel::A;
     match vowels {
         [] => [A; 3],
-        [a] => [*a.get(), A, A],
-        [a, b] => [*a.get(), *b.get(), A],
-        [a, b, c] => [*a.get(), *b.get(), *c.get()],
+        [a] => [a.get(), A, A],
+        [a, b] => [a.get(), b.get(), A],
+        [a, b, c] => [a.get(), b.get(), c.get()],
         _ => unreachable!("nucleus capacity is 3"),
     }
 }
@@ -200,8 +226,8 @@ fn main() {
             let a = CasedBaseVowel::new(vowel, is_upper);
             let b = PackedCasedBaseVowel::new(vowel, is_upper);
             let c = IdCasedBaseVowel::new(vowel, is_upper);
-            assert_eq!(*a.get(), b.value());
-            assert_eq!(*a.get(), c.value());
+            assert_eq!(a.get(), b.value());
+            assert_eq!(a.get(), c.value());
             assert_eq!(a.is_upper(), b.is_upper());
             assert_eq!(a.is_upper(), c.is_upper());
             assert_eq!(a.to_char(), b.to_char());
@@ -219,11 +245,11 @@ fn main() {
             c.set_upper(!is_upper);
             assert_eq!(a.is_upper(), b.is_upper());
             assert_eq!(a.is_upper(), c.is_upper());
-            a.set_value(BaseVowel::OHorn);
+            a.set(BaseVowel::OHorn);
             b.set_value(BaseVowel::OHorn);
             c.set_value(BaseVowel::OHorn);
-            assert_eq!((*a.get(), a.is_upper()), (b.value(), b.is_upper()));
-            assert_eq!((*a.get(), a.is_upper()), (c.value(), c.is_upper()));
+            assert_eq!((a.get(), a.is_upper()), (b.value(), b.is_upper()));
+            assert_eq!((a.get(), a.is_upper()), (c.value(), c.is_upper()));
         }
     }
 
@@ -311,7 +337,7 @@ fn main() {
 
     compare!(
         "get_value",
-        |v: CasedBaseVowel| *v.get(),
+        |v: CasedBaseVowel| v.get(),
         |v: PackedCasedBaseVowel| v.value()
     );
     compare!(
@@ -321,7 +347,7 @@ fn main() {
     );
     compare_id!(
         "get_value (ID)",
-        |v: CasedBaseVowel| *v.get(),
+        |v: CasedBaseVowel| v.get(),
         |v: IdCasedBaseVowel| v.value()
     );
     compare_id!(
@@ -369,6 +395,44 @@ fn main() {
         iters,
     );
     report("to_char_tone (ID)", current_tone, id_tone, count, iters);
+
+    // id → BaseVowel: array LUT vs packed-u128 LUT.
+    let ids: [u8; BaseVowel::COUNT] = std::array::from_fn(|i| i as u8);
+    for &id in &ids {
+        assert_eq!(
+            unsafe { BaseVowel::from_id_unchecked(id as usize) },
+            from_id_lut(id),
+            "from_id mismatch at {id}"
+        );
+    }
+
+    let array_lookup = time(
+        || {
+            for &id in &ids {
+                black_box(unsafe {
+                    BaseVowel::from_id_unchecked(black_box(id as usize))
+                });
+            }
+        },
+        rounds,
+        iters,
+    );
+    let lut_lookup = time(
+        || {
+            for &id in &ids {
+                black_box(from_id_lut(black_box(id)));
+            }
+        },
+        rounds,
+        iters,
+    );
+    report(
+        "from_id",
+        array_lookup,
+        lut_lookup,
+        ids.len(),
+        iters,
+    );
 
     let current_case_setter = time(
         || {
@@ -422,7 +486,7 @@ fn main() {
         || {
             for (i, value) in current.iter().enumerate() {
                 let mut value = black_box(*value);
-                value.set_value(black_box(VOWELS[(i + 1) % VOWELS.len()]));
+                value.set(black_box(VOWELS[(i + 1) % VOWELS.len()]));
                 black_box(value);
             }
         },
