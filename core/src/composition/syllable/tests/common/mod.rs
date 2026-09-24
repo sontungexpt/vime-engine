@@ -160,7 +160,7 @@ pub fn check_syllable_eq(
 ) -> Result<(), String> {
     let vowel_pair = |v: &CasedBaseVowel| {
         (
-            *v.value(),
+            v.get(),
             if v.is_upper() {
                 VowelCase::Upper
             } else {
