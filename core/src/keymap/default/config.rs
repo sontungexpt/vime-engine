@@ -28,44 +28,51 @@ impl<'a> Rules<'a> {
         let mut shape_mask: u128 = 0;
         let mut stroke_mask: u128 = 0;
 
-        // Rule 1: Tone keys must be unique
+        // Validate tone keys:
+        // - Must be ASCII.
+        // - Each key must map to at most one tone.
         let mut i = 0;
         while i < tones.len() {
             let key = tones[i].key;
+
             if key >= 128 {
                 panic!("Invalid layout: key must be ASCII");
             }
-            // Keys are stored as-is; lowercasing happens at lookup time (has_key)
+
             let bit = 1u128 << key;
 
             if (tone_mask & bit) != 0 {
                 panic!("Invalid layout: a tone key maps to multiple tones");
             }
+
             tone_mask |= bit;
             i += 1;
         }
 
-        // Rule 2 & 3: Validate Shape keys
+        // Validate shape keys:
+        // - Must be ASCII.
+        // - Must not collide with a tone key.
+        // - A key may not assign multiple shapes to the same vowel.
         let mut i = 0;
         while i < shapes.len() {
             let key = shapes[i].key;
+
             if key >= 128 {
                 panic!("Invalid layout: key must be ASCII");
             }
+
             let bit = 1u128 << key;
 
-            // Rule 2: A shape key must not collide with a tone key
             if (tone_mask & bit) != 0 {
                 panic!("Invalid layout: a key maps to both a tone and a shape");
             }
 
-            // Rule 3: One shape key must not assign two shapes to the same RootVowel owner
             let mut j = i + 1;
             while j < shapes.len() {
-                if shapes[i].key == shapes[j].key && (shapes[i].on as u16) == (shapes[j].on as u16)
-                {
+                if shapes[i].key == shapes[j].key && shapes[i].on as u16 == shapes[j].on as u16 {
                     panic!("Invalid layout: a shape key applies multiple shapes to one owner");
                 }
+
                 j += 1;
             }
 
@@ -73,24 +80,29 @@ impl<'a> Rules<'a> {
             i += 1;
         }
 
-        // Rule 5, 6 & 7: Validate Stroke keys
+        // Validate stroke keys:
+        // - Must be ASCII.
+        // - Must be unique.
+        // - Must not collide with a tone key.
+        // - Must not collide with a shape key.
         let mut i = 0;
         while i < strokes.len() {
             let key = strokes[i];
+
             if key >= 128 {
                 panic!("Invalid layout: key must be ASCII");
             }
+
             let bit = 1u128 << key;
 
-            // Rule 5: Stroke keys must not repeat
             if (stroke_mask & bit) != 0 {
                 panic!("Invalid layout: a stroke key is duplicated");
             }
-            // Rule 6: A stroke key must not collide with a tone key
+
             if (tone_mask & bit) != 0 {
                 panic!("Invalid layout: a stroke key maps to both a stroke and a tone");
             }
-            // Rule 7: A stroke key must not collide with a shape key
+
             if (shape_mask & bit) != 0 {
                 panic!("Invalid layout: a stroke key maps to both a stroke and a shape");
             }
