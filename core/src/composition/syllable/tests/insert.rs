@@ -22,7 +22,7 @@
 
 use super::common::{check_syllable_eq, ExpectedSyllable, C, V};
 
-use crate::composition::syllable::building::{BuildingSyllableBuilder, SyllableBuildError};
+use crate::composition::syllable::building::{BuildingSyllable, SyllableBuildError};
 use crate::composition::syllable::InputEffect;
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone};
@@ -259,7 +259,7 @@ const CASES: &[InsertCase] = &[
 ];
 
 fn run_case(keymap: &DefaultKeymap, case: &InsertCase) -> Result<(), String> {
-    let mut builder = BuildingSyllableBuilder::default();
+    let mut builder = BuildingSyllable::default();
 
     for &ch in case.base {
         builder

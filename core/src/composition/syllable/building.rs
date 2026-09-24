@@ -42,11 +42,11 @@ pub enum SyllableBuildError {
 
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct BuildingSyllableBuilder {
+pub struct BuildingSyllable {
     onset_kind: Onset,
     onset: ArrayVec<char, { Onset::MAX_LEN }>,
 
-    vowels: ArrayVec<CasedBaseVowel, 3>,
+    nucleus: ArrayVec<CasedBaseVowel, 3>,
 
     coda_kind: Coda,
     coda: ArrayVec<char, { Coda::MAX_LEN }>,
@@ -54,10 +54,10 @@ pub struct BuildingSyllableBuilder {
     tone: Tone,
 }
 
-impl BuildingSyllableBuilder {
+impl BuildingSyllable {
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.onset.len() + self.vowels.len() + self.coda.len()
+        self.onset.len() + self.nucleus.len() + self.coda.len()
     }
 
     #[inline(always)]
@@ -82,7 +82,7 @@ impl BuildingSyllableBuilder {
 
     #[inline(always)]
     pub fn vowels(&self) -> &[CasedBaseVowel] {
-        &self.vowels
+        &self.nucleus
     }
 
     #[inline(always)]
@@ -94,7 +94,7 @@ impl BuildingSyllableBuilder {
     pub fn reset(&mut self) {
         self.onset_kind = Onset::None;
         self.onset.clear();
-        self.vowels.clear();
+        self.nucleus.clear();
         self.coda_kind = Coda::None;
         self.coda.clear();
         self.tone = Tone::Flat;
@@ -102,7 +102,7 @@ impl BuildingSyllableBuilder {
 
     #[inline(always)]
     pub fn tone_vowel_index(&self, tone_placement: TonePlacement) -> Option<usize> {
-        tone_placement.vowel_index(&self.vowels, self.coda.is_empty())
+        tone_placement.vowel_index(&self.nucleus, self.coda.is_empty())
     }
 
     #[inline(always)]
@@ -115,7 +115,7 @@ impl BuildingSyllableBuilder {
         // 2. Vowels
         if self.tone.is_some() {
             let tone_pos = self.tone_vowel_index(tone_placement);
-            output.extend(self.vowels.iter().enumerate().map(|(idx, vowel)| {
+            output.extend(self.nucleus.iter().enumerate().map(|(idx, vowel)| {
                 let active_tone = if Some(idx) == tone_pos {
                     self.tone
                 } else {
@@ -124,7 +124,7 @@ impl BuildingSyllableBuilder {
                 vowel.to_char_tone(active_tone)
             }));
         } else {
-            output.extend(self.vowels.iter().map(|vowel| vowel.to_char()));
+            output.extend(self.nucleus.iter().map(|vowel| vowel.to_char()));
         }
 
         // 3. Coda
@@ -134,7 +134,7 @@ impl BuildingSyllableBuilder {
     }
 }
 
-impl BuildingSyllableBuilder {
+impl BuildingSyllable {
     #[inline(always)]
     pub fn push<KM: Keymap>(
         &mut self,
@@ -145,7 +145,7 @@ impl BuildingSyllableBuilder {
         //
         // No vowel and no coda: still parsing the onset. A stroke key can
         // modify an existing D/Đ before being read as a literal character.
-        if self.coda.is_empty() && self.vowels.is_empty() {
+        if self.coda.is_empty() && self.nucleus.is_empty() {
             if self.try_toggle_d_stroke(keymap, key) == TransformResult::Applied {
                 return Ok(InputEffect::Transformed);
             }
@@ -233,10 +233,10 @@ impl BuildingSyllableBuilder {
     /// Adds a decoded vowel to the nucleus (max 3 vowels); returns `false`
     /// when the tone conflicts or the resulting nucleus is invalid.
     fn push_vowel(&mut self, (vowel, tone): (CasedBaseVowel, Tone)) -> bool {
-        let vowels_len = self.vowels.len();
+        let vowels_len = self.nucleus.len();
         if vowels_len == 0 {
             // First vowel; adopt it and its tone.
-            self.vowels.push(vowel);
+            self.nucleus.push(vowel);
             self.tone = tone;
             return true;
         } else if vowels_len >= 3 {
@@ -255,18 +255,20 @@ impl BuildingSyllableBuilder {
         }
 
         // A second vowel after `g i` promotes `i` into the onset, forming `gi`;
-        if vowels_len == 1 && *self.vowels[0].value() == BaseVowel::I && self.onset_kind == Onset::G
+        if vowels_len == 1
+            && *self.nucleus[0].value() == BaseVowel::I
+            && self.onset_kind == Onset::G
         {
-            let i = self.vowels.pop().expect("vowels must contain i ");
+            let i = self.nucleus.pop().expect("vowels must contain i ");
             self.onset.push(if i.is_upper() { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
         }
 
-        self.vowels.push(vowel);
+        self.nucleus.push(vowel);
 
-        if NucleusState::Dead == self.validate_vowels() {
+        if NucleusState::Dead == self.check_nucleus() {
             // Roll back the append and the adopted tone.
-            self.vowels.pop();
+            self.nucleus.pop();
             self.tone = old_tone;
             return false;
         }
@@ -289,7 +291,7 @@ impl BuildingSyllableBuilder {
     }
 }
 
-impl BuildingSyllableBuilder {
+impl BuildingSyllable {
     #[inline(always)]
     pub fn insert<KM: Keymap>(
         &mut self,
@@ -298,7 +300,7 @@ impl BuildingSyllableBuilder {
         key: char,
     ) -> Result<InputEffect, SyllableBuildError> {
         let onset_len = self.onset.len();
-        let vowels_len = self.vowels.len();
+        let vowels_len = self.nucleus.len();
         let vowel_boundary = onset_len + vowels_len;
         let total_len = vowel_boundary + self.coda.len();
 
@@ -407,8 +409,8 @@ impl BuildingSyllableBuilder {
         vowel_index: usize,
         (cased_base, tone): (CasedBaseVowel, Tone),
     ) -> bool {
-        debug_assert!(vowel_index <= self.vowels.len());
-        if self.vowels.len() >= 3 {
+        debug_assert!(vowel_index <= self.nucleus.len());
+        if self.nucleus.len() >= 3 {
             return false;
         }
 
@@ -423,10 +425,10 @@ impl BuildingSyllableBuilder {
             return false;
         }
 
-        self.vowels.insert(vowel_index, cased_base);
+        self.nucleus.insert(vowel_index, cased_base);
 
-        if self.validate_vowels() == NucleusState::Dead {
-            self.vowels.remove(vowel_index);
+        if self.check_nucleus() == NucleusState::Dead {
+            self.nucleus.remove(vowel_index);
             self.tone = old_tone;
 
             return false;
@@ -453,7 +455,7 @@ impl BuildingSyllableBuilder {
 }
 
 // NOTE: UNCHECKED
-impl BuildingSyllableBuilder {
+impl BuildingSyllable {
     #[inline]
     pub fn remove(
         &mut self,
@@ -461,7 +463,7 @@ impl BuildingSyllableBuilder {
         tone_placement: TonePlacement,
     ) -> Result<InputEffect, SyllableBuildError> {
         let onset_len = self.onset.len();
-        let vowels_len = self.vowels.len();
+        let vowels_len = self.nucleus.len();
         let total_len = onset_len + vowels_len + self.coda.len();
 
         debug_assert!(index < total_len);
@@ -478,7 +480,7 @@ impl BuildingSyllableBuilder {
                 // Removing onset may expose `I` and move it into the nucleus.
                 this.normalize_i_placement();
 
-                if this.validate_vowels() == NucleusState::Dead {
+                if this.check_nucleus() == NucleusState::Dead {
                     return Err(SyllableBuildError::InvalidNucleus);
                 }
 
@@ -497,7 +499,7 @@ impl BuildingSyllableBuilder {
                 // Removing a vowel may expose `I` from the onset.
                 this.normalize_i_placement();
 
-                if this.validate_vowels() == NucleusState::Dead {
+                if this.check_nucleus() == NucleusState::Dead {
                     return Err(SyllableBuildError::InvalidNucleus);
                 }
 
@@ -537,10 +539,10 @@ impl BuildingSyllableBuilder {
     /// or the nucleus becomes empty.
     #[inline(always)]
     fn remove_vowel(&mut self, index: usize, tone_placement: TonePlacement) -> bool {
-        debug_assert!(index < self.vowels.len());
+        debug_assert!(index < self.nucleus.len());
 
         // Recalculate the tone position after a removal shifts the vowels.
-        let tone_pos = tone_placement.vowel_index(&self.vowels, self.coda.is_empty());
+        let tone_pos = tone_placement.vowel_index(&self.nucleus, self.coda.is_empty());
 
         if tone_pos == Some(index) {
             self.tone = Tone::Flat;
@@ -549,14 +551,14 @@ impl BuildingSyllableBuilder {
         // Do not recompute UO normalization on deletion: `ươo` minus `ơ` leaves an
         // ambiguous `ưo`, so the remaining literal vowels are preserved.
 
-        if index >= self.vowels.len() {
+        if index >= self.nucleus.len() {
             return false;
         }
 
-        self.vowels.remove(index);
+        self.nucleus.remove(index);
 
         // A tone without a vowel has no semantic target.
-        if self.vowels.is_empty() {
+        if self.nucleus.is_empty() {
             self.tone = Tone::Flat;
         }
 
@@ -579,7 +581,7 @@ impl BuildingSyllableBuilder {
     }
 }
 
-impl BuildingSyllableBuilder {
+impl BuildingSyllable {
     #[inline]
     fn transaction<T>(
         &mut self,
@@ -658,16 +660,16 @@ impl BuildingSyllableBuilder {
     #[inline]
     fn normalize_uo_horn(&mut self) {
         // Needs at least two vowels (three while still coda-less).
-        if self.vowels.len() < 2 || (self.coda.is_empty() && self.vowels.len() < 3) {
+        if self.nucleus.len() < 2 || (self.nucleus.len() < 3 && self.coda.is_empty()) {
             return;
         }
 
-        match (*self.vowels[0].value(), *self.vowels[1].value()) {
+        match (*self.nucleus[0].value(), *self.nucleus[1].value()) {
             (BaseVowel::U, BaseVowel::OHorn) => {
-                self.vowels[0].set_value(BaseVowel::UHorn);
+                self.nucleus[0].set_value(BaseVowel::UHorn);
             }
             (BaseVowel::UHorn, BaseVowel::O) => {
-                self.vowels[1].set_value(BaseVowel::OHorn);
+                self.nucleus[1].set_value(BaseVowel::OHorn);
             }
             _ => {}
         }
@@ -675,11 +677,13 @@ impl BuildingSyllableBuilder {
 
     #[inline]
     fn normalize_i_placement(&mut self) {
-        let vowels_len = self.vowels.len();
+        let vowels_len = self.nucleus.len();
         // G + I + V -> Gi + V
-        if self.onset_kind == Onset::G && vowels_len >= 2 && *self.vowels[0].value() == BaseVowel::I
+        if self.onset_kind == Onset::G
+            && vowels_len >= 2
+            && *self.nucleus[0].value() == BaseVowel::I
         {
-            let i = self.vowels.remove(0);
+            let i = self.nucleus.remove(0);
 
             self.onset.push(if i.is_upper() { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
@@ -690,7 +694,7 @@ impl BuildingSyllableBuilder {
         if self.onset_kind == Onset::Gi && vowels_len == 0 {
             let i = self.onset.pop().expect("onset must contain i");
             self.onset_kind = Onset::G;
-            self.vowels
+            self.nucleus
                 .push(CasedBaseVowel::new(BaseVowel::I, i == 'I'));
 
             return;
@@ -700,19 +704,19 @@ impl BuildingSyllableBuilder {
         if self.onset.len() == 1 && is_i(self.onset[0]) {
             let i = self.onset.pop().unwrap();
             self.onset_kind = Onset::None;
-            self.vowels
+            self.nucleus
                 .insert(0, CasedBaseVowel::new(BaseVowel::I, i == 'I'));
         }
     }
 
     /// Validates the vowel nucleus against the rule table.
     #[inline(always)]
-    fn validate_vowels(&self) -> NucleusState {
+    fn check_nucleus(&self) -> NucleusState {
         let mut buf = [BaseVowel::A; 3];
-        let len = self.vowels.len().min(3);
+        let len = self.nucleus.len().min(3);
 
         for i in 0..len {
-            buf[i] = *self.vowels[i].value();
+            buf[i] = *self.nucleus[i].value();
         }
 
         NucleusState::check(&buf[..len])
@@ -724,7 +728,7 @@ impl BuildingSyllableBuilder {
     /// the current one.
     #[inline]
     fn apply_tone(&mut self, tone: Tone) -> TransformResult {
-        if self.vowels.is_empty() {
+        if self.nucleus.is_empty() {
             return TransformResult::NotApplicable;
         }
         // Same tone toggles back to flat.
@@ -744,20 +748,25 @@ impl BuildingSyllableBuilder {
     /// cannot act here.
     #[inline]
     fn toggle_d_stroke(&mut self) -> TransformResult {
-        debug_assert!(
-            !self.onset.is_empty(),
-            "Onset state desync: onset_kind is {:?}, but onset buffer is empty",
-            self.onset_kind
-        );
         let onset_chars = &mut self.onset;
-
         match self.onset_kind {
             Onset::D => {
+                debug_assert!(
+                    matches!(onset_chars[0], 'd' | 'D'),
+                    "Onset state desync: onset_kind is D, but onset[0] is {:?}",
+                    onset_chars[0]
+                );
                 onset_chars[0] = if onset_chars[0] == 'd' { 'đ' } else { 'Đ' };
                 self.onset_kind = Onset::DStroke;
                 TransformResult::Applied
             }
             Onset::DStroke => {
+                debug_assert!(
+                    matches!(onset_chars[0], 'đ' | 'Đ'),
+                    "Onset state desync: onset_kind is D, but onset[0] is {:?}",
+                    onset_chars[0]
+                );
+
                 onset_chars[0] = if onset_chars[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
                 TransformResult::Reverted
@@ -768,10 +777,10 @@ impl BuildingSyllableBuilder {
 
     /// Whether the nucleus starts with an unmarked `u o` pair.
     #[inline(always)]
-    fn vowels_starts_with_uo(&self) -> bool {
-        self.vowels.len() > 1
-            && self.vowels[0].value().root() == RootVowel::U
-            && self.vowels[1].value().root() == RootVowel::O
+    fn nucleus_starts_with_uo(&self) -> bool {
+        self.nucleus.len() > 1
+            && self.nucleus[0].value().root() == RootVowel::U
+            && self.nucleus[1].value().root() == RootVowel::O
     }
 
     /// Applies `shape` to the vowel at `index`, re-validating the nucleus.
@@ -779,13 +788,13 @@ impl BuildingSyllableBuilder {
     /// Applying the shape it already has reverts it; an invalid result rolls
     /// the vowel back.
     fn apply_vowel_shape(&mut self, vowel_index: usize, shape: Shape) -> TransformResult {
-        debug_assert!(vowel_index < self.vowels.len());
+        debug_assert!(vowel_index < self.nucleus.len());
 
-        let old = *self.vowels[vowel_index].value();
+        let old = *self.nucleus[vowel_index].value();
 
         // Shape already present -> revert to base.
         if old.has_shape(shape) && shape.is_some() {
-            self.vowels[vowel_index].set_value(old.remove_shape());
+            self.nucleus[vowel_index].set_value(old.remove_shape());
             return TransformResult::Reverted;
         }
 
@@ -794,80 +803,78 @@ impl BuildingSyllableBuilder {
             return TransformResult::NotApplicable;
         };
 
-        self.vowels[vowel_index].set_value(new);
+        self.nucleus[vowel_index].set_value(new);
 
         // A lone vowel is always valid.
-        if self.vowels.len() < 2 {
+        if self.nucleus.len() < 2 {
             return TransformResult::Applied;
         }
         // Re-validate the vowel combination.
-        match self.validate_vowels() {
+        match self.check_nucleus() {
             NucleusState::Valid => TransformResult::Applied,
             NucleusState::InComplete => TransformResult::Applied,
             NucleusState::Dead => {
-                self.vowels[vowel_index].set_value(old);
+                self.nucleus[vowel_index].set_value(old);
                 TransformResult::NotApplicable
             }
         }
     }
 
-    /// Applies a Horn shape to the `u o` prefix (needs at least 2 vowels).
-    fn apply_uo_horn(&mut self) -> TransformResult {
-        if self.vowels.len() < 2 {
+    /// Applies a shape to a `u o`-prefix nucleus (needs at least 2 vowels).
+    fn apply_uo_shape(&mut self, shape: Shape) -> TransformResult {
+        if self.nucleus.len() < 2 {
             return TransformResult::NotApplicable;
         }
 
-        match (*self.vowels[0].value(), *self.vowels[1].value()) {
-            // ươ -> uo (revert).
-            (BaseVowel::UHorn, BaseVowel::OHorn) => {
-                self.vowels[0].set_value(BaseVowel::U);
-                self.vowels[1].set_value(BaseVowel::O);
-                TransformResult::Reverted
-            }
-
-            // ưô, ưo, uo, uô -> Horn the vowel at index 1.
-            (BaseVowel::UHorn, BaseVowel::OCircumflex | BaseVowel::O)
-            | (BaseVowel::U, BaseVowel::O | BaseVowel::OCircumflex) => {
-                self.apply_vowel_shape(1, Shape::Horn)
-            }
-
-            // uơ -> Horn index 0 (becomes ươ).
-            (BaseVowel::U, BaseVowel::OHorn) => self.apply_vowel_shape(0, Shape::Horn),
-
-            _ => TransformResult::NotApplicable,
-        }
-    }
-
-    fn apply_uo_circumflex(&mut self) -> TransformResult {
-        if self.vowels.len() < 2 {
-            return TransformResult::NotApplicable;
-        }
-
-        match (*self.vowels[0].value(), *self.vowels[1].value()) {
-            // uo, uơ -> uô (Circumflex on index 1).
-            (BaseVowel::U, BaseVowel::O | BaseVowel::OHorn) => {
-                self.apply_vowel_shape(1, Shape::Circumflex)
-            }
-
-            // uô -> uo (revert).
-            (BaseVowel::U, BaseVowel::OCircumflex) => {
-                self.vowels[1].set_value(BaseVowel::O);
-                TransformResult::Reverted
-            }
-
-            // ươ, ưo -> uô: drop the Horn on `ư`, then Circumflex the `o`.
-            (BaseVowel::UHorn, BaseVowel::OHorn | BaseVowel::O) => {
-                let prev_u = *self.vowels[0].value();
-                self.vowels[0].set_value(BaseVowel::U);
-
-                match self.apply_vowel_shape(1, Shape::Circumflex) {
-                    TransformResult::NotApplicable => {
-                        self.vowels[0].set_value(prev_u);
-                        TransformResult::NotApplicable
-                    }
-                    effect => effect,
+        match shape {
+            Shape::Horn => match (*self.nucleus[0].value(), *self.nucleus[1].value()) {
+                // ươ -> uo (revert).
+                (BaseVowel::UHorn, BaseVowel::OHorn) => {
+                    self.nucleus[0].set_value(BaseVowel::U);
+                    self.nucleus[1].set_value(BaseVowel::O);
+                    TransformResult::Reverted
                 }
-            }
+
+                // ưô, ưo, uo, uô -> Horn the vowel at index 1.
+                (BaseVowel::UHorn, BaseVowel::OCircumflex | BaseVowel::O)
+                | (BaseVowel::U, BaseVowel::O | BaseVowel::OCircumflex) => {
+                    self.apply_vowel_shape(1, Shape::Horn)
+                }
+
+                // uơ -> Horn index 0 (becomes ươ).
+                (BaseVowel::U, BaseVowel::OHorn) => self.apply_vowel_shape(0, Shape::Horn),
+
+                _ => TransformResult::NotApplicable,
+            },
+
+            Shape::Circumflex => match (*self.nucleus[0].value(), *self.nucleus[1].value()) {
+                // uo, uơ -> uô (Circumflex on index 1).
+                (BaseVowel::U, BaseVowel::O | BaseVowel::OHorn) => {
+                    self.apply_vowel_shape(1, Shape::Circumflex)
+                }
+
+                // uô -> uo (revert).
+                (BaseVowel::U, BaseVowel::OCircumflex) => {
+                    self.nucleus[1].set_value(BaseVowel::O);
+                    TransformResult::Reverted
+                }
+
+                // ươ, ưo -> uô: drop the Horn on `ư`, then Circumflex the `o`.
+                (BaseVowel::UHorn, BaseVowel::OHorn | BaseVowel::O) => {
+                    let prev_u = *self.nucleus[0].value();
+                    self.nucleus[0].set_value(BaseVowel::U);
+
+                    match self.apply_vowel_shape(1, Shape::Circumflex) {
+                        TransformResult::NotApplicable => {
+                            self.nucleus[0].set_value(prev_u);
+                            TransformResult::NotApplicable
+                        }
+                        effect => effect,
+                    }
+                }
+
+                _ => TransformResult::NotApplicable,
+            },
 
             _ => TransformResult::NotApplicable,
         }
@@ -883,8 +890,8 @@ impl BuildingSyllableBuilder {
     ) -> TransformResult {
         // Scan vowels up to the cursor.
         let max_len = match vowel_upper_bound_idx {
-            Some(idx) => idx.min(self.vowels.len()),
-            None => self.vowels.len(),
+            Some(idx) => idx.min(self.nucleus.len()),
+            None => self.nucleus.len(),
         };
 
         // No vowel before the cursor -> nothing to transform.
@@ -892,22 +899,20 @@ impl BuildingSyllableBuilder {
             return TransformResult::NotApplicable;
         }
         // Special "uo" case (uow -> ươ, uoo -> uô) when the cursor is after the `u`.
-        else if self.vowels_starts_with_uo() {
-            if let Some(shape) = keymap
+        else if self.nucleus_starts_with_uo() {
+            let Some(shape) = keymap
                 .decode_shape(key, RootVowel::O)
                 .or_else(|| keymap.decode_shape(key, RootVowel::U))
-            {
-                match shape {
-                    Shape::Horn => return self.apply_uo_horn(),
-                    Shape::Circumflex => return self.apply_uo_circumflex(),
-                    _ => {}
-                }
-            }
+            else {
+                return TransformResult::NotApplicable;
+            };
+
+            return self.apply_uo_shape(shape);
         }
 
         // Scan backwards through the vowels before the cursor.
         for index in (0..max_len).rev() {
-            let base = *self.vowels[index].value();
+            let base = *self.nucleus[index].value();
 
             if let Some(shape) = keymap.decode_shape(key, base.root()) {
                 let effect = self.apply_vowel_shape(index, shape);
@@ -922,7 +927,7 @@ impl BuildingSyllableBuilder {
 
     #[inline]
     fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformResult {
-        if !self.onset.is_empty() && keymap.is_stroke_key(key) {
+        if keymap.is_stroke_key(key) {
             return self.toggle_d_stroke();
         }
         TransformResult::NotApplicable
@@ -935,18 +940,16 @@ impl BuildingSyllableBuilder {
         key: char,
         vowel_upper_bound_idx: Option<usize>,
     ) -> TransformResult {
-        if !self.vowels.is_empty() {
-            // 1. Tone.
-            if keymap.is_tone_key(key) {
-                if let Some(tone) = keymap.decode_tone(key) {
-                    return self.apply_tone(tone);
-                }
+        // 1. Tone.
+        if keymap.is_tone_key(key) {
+            if let Some(tone) = keymap.decode_tone(key) {
+                return self.apply_tone(tone);
             }
+        }
 
-            // 2. Vowel diacritic (shape: hat, hook, crescent).
-            if keymap.is_shape_key(key) {
-                return self.try_transform_shape(keymap, key, vowel_upper_bound_idx);
-            }
+        // 2. Vowel diacritic (shape: hat, hook, crescent).
+        if keymap.is_shape_key(key) {
+            return self.try_transform_shape(keymap, key, vowel_upper_bound_idx);
         }
 
         // 3. D-stroke.

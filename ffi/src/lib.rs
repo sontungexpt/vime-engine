@@ -1,3 +1,6 @@
+use std::ptr;
+
+use vime_engine::phonology::rules::TonePlacement;
 use vime_engine::{Config, DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;
@@ -16,7 +19,7 @@ pub extern "C" fn vime_create() -> *mut VimeEngineHandle {
 }
 
 /// Creates an engine for any built-in input method with the given
-/// tone-placement scheme.
+/// tone-placement scheme. Returns NULL for an unknown input method.
 #[no_mangle]
 pub extern "C" fn vime_create_with(
     method: VimeInputMethod,
@@ -38,6 +41,8 @@ pub extern "C" fn vime_create_with(
             DefaultKeymap::viqr(),
             tone_placement.into(),
         ),
+        #[allow(unreachable_patterns)]
+        _ => return ptr::null_mut(),
     };
     VimeEngineHandle::new(engine).into_raw()
 }
@@ -100,10 +105,12 @@ pub unsafe extern "C" fn vime_set_input_method(
         return VimeOutput::default();
     };
 
+    #[allow(unreachable_patterns)]
     match method {
         VimeInputMethod::Telex => engine.engine.set_keymap(DefaultKeymap::telex()),
         VimeInputMethod::Vni => engine.engine.set_keymap(DefaultKeymap::vni()),
         VimeInputMethod::Viqr => engine.engine.set_keymap(DefaultKeymap::viqr()),
+        _ => return VimeOutput::default(),
     }
 
     // `set_keymap` resets the buffer; surface the resulting (empty) preedit.
@@ -121,6 +128,13 @@ pub unsafe extern "C" fn vime_set_tone_placement(
         return VimeOutput::default();
     };
 
-    engine.engine.set_tone_placement(tone_placement.into());
+    #[allow(unreachable_patterns)]
+    let tone_placement = match tone_placement {
+        VimeTonePlacement::Modern => TonePlacement::Modern,
+        VimeTonePlacement::Old => TonePlacement::Old,
+        _ => return VimeOutput::default(),
+    };
+
+    engine.engine.set_tone_placement(tone_placement);
     engine.output(vime_engine::Result::Changed)
 }

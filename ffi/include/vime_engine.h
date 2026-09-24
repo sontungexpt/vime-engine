@@ -68,6 +68,19 @@ typedef enum VimeKey {
 /* Structures                                                                */
 /* ========================================================================= */
 
+/**
+ * Modifier-state bits for `VimeKeyEvent::states`. Values match the engine's
+ * internal KeyStates bitmask; frontends must translate native modifiers.
+ */
+#define VIME_KEY_STATE_CTRL      (1u << 0)
+#define VIME_KEY_STATE_ALT       (1u << 1)
+#define VIME_KEY_STATE_SHIFT     (1u << 2)
+#define VIME_KEY_STATE_SUPER     (1u << 3)
+#define VIME_KEY_STATE_CAPS_LOCK (1u << 4)
+#define VIME_KEY_STATE_NUM_LOCK  (1u << 5)
+#define VIME_KEY_STATE_HYPER     (1u << 6)
+#define VIME_KEY_STATE_META      (1u << 7)
+
 typedef struct VimeKeyEvent {
     VimeKey key;
     uint32_t character;

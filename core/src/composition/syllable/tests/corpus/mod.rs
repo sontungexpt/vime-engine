@@ -83,8 +83,8 @@ pub mod prelude {
     //! One-line import for the behaviour modules: cases, macros, the shared
     //! `ExpectedSyllable` / `C` / `V` and the phonology types.
 
-    pub(crate) use super::{alive_case, case, dead_case, Case};
     pub(crate) use super::super::common::{ExpectedSyllable, C, V};
+    pub(crate) use super::{alive_case, case, dead_case, Case};
     pub(crate) use crate::phonology::{Coda, Onset, Tone};
 }
 
@@ -148,16 +148,18 @@ pub(crate) use dead_case;
 // Runners
 // ─────────────────────────────────────────────────────────────────────────────
 
-use crate::composition::syllable::building::BuildingSyllableBuilder;
+use crate::composition::syllable::building::BuildingSyllable;
 use crate::keymap::Keymap;
 
 /// Pushes every character in order, requiring each `push` to be accepted, and
 /// hands back the resulting builder.
-fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<BuildingSyllableBuilder, String> {
-    let mut builder = BuildingSyllableBuilder::default();
+fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<BuildingSyllable, String> {
+    let mut builder = BuildingSyllable::default();
 
     for &ch in input {
-        builder.push(keymap, ch).map_err(|e| format!("input={input:?}: push({ch:?}) unexpectedly failed: {e:?}"))?;
+        builder
+            .push(keymap, ch)
+            .map_err(|e| format!("input={input:?}: push({ch:?}) unexpectedly failed: {e:?}"))?;
     }
 
     Ok(builder)
@@ -165,19 +167,29 @@ fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<BuildingSyllableB
 
 /// Pushes every character in order, then checks the final syllable against
 /// `expected`.
-fn run_expect<KM: Keymap>(input: &[char], expected: &ExpectedSyllable, keymap: &KM) -> Result<(), String> {
+fn run_expect<KM: Keymap>(
+    input: &[char],
+    expected: &ExpectedSyllable,
+    keymap: &KM,
+) -> Result<(), String> {
     let builder = push_all(keymap, input)?;
     check_syllable_eq(&builder, expected, input)
 }
 
 /// Pushes every character in order, then requires the builder to be dead: some
 /// `push` returns `Err`, and afterwards it must have rolled back to `expected`.
-fn run_dead<KM: Keymap>(input: &[char], expected: &ExpectedSyllable, keymap: &KM) -> Result<(), String> {
-    let mut builder = BuildingSyllableBuilder::default();
+fn run_dead<KM: Keymap>(
+    input: &[char],
+    expected: &ExpectedSyllable,
+    keymap: &KM,
+) -> Result<(), String> {
+    let mut builder = BuildingSyllable::default();
 
     let failed = input.iter().any(|&ch| builder.push(keymap, ch).is_err());
     if !failed {
-        return Err(format!("input={input:?}: expected a push to fail, but all were accepted",));
+        return Err(format!(
+            "input={input:?}: expected a push to fail, but all were accepted",
+        ));
     }
 
     check_syllable_eq(&builder, expected, input)
@@ -209,7 +221,11 @@ pub struct Corpus<'a, KM: Keymap> {
 impl<'a, KM: Keymap> Corpus<'a, KM> {
     /// Starts a sweep over `keymap` with an empty failure list.
     pub fn new(keymap: &'a KM) -> Self {
-        Self { keymap, cases: 0, failures: Vec::new() }
+        Self {
+            keymap,
+            cases: 0,
+            failures: Vec::new(),
+        }
     }
 
     /// Sweeps an additional corpus slice, collecting any failures.
@@ -227,7 +243,11 @@ impl<'a, KM: Keymap> Corpus<'a, KM> {
     /// ran when the sweep is clean.
     pub fn finish(self, label: &str) -> usize {
         if !self.failures.is_empty() {
-            panic!("{label}: {} failing case(s):\n\n{}", self.failures.len(), self.failures.join("\n\n"),);
+            panic!(
+                "{label}: {} failing case(s):\n\n{}",
+                self.failures.len(),
+                self.failures.join("\n\n"),
+            );
         }
         self.cases
     }

@@ -11,7 +11,7 @@
 //! report every mismatch through [`check_syllable_eq`], so a failure prints
 //! the expected and actual onset / vowels / tone / coda side by side.
 
-use crate::composition::syllable::building::BuildingSyllableBuilder;
+use crate::composition::syllable::building::BuildingSyllable;
 use crate::phonology::{BaseVowel, CasedBaseVowel, Coda, Onset, Tone};
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
@@ -82,7 +82,12 @@ impl ExpectedSyllable {
     }
 
     /// An onset followed by a vowel nucleus, no coda.
-    pub const fn onset_vowel(onset_kind: Onset, onset: &'static [char], vowels: &'static [(BaseVowel, VowelCase)], tone: Tone) -> Self {
+    pub const fn onset_vowel(
+        onset_kind: Onset,
+        onset: &'static [char],
+        vowels: &'static [(BaseVowel, VowelCase)],
+        tone: Tone,
+    ) -> Self {
         Self {
             onset_kind,
             onset,
@@ -94,7 +99,12 @@ impl ExpectedSyllable {
     }
 
     /// A vowel nucleus followed by a coda, no onset.
-    pub const fn vowel_coda(vowels: &'static [(BaseVowel, VowelCase)], tone: Tone, coda_kind: Coda, coda: &'static [char]) -> Self {
+    pub const fn vowel_coda(
+        vowels: &'static [(BaseVowel, VowelCase)],
+        tone: Tone,
+        coda_kind: Coda,
+        coda: &'static [char],
+    ) -> Self {
         Self {
             onset_kind: Onset::None,
             onset: &[],
@@ -106,7 +116,14 @@ impl ExpectedSyllable {
     }
 
     /// The full picture: onset, vowel nucleus and coda.
-    pub const fn full(onset_kind: Onset, onset: &'static [char], vowels: &'static [(BaseVowel, VowelCase)], tone: Tone, coda_kind: Coda, coda: &'static [char]) -> Self {
+    pub const fn full(
+        onset_kind: Onset,
+        onset: &'static [char],
+        vowels: &'static [(BaseVowel, VowelCase)],
+        tone: Tone,
+        coda_kind: Coda,
+        coda: &'static [char],
+    ) -> Self {
         Self {
             onset_kind,
             onset,
@@ -123,18 +140,42 @@ impl ExpectedSyllable {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Renders a syllable as `{ onset, vowels, tone, coda }` for diagnostics.
-fn describe(onset_kind: Onset, onset: &[char], vowels: &[(BaseVowel, VowelCase)], tone: Tone, coda_kind: Coda, coda: &[char]) -> String {
+fn describe(
+    onset_kind: Onset,
+    onset: &[char],
+    vowels: &[(BaseVowel, VowelCase)],
+    tone: Tone,
+    coda_kind: Coda,
+    coda: &[char],
+) -> String {
     format!("{{ onset: {onset_kind:?} {onset:?}, vowels: {vowels:?}, tone: {tone:?}, coda: {coda_kind:?} {coda:?} }}")
 }
 
 /// Compares every field of the builder's syllable against `expected`, building
 /// the diagnostic string only when they differ.
-pub fn check_syllable_eq(builder: &BuildingSyllableBuilder, expected: &ExpectedSyllable, input: &[char]) -> Result<(), String> {
-    let vowel_pair = |v: &CasedBaseVowel| (*v.value(), if v.is_upper() { VowelCase::Upper } else { VowelCase::Lower });
+pub fn check_syllable_eq(
+    builder: &BuildingSyllable,
+    expected: &ExpectedSyllable,
+    input: &[char],
+) -> Result<(), String> {
+    let vowel_pair = |v: &CasedBaseVowel| {
+        (
+            *v.value(),
+            if v.is_upper() {
+                VowelCase::Upper
+            } else {
+                VowelCase::Lower
+            },
+        )
+    };
 
     let matches = builder.onset_kind() == expected.onset_kind
         && builder.onset() == expected.onset
-        && builder.vowels().iter().map(vowel_pair).eq(expected.vowels.iter().copied())
+        && builder
+            .vowels()
+            .iter()
+            .map(vowel_pair)
+            .eq(expected.vowels.iter().copied())
         && builder.tone() == expected.tone
         && builder.coda_kind() == expected.coda_kind
         && builder.coda() == expected.coda;
@@ -146,7 +187,21 @@ pub fn check_syllable_eq(builder: &BuildingSyllableBuilder, expected: &ExpectedS
     let actual_vowels = builder.vowels().iter().map(vowel_pair).collect::<Vec<_>>();
     Err(format!(
         "input={input:?}\n  expected: {}\n  actual:   {}",
-        describe(expected.onset_kind, expected.onset, expected.vowels, expected.tone, expected.coda_kind, expected.coda,),
-        describe(builder.onset_kind(), builder.onset(), &actual_vowels, builder.tone(), builder.coda_kind(), builder.coda(),),
+        describe(
+            expected.onset_kind,
+            expected.onset,
+            expected.vowels,
+            expected.tone,
+            expected.coda_kind,
+            expected.coda,
+        ),
+        describe(
+            builder.onset_kind(),
+            builder.onset(),
+            &actual_vowels,
+            builder.tone(),
+            builder.coda_kind(),
+            builder.coda(),
+        ),
     ))
 }

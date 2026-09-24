@@ -30,12 +30,12 @@ impl TokenState {
 /// is replaced by this buffer: no further parsing happens and every following
 /// character is recorded verbatim, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeadSyllableBuilder {
+pub struct DeadSyllable {
     chars: Vec<TokenState>,
     rejected_count: usize,
 }
 
-impl DeadSyllableBuilder {
+impl DeadSyllable {
     pub fn from_accepted(valid_chars: impl IntoIterator<Item = char>) -> Self {
         let iter = valid_chars.into_iter();
         let (lower, _) = iter.size_hint();

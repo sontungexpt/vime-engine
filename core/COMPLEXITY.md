@@ -44,8 +44,7 @@ Legend: `V` = vowels.len() (≤ 3), `P` = onset.len() (≤ 3), `C` = coda.len()
 | `toggle_d_stroke` | O(1) | indexes `onset[0]` |
 | `vowels_starts_with_uo` | O(1) | peeks 2 vowels |
 | `apply_vowel_shape` | O(1) | one index write + `validate_vowels` |
-| `apply_uo_horn` | O(1) | one `apply_vowel_shape` or two writes |
-| `apply_uo_circumflex` | O(1) | same |
+| `apply_uo_shape` | O(1) | one `apply_vowel_shape` or two writes (unified Horn/Circumflex) |
 | `try_transform_shape` | O(V·S), V ≤ 3 | loops `(0..V).rev()`; each iteration calls `keymap.decode_shape`, which linearly scans the shape rules (`S` = # shape rules, small fixed table for the built-in keymaps). Effectively constant |
 | `try_toggle_d_stroke` | O(1) | `keymap.is_stroke_key` on a small fixed list |
 | `try_transform` | O(T + S), small | tone-table scan + shape-table scan on tiny rule slices |

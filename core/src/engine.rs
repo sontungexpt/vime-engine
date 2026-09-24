@@ -54,17 +54,11 @@ impl<KM: Keymap> Engine<KM> {
 
     // --------------------------------------------------------------- state
 
-    /// Resets the engine's composition to its initial empty state.
-    pub fn reset(&mut self) -> Result {
-        self.composition.reset();
-        Result::Changed
-    }
-
     /// Renders the current buffer as Vietnamese text, or as the raw characters
     /// when the composition can no longer form a valid syllable.
     #[inline]
     pub fn rendered(&self) -> String {
-        self.composition.syllable().to_chars().iter().collect()
+        self.composition.rendered()
     }
 
     // ------------------------------------------------------------ key event
@@ -87,6 +81,12 @@ impl<KM: Keymap> Engine<KM> {
             Key::Space => self.commit_with_suffix(SUFFIX_SPACE),
             Key::Enter | Key::Tab | Key::Escape => self.commit(),
         }
+    }
+
+    /// Resets the engine's composition to its initial empty state.
+    pub fn reset(&mut self) -> Result {
+        self.composition.reset();
+        Result::Changed
     }
 
     /// Commits the current buffer and returns the resulting text.
@@ -116,7 +116,7 @@ impl<KM: Keymap> Engine<KM> {
 
     #[inline]
     fn backspace(&mut self) -> Result {
-        if self.composition.cursor() == 0 {
+        if self.composition.is_empty() {
             return Result::Forward;
         }
 

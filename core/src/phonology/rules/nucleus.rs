@@ -12,6 +12,10 @@ pub enum NucleusState {
 }
 
 impl NucleusState {
+    pub fn is_dead(self) -> bool {
+        matches!(self, Self::Dead)
+    }
+
     pub fn check(vowels: &[BaseVowel]) -> Self {
         use BaseVowel::*;
         use NucleusState::*;

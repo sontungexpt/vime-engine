@@ -71,19 +71,14 @@ impl<KM: Keymap> Composition<KM> {
 
     /// The number of buffered characters (from the raw input buffer).
     #[inline(always)]
-    pub const fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.raw.len()
     }
 
-    /// The current 0-based cursor position within the raw input buffer.
+    /// The current 0-based caret position within the raw input buffer.
     #[inline(always)]
-    pub const fn cursor(&self) -> usize {
+    pub(crate) const fn cursor(&self) -> usize {
         self.raw_cursor.get()
-    }
-
-    #[inline(always)]
-    pub const fn syllable(&self) -> &SyllableBuilder<KM> {
-        &self.syllable
     }
 
     // ------------------------------------------------------------ cursor move
@@ -141,6 +136,7 @@ impl<KM: Keymap> Composition<KM> {
 
     // -------------------------------------------------------------- rendering
 
+    #[inline]
     pub fn rendered(&self) -> String {
         self.syllable.to_chars().iter().collect()
     }

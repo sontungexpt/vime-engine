@@ -48,7 +48,7 @@ fn run_edit(workload: &[&str], keymap: &DefaultKeymap) {
             black_box(composition.insert(ch));
         }
 
-        let len = composition.syllable().len();
+        let len = word.chars().count();
         for pos in 0..=len {
             for _ in 0..=len {
                 composition.move_left();

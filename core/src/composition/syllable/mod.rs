@@ -7,8 +7,8 @@ use crate::{
     phonology::{rules::TonePlacement, CasedBaseVowel, Coda, Onset},
 };
 
-pub use building::BuildingSyllableBuilder;
-pub use dead::DeadSyllableBuilder;
+pub use building::BuildingSyllable;
+pub use dead::DeadSyllable;
 pub use input_effect::InputEffect;
 
 #[cfg(test)]
@@ -17,10 +17,10 @@ mod tests;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SyllableState {
     /// Parsing phase: accumulating and validating Vietnamese syllable components.
-    Building(BuildingSyllableBuilder),
+    Building(BuildingSyllable),
 
     /// Dead phase: parsing failed; remaining input is collected verbatim.
-    Dead(DeadSyllableBuilder),
+    Dead(DeadSyllable),
 }
 
 /// Incremental Vietnamese syllable buffer with a two-phase lifecycle:
@@ -43,7 +43,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         Self {
             keymap,
             tone_placement,
-            state: SyllableState::Building(BuildingSyllableBuilder::default()),
+            state: SyllableState::Building(BuildingSyllable::default()),
         }
     }
 
@@ -90,6 +90,11 @@ impl<KM: Keymap> SyllableBuilder<KM> {
             SyllableState::Building(builder) => builder.len(),
             SyllableState::Dead(builder) => builder.len(),
         }
+    }
+
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     // ----------------------------------------------------------- part access
@@ -145,7 +150,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     /// `tone_placement`.
     #[inline]
     pub fn reset(&mut self) {
-        self.state = SyllableState::Building(BuildingSyllableBuilder::default());
+        self.state = SyllableState::Building(BuildingSyllable::default());
     }
 
     /// Renders the syllable as Vietnamese characters, either precomposed
@@ -174,7 +179,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
                 Ok(effect) => effect,
                 Err(_err) => {
                     let chars = builder.to_chars(self.tone_placement);
-                    let mut dead = DeadSyllableBuilder::from_accepted(chars);
+                    let mut dead = DeadSyllable::from_accepted(chars);
                     dead.push(input);
                     self.state = SyllableState::Dead(dead);
                     InputEffect::StructurallyChanged
@@ -196,7 +201,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
                 Ok(effect) => effect,
                 Err(_err) => {
                     let chars = builder.to_chars(self.tone_placement);
-                    let mut dead = DeadSyllableBuilder::from_accepted(chars);
+                    let mut dead = DeadSyllable::from_accepted(chars);
                     dead.insert(index, input);
                     self.state = SyllableState::Dead(dead);
                     InputEffect::StructurallyChanged
