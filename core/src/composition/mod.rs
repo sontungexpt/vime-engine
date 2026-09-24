@@ -6,7 +6,7 @@ pub use cursor::Cursor;
 use crate::{
     composition::syllable::{InputEffect, SyllableBuilder},
     keymap::Keymap,
-    phonology::rules::TonePlacement,
+    phonology::TonePlacement,
 };
 
 /// Incremental syllable parser driven by a [`RuleEngine`].

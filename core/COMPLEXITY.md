@@ -178,12 +178,12 @@ L·S)` worst case. This is a `const fn` — it executes **at compile time**
 | `decode_vowel` | **O(1)** | code-range `match` → the Vietnamese block is a direct LUT index (O(1) array access) |
 | `is_vowel` | **O(1)** | u64 bit-mask + shift/range checks |
 
-## `phonology/rules/nucleus.rs`
+## `phonology/nucleus.rs`
 
 `NucleusState::from_vowels` — **O(1)**. Pattern-matches slices of length ≤3;
 the `_ => Dead` arm catches everything longer. Match cost is constant.
 
-## `phonology/rules/tone_placement.rs`
+## `phonology/tone_placement.rs`
 
 | function | complexity | notes |
 |----------|-----------|-------|

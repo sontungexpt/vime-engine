@@ -2,9 +2,8 @@ use crate::{
     composition::syllable::InputEffect,
     keymap::Keymap,
     phonology::{
-        decode_vowel,
-        rules::{NucleusState, TonePlacement, NUCLEUS_MAX_LEN},
-        BaseVowel, CasedBaseVowel, Coda, Onset, RootVowel, Shape, Tone,
+        decode_vowel, BaseVowel, CasedBaseVowel, Coda, NucleusState, Onset, RootVowel, Shape, Tone,
+        TonePlacement, NUCLEUS_MAX_LEN,
     },
     util::InlineVec,
 };

@@ -1,4 +1,4 @@
-use super::super::vowel::BaseVowel;
+use super::vowel::BaseVowel;
 
 pub const NUCLEUS_MAX_LEN: usize = 3;
 

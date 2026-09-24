@@ -1,6 +1,6 @@
 use std::ptr;
 
-use vime_engine::phonology::rules::TonePlacement;
+use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;

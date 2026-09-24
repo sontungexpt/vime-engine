@@ -4,7 +4,7 @@ mod input_effect;
 
 use crate::{
     keymap::Keymap,
-    phonology::{rules::TonePlacement, CasedBaseVowel, Coda, Onset},
+    phonology::{CasedBaseVowel, Coda, Onset, TonePlacement},
 };
 
 pub use building::BuildingSyllable;

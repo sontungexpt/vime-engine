@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::rules::NucleusState;
+use vime_engine::phonology::NucleusState;
 use vime_engine::phonology::BaseVowel;
 
 /// One probe row: a slice view over a fixed 3-vowel buffer.

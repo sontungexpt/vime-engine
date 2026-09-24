@@ -1,7 +1,7 @@
 use std::ffi::{c_char, CString};
 use std::ptr;
 
-use vime_engine::phonology::rules::TonePlacement;
+use vime_engine::phonology::TonePlacement;
 use vime_engine::{DefaultKeymap, Engine, Result};
 
 #[repr(C)]

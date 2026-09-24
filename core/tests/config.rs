@@ -1,6 +1,6 @@
 //! Engine construction: tone-placement init and live updates.
 
-use vime_engine::phonology::rules::TonePlacement;
+use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, Engine, Key, KeyEvent, KeyStates};
 
 fn type_str(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, s: &str) -> String {

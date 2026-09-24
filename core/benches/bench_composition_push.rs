@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use vime_engine::composition::syllable::SyllableBuilder;
 use vime_engine::composition::Composition;
-use vime_engine::phonology::rules::TonePlacement;
+use vime_engine::phonology::TonePlacement;
 use vime_engine::DefaultKeymap;
 
 fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {

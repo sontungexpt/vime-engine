@@ -1,5 +1,5 @@
 //! Integration tests for the Vietnamese spelling validator
-//! (`PhonotacticValidator` in `core/src/phonology/rules/phonotactics.rs`).
+//! (`PhonotacticValidator` in `core/src/phonology/phonotactics.rs`).
 //!
 //! Each rule is exercised both positively (real Vietnamese syllables —
 //! segmented onset / vowel nucleus / coda / tone) and negatively (typos that
@@ -12,7 +12,7 @@
 //! 4. Palatal codas `ch/nh` follow only a front vowel or plain `a`.
 //! 5. Short vowels `ă/â` need a closing sound, never stand open.
 
-use vime_engine::phonology::rules::{
+use vime_engine::phonology::{
     DefaultPhonotacticValidator, PhonotacticValidator, ValidationError,
 };
 use vime_engine::phonology::{BaseVowel, Coda, Onset, Tone};

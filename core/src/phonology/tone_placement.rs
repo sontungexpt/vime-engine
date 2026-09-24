@@ -1,4 +1,4 @@
-use super::super::{BaseVowel, CasedBaseVowel};
+use super::{BaseVowel, CasedBaseVowel};
 
 /// A read-only view over a vowel nucleus.
 pub trait NucleusView {

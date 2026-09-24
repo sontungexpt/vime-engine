@@ -4,7 +4,7 @@ use crate::{
     config::Config,
     event::{Key, KeyEvent},
     keymap::{DefaultKeymap, Keymap},
-    phonology::rules::TonePlacement,
+    phonology::TonePlacement,
     result::Result,
 };
 
