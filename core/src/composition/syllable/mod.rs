@@ -158,7 +158,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     #[inline(always)]
     pub fn to_chars(&self) -> Vec<char> {
         match &self.state {
-            SyllableState::Building(builder) => builder.to_chars(self.tone_placement),
+            SyllableState::Building(builder) => builder.to_chars(self.tone_placement).to_vec(),
             SyllableState::Dead(builder) => builder.to_chars(),
         }
     }
@@ -179,7 +179,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
                 Ok(effect) => effect,
                 Err(_err) => {
                     let chars = builder.to_chars(self.tone_placement);
-                    let mut dead = DeadSyllable::from_accepted(chars);
+                    let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
                     dead.push(input);
                     self.state = SyllableState::Dead(dead);
                     InputEffect::StructurallyChanged
@@ -201,7 +201,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
                 Ok(effect) => effect,
                 Err(_err) => {
                     let chars = builder.to_chars(self.tone_placement);
-                    let mut dead = DeadSyllable::from_accepted(chars);
+                    let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
                     dead.insert(index, input);
                     self.state = SyllableState::Dead(dead);
                     InputEffect::StructurallyChanged
