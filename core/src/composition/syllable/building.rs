@@ -744,7 +744,11 @@ impl BuildingSyllableBuilder {
     /// cannot act here.
     #[inline]
     fn toggle_d_stroke(&mut self) -> TransformResult {
-        debug_assert!(!self.onset.is_empty());
+        debug_assert!(
+            !self.onset.is_empty(),
+            "Onset state desync: onset_kind is {:?}, but onset buffer is empty",
+            self.onset_kind
+        );
         let onset_chars = &mut self.onset;
 
         match self.onset_kind {
@@ -933,8 +937,10 @@ impl BuildingSyllableBuilder {
     ) -> TransformResult {
         if !self.vowels.is_empty() {
             // 1. Tone.
-            if let Some(tone) = keymap.decode_tone(key) {
-                return self.apply_tone(tone);
+            if keymap.is_tone_key(key) {
+                if let Some(tone) = keymap.decode_tone(key) {
+                    return self.apply_tone(tone);
+                }
             }
 
             // 2. Vowel diacritic (shape: hat, hook, crescent).
