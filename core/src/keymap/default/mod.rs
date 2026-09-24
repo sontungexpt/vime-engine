@@ -127,22 +127,35 @@ impl Keymap for DefaultKeymap<'_> {
 
     #[inline(always)]
     fn decode_tone(&self, key: char) -> Option<Tone> {
-        let lower = key.to_ascii_lowercase();
-        self.rules
-            .tones
-            .iter()
-            .find(|map| (map.key as char) == lower)
-            .map(|map| map.tone)
+        let lower = (u8::try_from(key).ok()?).to_ascii_lowercase();
+        let tones = self.rules.tones;
+        let len = tones.len();
+        let mut i = 0;
+
+        while i < len {
+            if tones[i].key == lower {
+                return Some(tones[i].tone);
+            }
+            i += 1;
+        }
+
+        None
     }
 
     #[inline(always)]
     fn decode_shape(&self, key: char, target: RootVowel) -> Option<Shape> {
-        let lower = key.to_ascii_lowercase();
+        let lower = (u8::try_from(key).ok()?).to_ascii_lowercase();
+        let shapes = self.rules.shapes;
+        let len = shapes.len();
+        let mut i = 0;
 
-        self.rules
-            .shapes
-            .iter()
-            .find(|map| (map.key as char) == lower && map.on == target)
-            .map(|map| map.shape)
+        while i < len {
+            if shapes[i].key == lower && shapes[i].on == target {
+                return Some(shapes[i].shape);
+            }
+            i += 1;
+        }
+
+        None
     }
 }

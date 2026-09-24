@@ -78,7 +78,7 @@ impl<KM: Keymap> Composition<KM> {
     /// The current 0-based cursor position within the raw input buffer.
     #[inline(always)]
     pub const fn cursor(&self) -> usize {
-        self.raw_cursor.position()
+        self.raw_cursor.get()
     }
 
     #[inline(always)]
@@ -107,10 +107,10 @@ impl<KM: Keymap> Composition<KM> {
     /// Not implemented yet: anything at or past the end of the syllable simply
     /// falls through to [`Self::append`].
     pub fn insert(&mut self, input: char) {
-        self.raw.insert(self.raw_cursor.position(), input);
+        self.raw.insert(self.raw_cursor.get(), input);
         self.raw_cursor.move_right(self.raw.len());
 
-        match self.syllable.insert(self.syllable_cursor.position(), input) {
+        match self.syllable.insert(self.syllable_cursor.get(), input) {
             InputEffect::StructurallyChanged => {
                 self.syllable_cursor.move_right(self.syllable.len());
             }
@@ -121,10 +121,10 @@ impl<KM: Keymap> Composition<KM> {
     #[inline]
     pub fn backspace(&mut self) {
         self.raw_cursor.move_left();
-        self.raw.remove(self.raw_cursor.position());
+        self.raw.remove(self.raw_cursor.get());
 
         self.syllable_cursor.move_left();
-        match self.syllable.remove(self.syllable_cursor.position()) {
+        match self.syllable.remove(self.syllable_cursor.get()) {
             InputEffect::StructurallyChanged => {}
             InputEffect::Transformed => {}
         }
@@ -132,8 +132,8 @@ impl<KM: Keymap> Composition<KM> {
 
     #[inline]
     pub fn delete(&mut self) {
-        self.raw.remove(self.raw_cursor.position());
-        match self.syllable.remove(self.syllable_cursor.position()) {
+        self.raw.remove(self.raw_cursor.get());
+        match self.syllable.remove(self.syllable_cursor.get()) {
             InputEffect::StructurallyChanged => {}
             InputEffect::Transformed => {}
         }
