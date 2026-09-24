@@ -106,3 +106,20 @@ impl<'a> Rules<'a> {
         }
     }
 }
+
+/// Local declarative macro for constructing [`Rules`] within `keymap::default`.
+macro_rules! rules {
+    (
+        tones: [ $( $tone:expr ),* $(,)? ],
+        shapes: [ $( $shape:expr ),* $(,)? ],
+        strokes: [ $( $stroke:expr ),* $(,)? ] $(,)?
+    ) => {
+        $crate::keymap::default::Rules::new(
+            &[ $( $tone ),* ],
+            &[ $( $shape ),* ],
+            &[ $( $stroke ),* ],
+        )
+    };
+}
+
+pub(super) use rules;

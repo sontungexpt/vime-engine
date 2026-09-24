@@ -1,10 +1,10 @@
-use super::{Rules, ShapeRule, ToneRule};
+use super::{config::rules, Rules, ShapeRule, ToneRule};
 use crate::phonology::{RootVowel, Shape, Tone};
 
 /// VNI layout: shapes on `6` (circumflex), `7` (breve/horn), `8` (horn),
 /// `9` (stroke); tones on `1-5` and `0`.
-pub(crate) const CONFIG: &Rules = &Rules::new(
-    &[
+pub(crate) const CONFIG: &Rules = &rules! {
+    tones: [
         ToneRule {
             key: b'1',
             tone: Tone::Acute,
@@ -30,7 +30,7 @@ pub(crate) const CONFIG: &Rules = &Rules::new(
             tone: Tone::Flat,
         },
     ],
-    &[
+    shapes: [
         ShapeRule {
             key: b'6',
             on: RootVowel::A,
@@ -62,5 +62,5 @@ pub(crate) const CONFIG: &Rules = &Rules::new(
             shape: Shape::Horn,
         },
     ],
-    &[b'9'],
-);
+    strokes: [b'9'],
+};

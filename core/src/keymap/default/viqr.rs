@@ -1,10 +1,10 @@
-use super::{Rules, ShapeRule, ToneRule};
+use super::{config::rules, Rules, ShapeRule, ToneRule};
 use crate::phonology::{RootVowel, Shape, Tone};
 
-/// VIQr layout: shapes on `^` (circumflex), `(` (breve), `+` (horn), `d`
+/// VIQR layout: shapes on `^` (circumflex), `(` (breve), `+` (horn), `d`
 /// (stroke); tones on `` ` `` `?` `~` `'` `.` and `z`.
-pub(crate) const CONFIG: &Rules = &Rules::new(
-    &[
+pub(crate) const CONFIG: &Rules = &rules! {
+    tones: [
         ToneRule {
             key: b'`',
             tone: Tone::Grave,
@@ -30,7 +30,7 @@ pub(crate) const CONFIG: &Rules = &Rules::new(
             tone: Tone::Flat,
         },
     ],
-    &[
+    shapes: [
         ShapeRule {
             key: b'^',
             on: RootVowel::A,
@@ -62,5 +62,5 @@ pub(crate) const CONFIG: &Rules = &Rules::new(
             shape: Shape::Horn,
         },
     ],
-    &[b'd'],
-);
+    strokes: [b'd'],
+};
