@@ -160,7 +160,7 @@ fn accepts_common_syllables() {
     ok(Onset::Th, &[U, ECircumflex], Coda::None, Tone::Flat); // thuê
     ok(Onset::X, &[O, A, Y], Coda::None, Tone::Flat); // xoay
     ok(Onset::N, &[U, OCircumflex, I], Coda::None, Tone::Flat); // nuôi
-    ok(Onset::T, &[U, Y, ECircumflex], Coda::N, Tone::Dot); // tuyện
+    ok(Onset::T, &[U, Y, ECircumflex], Coda::T, Tone::Dot); // tuyệt
 }
 
 // ──────────────────────────────────────────────── rule 1: k/gh/ngh (front-only)
