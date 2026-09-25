@@ -3,17 +3,20 @@ use super::vowel::BaseVowel;
 pub const NUCLEUS_MAX_LEN: usize = 3;
 
 /// Whether a vowel nucleus is a known Vietnamese sequence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NucleusState {
     /// The sequence can never form a valid Vietnamese nucleus.
     Dead,
     /// The sequence is a complete, valid nucleus.
     Valid,
+
     /// The sequence is not yet complete but may become valid.
+    #[default]
     InComplete,
 }
 
 impl NucleusState {
+    #[inline(always)]
     pub fn is_dead(self) -> bool {
         matches!(self, Self::Dead)
     }

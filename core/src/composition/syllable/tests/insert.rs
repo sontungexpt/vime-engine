@@ -256,6 +256,137 @@ const CASES: &[InsertCase] = &[
         InvalidOnset,
         ExpectedSyllable::onset_vowel(Onset::D, &['d'], &[(V::A, C::Lower)], Tone::Flat)
     ),
+    // ─────────────────── `g i` promotion through insert ───────────────────
+    // `gin` + insert `a` at the vowel boundary must yield `gian`: the `i`
+    // moves into the onset (`gi`), and the incoming `a` becomes the new
+    // nucleus. Regression guard against dropping the incoming vowel (`giin`).
+    ok_case!(
+        &['g', 'i', 'n'],
+        2,
+        'a',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::Gi,
+            &['g', 'i'],
+            &[(V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // Appending at the end also promotes `i`: `gi` + `a@2` → `gia`.
+    ok_case!(
+        &['g', 'i'],
+        2,
+        'a',
+        StructurallyChanged,
+        ExpectedSyllable::onset_vowel(Onset::Gi, &['g', 'i'], &[(V::A, C::Lower)], Tone::Flat)
+    ),
+    // Without a following vowel, `i` stays a plain nucleus vowel: `gi` + `n@2`
+    // → `gin` (onset `g` only).
+    ok_case!(
+        &['g', 'i'],
+        2,
+        'n',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::G,
+            &['g'],
+            &[(V::I, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // ─────────────────────── uơ/ươ entered through w ───────────────────────
+    // `uo` + `w` folds to `uơ`; `uơ` + `w` reaches `ươ`. Both arrive via the
+    // append-delegation to `push`, but through the insert cursor.
+    ok_case!(
+        &['u', 'o'],
+        2,
+        'w',
+        Transformed,
+        ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)
+    ),
+    ok_case!(
+        &['u', 'ơ'],
+        2,
+        'w',
+        Transformed,
+        ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)
+    ),
+    // ────────────────────── Mid-nucleus insert near a coda ──────────────────────
+    // Appending a vowel just before the coda lands after the existing vowels:
+    // `oan` + `i@2` → `oain`.
+    ok_case!(
+        &['o', 'a', 'n'],
+        2,
+        'i',
+        StructurallyChanged,
+        ExpectedSyllable::vowel_coda(
+            &[(V::O, C::Lower), (V::A, C::Lower), (V::I, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // A dead middle insert (`oia`) rolls the nucleus back: `oan` + `i@1` keeps
+    // `oan`, but the insertion is still reported as an error.
+    err_case!(
+        &['o', 'a', 'n'],
+        1,
+        'i',
+        InvalidNucleus,
+        ExpectedSyllable::vowel_coda(
+            &[(V::O, C::Lower), (V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // ...and the existing tone survives the rollback untouched: `oán` + `i@1`.
+    err_case!(
+        &['o', 'a', 'n', 's'],
+        1,
+        'i',
+        InvalidNucleus,
+        ExpectedSyllable::vowel_coda(
+            &[(V::O, C::Lower), (V::A, C::Lower)],
+            Tone::Acute,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // ─────────────────────── Uppercase, d/đ, coda growth ───────────────────────
+    // Uppercase vowel enters the nucleus at the onset boundary: `ta` + `O@1`.
+    ok_case!(
+        &['t', 'a'],
+        1,
+        'O',
+        StructurallyChanged,
+        ExpectedSyllable::onset_vowel(
+            Onset::T,
+            &['t'],
+            &[(V::O, C::Upper), (V::A, C::Lower)],
+            Tone::Flat
+        )
+    ),
+    // The stroke key toggles to `đ` even through an insert: `da` + `d@0`.
+    ok_case!(
+        &['d', 'a'],
+        0,
+        'd',
+        Transformed,
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::A, C::Lower)], Tone::Flat)
+    ),
+    // Coda growth through append: `ac` + `h@2` → `ach`.
+    ok_case!(
+        &['a', 'c'],
+        2,
+        'h',
+        StructurallyChanged,
+        ExpectedSyllable::vowel_coda(&[(V::A, C::Lower)], Tone::Flat, Coda::Ch, &['c', 'h'])
+    ),
 ];
 
 fn run_case(keymap: &DefaultKeymap, case: &InsertCase) -> Result<(), String> {
@@ -305,7 +436,7 @@ fn insert_cases() {
     }
 
     assert!(
-        CASES.len() >= 21,
+        CASES.len() >= 32,
         "expected the insert corpus to stay sizable; got {}",
         CASES.len()
     );

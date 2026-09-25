@@ -8,7 +8,7 @@ Time-complexity analysis of each function in `core/src`, as of HEAD.
 > | component | capacity |
 > |-----------|----------|
 > | onset     | `Onset::MAX_CHARS = 3` (`InlineVec<char, 3>`) |
-> | vowels    | `3` (`InlineVec<CasedBaseVowel, 3>`) |
+> | vowels    | `3` (`InlineVec<ExtendedBaseVowel, 3>`) |
 > | coda      | `Coda::MAX_CHARS = 2` (`InlineVec<char, 2>`) |
 >
 > So a building syllable holds **at most 8 chars** and every operation on it is
@@ -173,7 +173,7 @@ L·S)` worst case. This is a `const fn` — it executes **at compile time**
 | `Shape::is_some` | O(1) | |
 | `Tone::from_id`, `Tone::is_some` | O(1) | range check + transmute |
 | `BaseVowel::id`, `from_id`, `from_parts`, `from_root`, `shape`, `has_shape`, `is_shaped`, `is_plain`, `root`, `replace_shape`, `remove_shape` | O(1) | bit masking / small `match` / LUT |
-| `CasedBaseVowel::to_char`, `to_char_tone` | O(1) | → `encode_vowel` |
+| `ExtendedBaseVowel::to_char`, `to_char_tone` | O(1) | → `encode_vowel` |
 | `encode_vowel` | **O(1)** | single LUT index `[(id·6 + tone)·2 + upper]` on a 144-char table |
 | `decode_vowel` | **O(1)** | code-range `match` → the Vietnamese block is a direct LUT index (O(1) array access) |
 | `is_vowel` | **O(1)** | u64 bit-mask + shift/range checks |
@@ -226,7 +226,7 @@ compile-time only.)
 
 ## `phonology/vowel_sequence.rs`
 
-`VowelSequence` impls for `[BaseVowel]` and `ArrayVec<CasedBaseVowel, N>` —
+`VowelSequence` impls for `[BaseVowel]` and `ArrayVec<ExtendedBaseVowel, N>` —
 `len`, `at`: **O(1)**.
 
 ## `renderer/default.rs`
