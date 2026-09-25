@@ -163,6 +163,140 @@ const CASES: &[InsertCase] = &[
         StructurallyChanged,
         ExpectedSyllable::onset_vowel(Onset::T, &['t'], &[(V::A, C::Lower)], Tone::Flat)
     ),
+    // ──────────── Insert at 0 into an empty onset (at == onset.len() == 0) ────────────
+    // With nothing before the cursor the consonant still lands at the head of
+    // the onset, the coda and the tone staying put.
+    ok_case!(
+        &['a', 'n'],
+        0,
+        't',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::T,
+            &['t'],
+            &[(V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    ok_case!(
+        &['a', 'c'],
+        0,
+        't',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::T,
+            &['t'],
+            &[(V::A, C::Lower)],
+            Tone::Flat,
+            Coda::C,
+            &['c']
+        )
+    ),
+    ok_case!(
+        &['a'],
+        0,
+        'h',
+        StructurallyChanged,
+        ExpectedSyllable::onset_vowel(Onset::H, &['h'], &[(V::A, C::Lower)], Tone::Flat)
+    ),
+    ok_case!(
+        &['a', 'n'],
+        0,
+        'g',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::G,
+            &['g'],
+            &[(V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // A full syllable shaped like `oán` gains the onset without losing the tone.
+    ok_case!(
+        &['o', 'a', 'n', 's'],
+        0,
+        't',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::T,
+            &['t'],
+            &[(V::O, C::Lower), (V::A, C::Lower)],
+            Tone::Acute,
+            Coda::N,
+            &['n']
+        )
+    ),
+    ok_case!(
+        &['o', 'a', 'n'],
+        0,
+        'h',
+        StructurallyChanged,
+        ExpectedSyllable::full(
+            Onset::H,
+            &['h'],
+            &[(V::O, C::Lower), (V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
+    ),
+    // Vowel keys fall through the onset boundary into the nucleus head.
+    ok_case!(
+        &['a'],
+        0,
+        'i',
+        StructurallyChanged,
+        ExpectedSyllable::vowel(&[(V::I, C::Lower), (V::A, C::Lower)], Tone::Flat)
+    ),
+    ok_case!(
+        &['a'],
+        0,
+        'o',
+        StructurallyChanged,
+        ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::A, C::Lower)], Tone::Flat)
+    ),
+    // `d` and the uppercase `G` enter the onset verbatim (case preserved).
+    ok_case!(
+        &['a'],
+        0,
+        'd',
+        StructurallyChanged,
+        ExpectedSyllable::onset_vowel(Onset::D, &['d'], &[(V::A, C::Lower)], Tone::Flat)
+    ),
+    ok_case!(
+        &['a'],
+        0,
+        'G',
+        StructurallyChanged,
+        ExpectedSyllable::onset_vowel(Onset::G, &['G'], &[(V::A, C::Lower)], Tone::Flat)
+    ),
+    // Consonants that cannot lead an onset are rejected and leave the base
+    // untouched: `q` needs a following `u`, and `f` is outside the alphabet.
+    err_case!(
+        &['a'],
+        0,
+        'q',
+        InvalidOnset,
+        ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Flat)
+    ),
+    err_case!(
+        &['u'],
+        0,
+        'q',
+        InvalidOnset,
+        ExpectedSyllable::vowel(&[(V::U, C::Lower)], Tone::Flat)
+    ),
+    err_case!(
+        &['a'],
+        0,
+        'f',
+        InvalidOnset,
+        ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Flat)
+    ),
     // ─────────────────────────────── Vowel region ───────────────────────────────
     ok_case!(
         &['o', 'i'],
@@ -436,7 +570,7 @@ fn insert_cases() {
     }
 
     assert!(
-        CASES.len() >= 32,
+        CASES.len() >= 45,
         "expected the insert corpus to stay sizable; got {}",
         CASES.len()
     );

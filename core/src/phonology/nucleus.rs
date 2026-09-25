@@ -26,6 +26,8 @@ impl NucleusState {
         use NucleusState::*;
 
         match vowels {
+            [] => InComplete,
+
             // ─────────────────── Single vowels ───────────────────
             [A] => Valid,           // a
             [ABreve] => Valid,      // ă

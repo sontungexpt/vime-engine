@@ -1,18 +1,15 @@
 //! Deletion path: `BuildingSyllable::remove` and its literal helpers.
 //!
-//! The removal is transactional: if deleting a character would leave the
-//! syllable invalid, the whole edit is rolled back.
+//! Every helper is atomic on its own: it applies one mutation and restores it
+//! if the resulting structure is invalid, so any rejected removal leaves the
+//! syllable unchanged.
 
 use super::*;
-use crate::{
-    composition::syllable::InputEffect,
-    phonology::{NucleusState, TonePlacement},
-};
+use crate::{composition::syllable::InputEffect, phonology::TonePlacement};
 
 impl BuildingSyllable {
     // ─────────────────────────── Remove ───────────────────────────
 
-    // NOTE: UNCHECKED
     #[inline]
     pub fn remove(
         &mut self,
@@ -25,93 +22,131 @@ impl BuildingSyllable {
 
         debug_assert!(index < total_len);
 
-        // Not a hot path; a whole-call transaction is fine.
-        self.transaction(|this| {
-            // ─────────────────────────── Onset ───────────────────────────
+        // ─────────────────────────── Onset ───────────────────────────
 
-            if index < onset_len {
-                if !this.remove_onset(index) {
-                    return Err(SyllableBuildError::InvalidOnset);
+        if index < onset_len {
+            if self.onset_kind == Onset::Gi {
+                if self.remove_gi_onset(index) {
+                    return Ok(InputEffect::StructurallyChanged);
                 }
-
-                // Removing onset may expose `I` and move it into the nucleus.
-                this.normalize_i_placement();
-
-                if this.check_nucleus() == NucleusState::Dead {
-                    return Err(SyllableBuildError::InvalidNucleus);
-                }
-
-                return Ok(InputEffect::StructurallyChanged);
+                return Err(SyllableBuildError::InvalidNucleus);
             }
 
-            // ─────────────────────────── Vowel ───────────────────────────
-
-            let vowel_index = index - onset_len;
-
-            if vowel_index < vowels_len {
-                if !this.remove_vowel(vowel_index, tone_placement) {
-                    return Err(SyllableBuildError::InvalidNucleus);
-                }
-
-                // Removing a vowel may expose `I` from the onset.
-                this.normalize_i_placement();
-
-                if this.check_nucleus() == NucleusState::Dead {
-                    return Err(SyllableBuildError::InvalidNucleus);
-                }
-
-                return Ok(InputEffect::StructurallyChanged);
+            if !self.remove_onset(index) {
+                return Err(SyllableBuildError::InvalidOnset);
             }
 
-            // ─────────────────────────── Coda ───────────────────────────
+            return Ok(InputEffect::StructurallyChanged);
+        }
 
-            let coda_index = vowel_index - vowels_len;
+        // ─────────────────────────── Vowel ───────────────────────────
 
-            if !this.remove_coda(coda_index) {
-                return Err(SyllableBuildError::InvalidCoda);
+        let vowel_index = index - onset_len;
+
+        if vowel_index < vowels_len {
+            if !self.remove_vowel(vowel_index, tone_placement) {
+                return Err(SyllableBuildError::InvalidNucleus);
             }
 
-            Ok(InputEffect::StructurallyChanged)
-        })
+            return Ok(InputEffect::StructurallyChanged);
+        }
+
+        // ─────────────────────────── Coda ───────────────────────────
+
+        let coda_index = vowel_index - vowels_len;
+
+        if !self.remove_coda(coda_index) {
+            return Err(SyllableBuildError::InvalidCoda);
+        }
+
+        Ok(InputEffect::StructurallyChanged)
     }
 
     /// Removes one character from the onset, restoring it if the result is invalid.
-    #[inline(always)]
-    fn remove_onset(&mut self, index: usize) -> bool {
-        debug_assert!(index < self.onset.len());
+    #[inline]
+    fn remove_onset(&mut self, onset_index: usize) -> bool {
+        debug_assert!(onset_index < self.onset.len());
 
-        self.try_update_onset(
-            |onset| onset.remove(index),
-            |onset, removed| {
-                onset.insert(index, removed);
+        // Direct mutation: `try_update_onset` refuses a full cluster, but
+        // removal only ever shrinks, so the grow guard must not apply here.
+        let removed = self.onset.remove(onset_index);
+
+        match Onset::from_chars(&self.onset) {
+            Ok(kind) => {
+                self.onset_kind = kind;
+                true
+            }
+            Err(_) => {
+                self.onset.insert(onset_index, removed);
+                false
+            }
+        }
+    }
+
+    #[inline]
+    fn remove_gi_onset(&mut self, onset_index: usize) -> bool {
+        debug_assert!(onset_index < 2);
+
+        // Remove i
+        if onset_index == 1 {
+            self.onset.pop();
+            self.onset_kind = Onset::G;
+            return true;
+        }
+
+        // remove G -> i becomes vowels
+        let i = self.onset[1];
+        if self.nucleus.len() >= NUCLEUS_MAX_LEN {
+            return false;
+        }
+        if !self.try_update_nucleus(
+            |nucleus| nucleus.insert(0, ExtendedBaseVowel::with_case(BaseVowel::I, i == 'I')),
+            |nucleus, _| {
+                nucleus.remove(0);
             },
-        )
+        ) {
+            return false;
+        }
+
+        self.onset.clear();
+        self.onset_kind = Onset::None;
+
+        true
     }
 
     /// Removes the vowel at `index`, clearing the tone when it targeted that vowel
     /// or the nucleus becomes empty.
-    #[inline(always)]
-    fn remove_vowel(&mut self, index: usize, tone_placement: TonePlacement) -> bool {
-        debug_assert!(index < self.nucleus.len());
+    #[inline]
+    fn remove_vowel(&mut self, vowel_index: usize, tone_placement: TonePlacement) -> bool {
+        let len = self.nucleus.len();
+        debug_assert!(vowel_index < len);
 
-        // Recalculate the tone position after a removal shifts the vowels.
-        let tone_pos = tone_placement.vowel_index(&self.nucleus[..], self.coda.is_empty());
-
-        if tone_pos == Some(index) {
-            self.tone = Tone::Flat;
-        }
-
-        // Do not recompute UO normalization on deletion: `ươo` minus `ơ` leaves an
-        // ambiguous `ưo`, so the remaining literal vowels are preserved.
-
-        if index >= self.nucleus.len() {
+        // Nucleus can not be empty when coda is existed
+        if len == 1 && !self.coda.is_empty() {
             return false;
         }
 
-        self.nucleus.remove(index);
+        // Never exist because if we has at least one vowel i always becomes onset
+        // if len == 2 && self.onset_kind == Onset::G && self.nucleus[0].get() == BaseVowel::I {
+        // }
 
-        // A tone without a vowel has no semantic target.
-        if self.nucleus.is_empty() {
+        let tone_pos = if self.tone.is_some() {
+            self.tone_vowel_index(tone_placement)
+        } else {
+            None
+        };
+
+        if !self.try_update_nucleus(
+            |nucleus| nucleus.remove(vowel_index),
+            |nucleus, old| {
+                nucleus.insert(vowel_index, old);
+            },
+        ) {
+            return false;
+        }
+
+        // Removing the vowel carrying the tone removes the tone as well.
+        if tone_pos == Some(vowel_index) {
             self.tone = Tone::Flat;
         }
 
@@ -119,15 +154,23 @@ impl BuildingSyllable {
     }
 
     /// Removes one char from the coda, restoring it if the result is invalid.
-    #[inline(always)]
+    #[inline]
     fn remove_coda(&mut self, index: usize) -> bool {
         debug_assert!(index < self.coda.len());
 
-        self.try_update_coda(
-            |coda| coda.remove(index),
-            |coda, removed| {
-                coda.insert(index, removed);
-            },
-        )
+        // Direct mutation: `try_update_coda` refuses a full cluster, but
+        // removal only ever shrinks, so the grow guard must not apply here.
+        let removed = self.coda.remove(index);
+
+        match Coda::from_chars(&self.coda) {
+            Ok(kind) => {
+                self.coda_kind = kind;
+                true
+            }
+            Err(_) => {
+                self.coda.insert(index, removed);
+                false
+            }
+        }
     }
 }
