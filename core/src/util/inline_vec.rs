@@ -151,6 +151,32 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     pub fn clear(&mut self) {
         self.len = 0;
     }
+
+    /// Appends every element of `values`; panics when the array is full.
+    ///
+    /// Uses a single raw copy up front instead of repeated `push` calls. Works
+    /// on any `&[T]`, which deref coercion also makes available for
+    /// `&InlineVec<T, N>`.
+    #[inline(always)]
+    pub fn extend_from_slice(&mut self, values: &[T]) {
+        let count = values.len();
+        assert!(
+            count <= N - self.len,
+            "InlineVec overflow: cannot extend with {count} elements, capacity is {N}"
+        );
+        // SAFETY: `self.len + count <= N` was checked, so the destination range
+        // `self.len..self.len + count` sits inside the backing array and is
+        // uninitialized. The whole tail of `values` is copied and `len` is then
+        // grown to cover it, so every written slot is observed exactly once.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                values.as_ptr(),
+                self.buf.as_mut_ptr().cast::<T>().add(self.len),
+                count,
+            );
+            self.len += count;
+        }
+    }
 }
 
 impl<T: Copy, const N: usize> Deref for InlineVec<T, N> {
@@ -208,5 +234,78 @@ impl<T: Copy + Eq, const N: usize> Eq for InlineVec<T, N> {}
 impl<T: Copy + fmt::Debug, const N: usize> fmt::Debug for InlineVec<T, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
+    #[inline]
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let mut iter = iter.into_iter();
+        let (lower, upper) = iter.size_hint();
+
+        // Fail fast when the iterator already advertises overflow instead of
+        // panicking mid-write; the guarded drain below then only fires for a
+        // hint-lying iterator.
+        if let Some(max) = upper {
+            assert!(
+                max <= N - self.len,
+                "InlineVec overflow: cannot extend with {max} elements, capacity is {N}"
+            );
+        }
+
+        let orig_len = self.len;
+        let space = N - orig_len;
+        let start = unsafe { self.buf.as_mut_ptr().cast::<T>().add(orig_len) };
+        let mut ptr = start;
+
+        // SAFETY of the write block:
+        // - `start` points at the first free slot and `space` counts the
+        //   slots left in the backing array, so `ptr` never leaves it.
+        // - The trust loop writes at most `trusted = lower.min(space)` items
+        //   with no per-item overflow check; the drain refuses to write once
+        //   `space_left == 0`. Every write therefore lands in an
+        //   uninitialized slot and no slot is written twice. `T: Copy` makes
+        //   the transfers free of `Drop` effects.
+        let trusted = lower.min(space);
+        let mut left = trusted;
+        while left > 0 {
+            match iter.next() {
+                Some(value) => unsafe {
+                    ptr.write(value);
+                    ptr = ptr.add(1);
+                },
+                None => {
+                    // The iterator produced fewer items than its hint promised;
+                    // `ptr - start` already counts what was actually written.
+                    self.len = orig_len + unsafe { ptr.offset_from(start) } as usize;
+                    return;
+                }
+            }
+            left -= 1;
+        }
+
+        // Drain any surplus that the lower bound understated.
+        let mut space_left = space - trusted;
+        for value in &mut iter {
+            if space_left == 0 {
+                panic!("InlineVec overflow: cannot extend, capacity is {N}");
+            }
+            unsafe {
+                ptr.write(value);
+                ptr = ptr.add(1);
+            }
+            space_left -= 1;
+        }
+
+        self.len = N - space_left;
+    }
+}
+
+impl<T: Copy, const N: usize> FromIterator<T> for InlineVec<T, N> {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut vec = InlineVec::default();
+        vec.extend(iter);
+        vec
     }
 }

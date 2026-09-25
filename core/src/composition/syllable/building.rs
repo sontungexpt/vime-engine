@@ -70,7 +70,7 @@ pub struct BuildingSyllable {
 }
 
 impl BuildingSyllable {
-    const MAX_VALID_LEN: usize = Coda::MAX_LEN + NUCLEUS_MAX_LEN + Onset::MAX_LEN;
+    const MAX_LEN: usize = Coda::MAX_LEN + NUCLEUS_MAX_LEN + Onset::MAX_LEN;
 
     // ─────────────────────────── Accessors ───────────────────────────
 
@@ -129,16 +129,11 @@ impl BuildingSyllable {
     // ─────────────────────────── Rendering ───────────────────────────
 
     #[inline(always)]
-    pub fn to_chars(
-        &self,
-        tone_placement: TonePlacement,
-    ) -> InlineVec<char, { Self::MAX_VALID_LEN }> {
+    pub fn to_chars(&self, tone_placement: TonePlacement) -> InlineVec<char, { Self::MAX_LEN }> {
         let mut output = InlineVec::default();
 
-        // 1. Onset
-        for &ch in self.onset.iter() {
-            output.push(ch);
-        }
+        // 1. Onset (contiguous chars -> one memcpy)
+        output.extend_from_slice(&self.onset);
 
         // 2. Vowels
         if self.tone.is_some() {
@@ -152,15 +147,11 @@ impl BuildingSyllable {
                 output.push(vowel.to_char_tone(active_tone));
             }
         } else {
-            for vowel in self.nucleus.iter() {
-                output.push(vowel.to_char());
-            }
+            output.extend(self.nucleus.iter().map(|vowel| vowel.to_char()));
         }
 
-        // 3. Coda
-        for &ch in self.coda.iter() {
-            output.push(ch);
-        }
+        // 3. Coda (contiguous chars -> one memcpy)
+        output.extend_from_slice(&self.coda);
 
         output
     }

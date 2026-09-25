@@ -170,9 +170,9 @@ fn run_pass<T: Copy, B: Buf<T>>(
     let mut ops = 0usize;
     for s in states {
         typing_burst(s, cap, a, p, q, &mut ops);
+        read_burst(s, acc);
         edit_burst(s, cap, v, &mut ops);
         pop_burst(s, &mut ops);
-        read_burst(s, acc);
         s.clear();
         if !s.is_empty() {
             ops += 1;
@@ -211,14 +211,18 @@ fn bench_pop<T: Copy, const N: usize>(
 
     let t_av = time(
         || {
-            run_pass(&mut av, N, &mut acc_av, a, p, q, v);
+            let mut acc = 0usize;
+            run_pass(&mut av, N, &mut acc, a, p, q, v);
+            std::hint::black_box(acc);
         },
         rounds,
         iters,
     );
     let t_fa = time(
         || {
-            run_pass(&mut fa, N, &mut acc_fa, a, p, q, v);
+            let mut acc = 0usize;
+            run_pass(&mut fa, N, &mut acc, a, p, q, v);
+            std::hint::black_box(acc);
         },
         rounds,
         iters,
@@ -232,6 +236,7 @@ fn bench_pop<T: Copy, const N: usize>(
     println!("  ArrayVec:   {:7.3} ns/op", av_ns);
     println!("  InlineVec: {:7.3} ns/op", fa_ns);
     println!("  InlineVec/ArrayVec: {:.3}x", fa_ns / av_ns);
+    println!("  checksum: ArrayVec {} / InlineVec {}", acc_av, acc_fa);
 }
 
 fn v(b: BaseVowel) -> CasedBaseVowel {
@@ -276,4 +281,140 @@ fn main() {
     // ─────────────────────── Coda · char<2> ───────────────────────
     let coda_specs: &[Vec<char>] = &[vec!['n'], vec!['t'], vec!['n', 'g'], vec!['n', 'h']];
     bench_pop::<char, 2>("coda", coda_specs, ('n', 'h', 'c', 'g'));
+
+    // ─────────────────────── Fill strategy shootout (char<3>) ───────────────────────
+    //
+    // Fill a `char<3>` from a slice prefix of length `n` three public ways.
+    // The input is `black_box`-pinned (no constant folding) and lengths are
+    // accumulated into `acc`, printed afterwards, so every store is observed.
+    let rounds = 1000;
+    let iters = 500_000;
+
+    for n in 1..=3usize {
+        let mut acc = 0usize;
+        let src: [char; 3] = ['t', 'r', 'a'];
+
+        let t_push = time(
+            || {
+                let src = std::hint::black_box(&src);
+                let mut b = InlineVec::<char, 3>::default();
+                for &c in &src[..n] {
+                    b.push(c);
+                }
+                acc = acc.wrapping_add(b.len());
+            },
+            rounds,
+            iters,
+        );
+        let t_extend = time(
+            || {
+                let src = std::hint::black_box(&src);
+                let mut b = InlineVec::<char, 3>::default();
+                b.extend(src[..n].iter().copied());
+                acc = acc.wrapping_add(b.len());
+            },
+            rounds,
+            iters,
+        );
+        let t_slice = time(
+            || {
+                let src = std::hint::black_box(&src);
+                let mut b = InlineVec::<char, 3>::default();
+                b.extend_from_slice(&src[..n]);
+                acc = acc.wrapping_add(b.len());
+            },
+            rounds,
+            iters,
+        );
+
+        let ns = |t: std::time::Duration| t.as_nanos() as f64 / iters as f64;
+        println!("── fill char<3> with {n} items (checksum {acc}) ──");
+        println!("  push loop:          {:7.3} ns/op", ns(t_push));
+        println!("  extend(iter):       {:7.3} ns/op", ns(t_extend));
+        println!("  extend_from_slice:  {:7.3} ns/op", ns(t_slice));
+    }
+
+    bench_mechanism();
+}
+
+/// A raw byte column mirroring `InlineVec`'s backing store, with no borrow
+/// or adapter indirection. Used to probe the *mechanism* ceiling of each
+/// write strategy in isolation.
+#[derive(Clone, Copy)]
+struct Column {
+    buf: [u8; 8],
+    len: usize,
+}
+
+impl Default for Column {
+    fn default() -> Self {
+        Column {
+            buf: [0; 8],
+            len: 0,
+        }
+    }
+}
+
+impl Column {
+    /// Last written byte, folded into the checksum so stores stay observable.
+    fn check(&self) -> usize {
+        self.buf[self.len.wrapping_sub(1) & 7] as usize
+    }
+}
+
+/// Mechanism ceiling: same three write strategies against a raw column, so the
+/// per-write cost is measured with zero trait/iterator overhead in the way.
+fn bench_mechanism() {
+    let rounds = 1000;
+    let iters = 500_000;
+
+    for n in 1..=3usize {
+        let mut acc = 0usize;
+        let src: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let t_item = time(
+            || {
+                let src = std::hint::black_box(&src);
+                let mut col = Column::default();
+                for &c in &src[..n] {
+                    col.buf[col.len] = c;
+                    col.len += 1;
+                }
+                acc = acc.wrapping_add(col.check());
+            },
+            rounds,
+            iters,
+        );
+        let t_indexed = time(
+            || {
+                let src = std::hint::black_box(&src);
+                let mut col = Column::default();
+                let start = col.len;
+                for i in 0..n {
+                    col.buf[start + i] = src[i];
+                }
+                col.len = start + n;
+                acc = acc.wrapping_add(col.check());
+            },
+            rounds,
+            iters,
+        );
+        let t_memcpy = time(
+            || {
+                let src = std::hint::black_box(&src);
+                let mut col = Column::default();
+                col.buf[col.len..col.len + n].copy_from_slice(&src[..n]);
+                col.len += n;
+                acc = acc.wrapping_add(col.check());
+            },
+            rounds,
+            iters,
+        );
+
+        let ns = |t: std::time::Duration| t.as_nanos() as f64 / iters as f64;
+        println!("── mechanism, raw column {n}/8 (checksum {acc}) ──");
+        println!("  per-item store:     {:7.3} ns/op", ns(t_item));
+        println!("  indexed store:      {:7.3} ns/op", ns(t_indexed));
+        println!("  memcpy (copy_slice):{:7.3} ns/op", ns(t_memcpy));
+    }
 }
