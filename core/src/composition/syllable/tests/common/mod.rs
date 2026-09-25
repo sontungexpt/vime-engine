@@ -12,7 +12,7 @@
 //! the expected and actual onset / vowels / tone / coda side by side.
 
 use crate::composition::syllable::building::BuildingSyllable;
-use crate::phonology::{BaseVowel, CasedBaseVowel, Coda, Onset, Tone};
+use crate::phonology::{BaseVowel, ExtendedBaseVowel, Coda, Onset, Tone};
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
 /// much faster than `(BaseVowel::VowelCase::Lower)`.
@@ -158,7 +158,7 @@ pub fn check_syllable_eq(
     expected: &ExpectedSyllable,
     input: &[char],
 ) -> Result<(), String> {
-    let vowel_pair = |v: &CasedBaseVowel| {
+    let vowel_pair = |v: &ExtendedBaseVowel| {
         (
             v.get(),
             if v.is_upper() {

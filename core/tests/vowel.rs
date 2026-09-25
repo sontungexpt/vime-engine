@@ -19,7 +19,7 @@
 //! - shape replacement and `is_plain` / `is_shaped` consistency
 
 use vime_engine::phonology::{
-    decode_vowel, encode_vowel, is_vowel, BaseVowel, CasedBaseVowel, Shape, Tone,
+    decode_vowel, encode_vowel, is_vowel, BaseVowel, ExtendedBaseVowel, Shape, Tone,
 };
 
 const BASES: &[BaseVowel] = &[
@@ -131,7 +131,7 @@ fn encode_decode_is_bijective() {
 
                 assert_eq!(
                     decode_vowel(ch),
-                    Some((CasedBaseVowel::new(base, case), tone)),
+                    Some((ExtendedBaseVowel::with_case(base, case), tone)),
                     "decode mismatch for {base:?} {tone:?} {case:?}"
                 );
 
@@ -166,7 +166,7 @@ fn expected_surface_forms_match_codec() {
 
             assert_eq!(
                 decode_vowel(lower),
-                Some((CasedBaseVowel::new(base, false), tone)),
+                Some((ExtendedBaseVowel::with_case(base, false), tone)),
                 "unexpected lowercase decoding for {lower:?}"
             );
 
@@ -180,7 +180,7 @@ fn expected_surface_forms_match_codec() {
 
             assert_eq!(
                 decode_vowel(upper),
-                Some((CasedBaseVowel::new(base, true), tone)),
+                Some((ExtendedBaseVowel::with_case(base, true), tone)),
                 "unexpected uppercase decoding for {upper:?}"
             );
         }
@@ -258,7 +258,7 @@ fn ascii_vowels_decode_as_flat() {
     ] {
         assert_eq!(
             decode_vowel(ch),
-            Some((CasedBaseVowel::new(base, false), Tone::Flat)),
+            Some((ExtendedBaseVowel::with_case(base, false), Tone::Flat)),
             "unexpected decoding for {ch:?}"
         );
 
@@ -277,7 +277,7 @@ fn ascii_vowels_decode_as_flat() {
     ] {
         assert_eq!(
             decode_vowel(ch),
-            Some((CasedBaseVowel::new(base, true), Tone::Flat)),
+            Some((ExtendedBaseVowel::with_case(base, true), Tone::Flat)),
             "unexpected decoding for {ch:?}"
         );
 
@@ -336,16 +336,16 @@ fn shaped_vowels_have_higher_priority_than_unshaped_vowels() {
 #[test]
 fn cased_base_vowel_round_trips_every_base_and_case() {
     for &base in BASES {
-        let lower = CasedBaseVowel::lower(base);
-        let upper = CasedBaseVowel::upper(base);
+        let lower = ExtendedBaseVowel::lower(base);
+        let upper = ExtendedBaseVowel::upper(base);
 
         assert_eq!(lower.get(), base, "lower value mismatch for {base:?}");
         assert!(!lower.is_upper(), "lower case flag set for {base:?}");
         assert_eq!(upper.get(), base, "upper value mismatch for {base:?}");
         assert!(upper.is_upper(), "upper case flag missing for {base:?}");
 
-        assert_eq!(CasedBaseVowel::new(base, false), lower);
-        assert_eq!(CasedBaseVowel::new(base, true), upper);
+        assert_eq!(ExtendedBaseVowel::with_case(base, false), lower);
+        assert_eq!(ExtendedBaseVowel::with_case(base, true), upper);
     }
 }
 
@@ -353,10 +353,10 @@ fn cased_base_vowel_round_trips_every_base_and_case() {
 fn cased_base_vowel_setters_preserve_the_other_field() {
     for &base in BASES {
         for initial_case in [false, true] {
-            let mut cased = CasedBaseVowel::new(base, initial_case);
+            let mut cased = ExtendedBaseVowel::with_case(base, initial_case);
 
-            cased.set_upper(!initial_case);
-            assert_eq!(cased.get(), base, "set_upper changed {base:?}");
+            cased.set_case(!initial_case);
+            assert_eq!(cased.get(), base, "set_case changed {base:?}");
             assert_eq!(cased.is_upper(), !initial_case);
 
             for &replacement in BASES {
@@ -374,7 +374,7 @@ fn cased_base_vowel_character_methods_match_encoder() {
     for &base in BASES {
         for &tone in TONES {
             for is_upper in [false, true] {
-                let cased = CasedBaseVowel::new(base, is_upper);
+                let cased = ExtendedBaseVowel::with_case(base, is_upper);
 
                 assert_eq!(
                     cased.to_char(),
@@ -407,7 +407,7 @@ fn cased_base_vowel_decoded_value_stays_in_bounds() {
                 assert_eq!(cased.get(), base);
                 assert_eq!(cased.is_upper(), case);
                 assert_eq!(
-                    CasedBaseVowel::new(cased.get(), cased.is_upper()),
+                    ExtendedBaseVowel::with_case(cased.get(), cased.is_upper()),
                     cased,
                     "decomposition must reconstruct the exact packed value for {ch:?}"
                 );
@@ -419,7 +419,7 @@ fn cased_base_vowel_decoded_value_stays_in_bounds() {
 #[test]
 fn cased_base_vowel_uses_two_bytes() {
     assert_eq!(
-        std::mem::size_of::<CasedBaseVowel>(),
+        std::mem::size_of::<ExtendedBaseVowel>(),
         std::mem::size_of::<u16>()
     );
 }

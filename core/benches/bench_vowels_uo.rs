@@ -8,11 +8,11 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel, RootVowel};
+use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel, RootVowel};
 
 /// Old form (committed `068edb6`): length guard then indexed reads.
 #[inline(always)]
-fn old_starts_with_uo(vowels: &[CasedBaseVowel]) -> bool {
+fn old_starts_with_uo(vowels: &[ExtendedBaseVowel]) -> bool {
     let vowels = vowels;
     vowels.len() > 1
         && vowels[0].get().root() == RootVowel::U
@@ -21,7 +21,7 @@ fn old_starts_with_uo(vowels: &[CasedBaseVowel]) -> bool {
 
 /// New form (working tree): `matches!` with a slice pattern and guard.
 #[inline(always)]
-fn new_starts_with_uo(vowels: &[CasedBaseVowel]) -> bool {
+fn new_starts_with_uo(vowels: &[ExtendedBaseVowel]) -> bool {
     matches!(
         vowels,
         [v0, v1, ..] if v0.get().root() == RootVowel::U && v1.get().root() == RootVowel::O
@@ -40,18 +40,18 @@ fn time(f: impl Fn(), rounds: usize, iters: usize) -> std::time::Duration {
     best
 }
 
-fn v(b: BaseVowel) -> CasedBaseVowel {
-    CasedBaseVowel::new(b, false)
+fn v(b: BaseVowel) -> ExtendedBaseVowel {
+    ExtendedBaseVowel::with_case(b, false)
 }
 
 fn main() {
     // Weighted workload matching how the check is exercised while typing:
     // mostly short nuclei, then pairs, a few triples, and the true `uo` pair
     // both plain and with the horn/shape already applied.
-    let mut workload: Vec<(Vec<CasedBaseVowel>, usize)> = Vec::new();
+    let mut workload: Vec<(Vec<ExtendedBaseVowel>, usize)> = Vec::new();
     macro_rules! add {
         ($w:expr; $($b:expr),+) => {{
-            let seq: Vec<CasedBaseVowel> = vec![$(v($b)),+];
+            let seq: Vec<ExtendedBaseVowel> = vec![$(v($b)),+];
             workload.push((seq, $w));
         }};
     }
@@ -85,7 +85,7 @@ fn main() {
     add!(1; BaseVowel::U, BaseVowel::O, BaseVowel::E); // true
 
     // Expand by weight.
-    let mut inputs: Vec<Vec<CasedBaseVowel>> = Vec::new();
+    let mut inputs: Vec<Vec<ExtendedBaseVowel>> = Vec::new();
     for (seq, w) in &workload {
         for _ in 0..*w {
             inputs.push(seq.clone());

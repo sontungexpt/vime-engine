@@ -2,7 +2,7 @@ use crate::{
     composition::syllable::InputEffect,
     keymap::Keymap,
     phonology::{
-        decode_vowel, BaseVowel, CasedBaseVowel, Coda, NucleusState, Onset, RootVowel, Shape, Tone,
+        decode_vowel, BaseVowel, ExtendedBaseVowel, Coda, NucleusState, Onset, RootVowel, Shape, Tone,
         TonePlacement, NUCLEUS_MAX_LEN,
     },
     util::InlineVec,
@@ -39,7 +39,7 @@ pub enum SyllableBuildError {
     InvalidCoda,
 }
 
-type Nucleus = InlineVec<CasedBaseVowel, NUCLEUS_MAX_LEN>;
+type Nucleus = InlineVec<ExtendedBaseVowel, NUCLEUS_MAX_LEN>;
 type OnsetChars = InlineVec<char, { Onset::MAX_LEN }>;
 type CodaChars = InlineVec<char, { Coda::MAX_LEN }>;
 
@@ -100,7 +100,7 @@ impl BuildingSyllable {
     }
 
     #[inline(always)]
-    pub fn vowels(&self) -> &[CasedBaseVowel] {
+    pub fn vowels(&self) -> &[ExtendedBaseVowel] {
         &self.nucleus
     }
 
@@ -253,7 +253,7 @@ impl BuildingSyllable {
 
     /// Adds a decoded vowel to the nucleus (max 3 vowels); returns `false`
     /// when the tone conflicts or the resulting nucleus is invalid.
-    fn push_vowel(&mut self, (vowel, tone): (CasedBaseVowel, Tone)) -> bool {
+    fn push_vowel(&mut self, (vowel, tone): (ExtendedBaseVowel, Tone)) -> bool {
         let vowels_len = self.nucleus.len();
         if vowels_len == 0 {
             // First vowel; adopt it and its tone.
@@ -421,7 +421,7 @@ impl BuildingSyllable {
     fn insert_vowel(
         &mut self,
         vowel_index: usize,
-        (cased_base, tone): (CasedBaseVowel, Tone),
+        (cased_base, tone): (ExtendedBaseVowel, Tone),
     ) -> bool {
         debug_assert!(vowel_index <= self.nucleus.len());
         if self.nucleus.len() >= 3 {
@@ -688,7 +688,7 @@ impl BuildingSyllable {
             let i = self.onset.pop().expect("onset must contain i");
             self.onset_kind = Onset::G;
             self.nucleus
-                .push(CasedBaseVowel::new(BaseVowel::I, i == 'I'));
+                .push(ExtendedBaseVowel::with_case(BaseVowel::I, i == 'I'));
 
             return;
         }
@@ -698,7 +698,7 @@ impl BuildingSyllable {
             let i = self.onset.pop().unwrap();
             self.onset_kind = Onset::None;
             self.nucleus
-                .insert(0, CasedBaseVowel::new(BaseVowel::I, i == 'I'));
+                .insert(0, ExtendedBaseVowel::with_case(BaseVowel::I, i == 'I'));
         }
     }
 
@@ -712,12 +712,13 @@ impl BuildingSyllable {
             return;
         }
 
+        use BaseVowel::*;
         match (self.nucleus[0].get(), self.nucleus[1].get()) {
-            (BaseVowel::U, BaseVowel::OHorn) => {
-                self.nucleus[0].set(BaseVowel::UHorn);
+            (U, OHorn) => {
+                self.nucleus[0].set(UHorn);
             }
-            (BaseVowel::UHorn, BaseVowel::O) => {
-                self.nucleus[1].set(BaseVowel::OHorn);
+            (UHorn, O) => {
+                self.nucleus[1].set(OHorn);
             }
             _ => {}
         }
@@ -768,13 +769,14 @@ impl BuildingSyllable {
         }
         // Special "uo" case (uow -> ươ, uoo -> uô) when the cursor is after the `u`.
         else if self.nucleus_starts_with_uo() {
-            let Some(shape) = keymap
-                .decode_shape(key, RootVowel::O)
-                .or_else(|| keymap.decode_shape(key, RootVowel::U))
-            else {
-                return TransformResult::NotApplicable;
+            let shape = match keymap.decode_shape(key, RootVowel::O) {
+                Some(s) => s,
+                None => match keymap.decode_shape(key, RootVowel::U) {
+                    // Only accept Horn for U, If circumflex then falied
+                    Some(Shape::Horn) => Shape::Horn,
+                    _ => return TransformResult::NotApplicable,
+                },
             };
-
             return self.apply_uo_shape(shape);
         }
 
@@ -896,41 +898,36 @@ impl BuildingSyllable {
             return TransformResult::NotApplicable;
         }
 
+        use BaseVowel::*;
         match shape {
             Shape::Horn => match (self.nucleus[0].get(), self.nucleus[1].get()) {
                 // ươ -> uo (revert).
-                (BaseVowel::UHorn, BaseVowel::OHorn) => {
-                    self.nucleus[0].set(BaseVowel::U);
-                    self.nucleus[1].set(BaseVowel::O);
+                (UHorn, OHorn) => {
+                    self.nucleus[0].set(U);
+                    self.nucleus[1].set(O);
                     TransformResult::Reverted
                 }
+                // uơ -> Horn index 0 (becomes ươ).
+                (U, OHorn) => self.apply_vowel_shape(0, Shape::Horn),
 
                 // ưô, ưo, uo, uô -> Horn the vowel at index 1.
-                (BaseVowel::UHorn, BaseVowel::OCircumflex | BaseVowel::O)
-                | (BaseVowel::U, BaseVowel::O | BaseVowel::OCircumflex) => {
-                    self.apply_vowel_shape(1, Shape::Horn)
-                }
+                (UHorn | U, O | OCircumflex) => self.apply_vowel_shape(1, Shape::Horn),
 
-                // uơ -> Horn index 0 (becomes ươ).
-                (BaseVowel::U, BaseVowel::OHorn) => self.apply_vowel_shape(0, Shape::Horn),
-
-                _ => TransformResult::NotApplicable,
+                _ => return TransformResult::NotApplicable,
             },
 
             Shape::Circumflex => match (self.nucleus[0].get(), self.nucleus[1].get()) {
-                // uo, uơ -> uô (Circumflex on index 1).
-                (BaseVowel::U, BaseVowel::O | BaseVowel::OHorn) => {
-                    self.apply_vowel_shape(1, Shape::Circumflex)
-                }
-
                 // uô -> uo (revert).
-                (BaseVowel::U, BaseVowel::OCircumflex) => {
+                (U, OCircumflex) => {
                     self.nucleus[1].set(BaseVowel::O);
                     TransformResult::Reverted
                 }
 
+                // uo, uơ -> uô (Circumflex on index 1).
+                (U, O | OHorn) => self.apply_vowel_shape(1, Shape::Circumflex),
+
                 // ươ, ưo -> uô: drop the Horn on `ư`, then Circumflex the `o`.
-                (BaseVowel::UHorn, BaseVowel::OHorn | BaseVowel::O) => {
+                (UHorn, OHorn | O) => {
                     let prev_u = self.nucleus[0].get();
                     self.nucleus[0].set(BaseVowel::U);
 

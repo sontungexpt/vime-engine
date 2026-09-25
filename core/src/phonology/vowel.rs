@@ -1,3 +1,11 @@
+//! Vietnamese vowel codec: the 12 base vowels, their diacritic shapes, tones,
+//! case, and the precomposed-character encode/decode pair
+//! ([`encode_vowel`] / [`decode_vowel`]).
+//!
+//! [`BaseVowel`] packs `(Priority ID | Shape | Root)` into a `u16` discriminant;
+//! [`ExtendedBaseVowel`] wraps it with a case flag and reserved extension bits.
+//! [`decode_vowel`] splits a precomposed character back into those parts.
+
 /// Base ASCII vowel letter independent of shape, tone, and case.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u8)]
@@ -114,7 +122,6 @@ impl BaseVowel {
     const ID_WIDTH: u32 = 4;
 
     // ── field shifts ──
-    const ROOT_OFFSET: u32 = 0;
     /// Shift of the [`Shape`] field (sits directly above the root field).
     const SHAPE_OFFSET: u32 = Self::ROOT_WIDTH;
     /// Shift of the Priority ID field (sits directly above the shape field).
@@ -127,8 +134,6 @@ impl BaseVowel {
     const ROOT_MASK: u16 = (1u16 << Self::ROOT_WIDTH) - 1;
     /// Bitmask for the [`Shape`] field.
     const SHAPE_MASK: u16 = (1u16 << Self::SHAPE_WIDTH) - 1;
-
-    const ID_MASK: u16 = ((1 << Self::ID_WIDTH) - 1) << Self::ID_OFFSET;
 
     /// Fully positioned mask for the [`Shape`] field (`0b11000` / `0x18`).
     const SHAPE_MASK_FULL: u16 = Self::SHAPE_MASK << Self::SHAPE_OFFSET;
@@ -267,49 +272,66 @@ impl BaseVowel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct CasedBaseVowel(u16);
+pub struct ExtendedBaseVowel(u16);
 
-impl CasedBaseVowel {
-    const UPPER_OFFSET: u32 = BaseVowel::NEXT_OFFSET;
-    const UPPER_MASK: u16 = 1 << Self::UPPER_OFFSET;
-    const VALUE_MASK: u16 = Self::UPPER_MASK - 1;
+impl ExtendedBaseVowel {
+    // Bits 0..=8 are the BaseVowel value; bit 9 is the case flag (Upper);
+    // bits 10..=15 are reserved for future extension flags.
+    const BASE_MASK: u16 = (1 << BaseVowel::NEXT_OFFSET) - 1;
+    const CASE_OFFSET: u32 = BaseVowel::NEXT_OFFSET;
+    const CASE_MASK: u16 = 1 << Self::CASE_OFFSET;
 
+    // ─────────────── Construction ───────────────
+    /// Builds an [`ExtendedBaseVowel`] carrying only the base value; the case
+    /// bit is left clear (the bare discriminant already fits below it).
     #[inline(always)]
-    pub const fn new(value: BaseVowel, upper: bool) -> Self {
-        Self((value as u16) | ((upper as u16) << Self::UPPER_OFFSET))
+    pub const fn new(value: BaseVowel) -> Self {
+        Self(value as u16)
     }
 
-    #[inline(always)]
-    pub const fn upper(value: BaseVowel) -> Self {
-        Self::new(value, true)
-    }
-
+    /// Builds a lowercase [`ExtendedBaseVowel`]: the value as-is, no masking.
     #[inline(always)]
     pub const fn lower(value: BaseVowel) -> Self {
-        Self::new(value, false)
+        Self(value as u16)
     }
 
+    /// Builds an uppercase [`ExtendedBaseVowel`] by setting the case bit.
+    #[inline(always)]
+    pub const fn upper(value: BaseVowel) -> Self {
+        Self(value as u16 | Self::CASE_MASK)
+    }
+
+    /// Builds from a base value and an explicit case flag.
+    #[inline(always)]
+    pub const fn with_case(value: BaseVowel, upper: bool) -> Self {
+        Self(value as u16 | ((upper as u16) << Self::CASE_OFFSET))
+    }
+
+    // ─────────────── Accessors ───────────────
     #[inline(always)]
     pub const fn get(self) -> BaseVowel {
-        // SAFETY: bits below UPPER_OFFSET contain a valid BaseVowel.
-        unsafe { core::mem::transmute(self.0 & Self::VALUE_MASK) }
+        // SAFETY: bits below CASE_OFFSET contain a valid BaseVowel.
+        unsafe { core::mem::transmute(self.0 & Self::BASE_MASK) }
     }
 
     #[inline(always)]
     pub const fn set(&mut self, value: BaseVowel) {
-        self.0 = (self.0 & Self::UPPER_MASK) | value as u16;
+        // Preserve every extension bit above the base region (case + reserved).
+        self.0 = (self.0 & !Self::BASE_MASK) | value as u16;
     }
 
+    // ─────────────── Case flag ───────────────
     #[inline(always)]
     pub const fn is_upper(self) -> bool {
-        self.0 & Self::UPPER_MASK != 0
+        self.0 & Self::CASE_MASK != 0
     }
 
     #[inline(always)]
-    pub const fn set_upper(&mut self, upper: bool) {
-        self.0 = (self.0 & !Self::UPPER_MASK) | ((upper as u16) * Self::UPPER_MASK);
+    pub const fn set_case(&mut self, upper: bool) {
+        self.0 = (self.0 & !Self::CASE_MASK) | ((upper as u16) * Self::CASE_MASK);
     }
 
+    // ─────────────── Render ───────────────
     #[inline(always)]
     pub const fn to_char(self) -> char {
         encode_vowel(self.get(), Tone::Flat, self.is_upper())
@@ -318,91 +340,6 @@ impl CasedBaseVowel {
     #[inline(always)]
     pub const fn to_char_tone(self, tone: Tone) -> char {
         encode_vowel(self.get(), tone, self.is_upper())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Canonical list of every [`BaseVowel`], kept in lockstep with the enum.
-    const ALL_BASES: [BaseVowel; BaseVowel::COUNT] = BaseVowel::VARIANTS_BY_ID;
-
-    /// Every [`BaseVowel`] discriminant must fit entirely below the case bit,
-    /// otherwise `CasedBaseVowel::get()`'s mask would silently drop it and the
-    /// round-trip would be lossy.
-    #[test]
-    fn base_vowel_discriminants_fit_below_the_case_bit() {
-        for &base in &ALL_BASES {
-            let raw = base as u16;
-            assert!(
-                raw < CasedBaseVowel::UPPER_MASK,
-                "{base:?} (0x{raw:x}) overlaps the case bit at bit {}",
-                CasedBaseVowel::UPPER_OFFSET,
-            );
-        }
-    }
-
-    /// All 24 `(base, case)` combinations must pack into distinct `u16`s, with
-    /// the lower form equal to the bare discriminant and the upper form exactly
-    /// one case-bit away. Reserved bits above the case bit stay clear.
-    #[test]
-    fn all_base_case_combinations_pack_distinctly() {
-        const PACK_SPACE: usize = 1 << (BaseVowel::NEXT_OFFSET as usize + 1);
-        let mut seen = [false; PACK_SPACE];
-
-        for &base in &ALL_BASES {
-            let lower = CasedBaseVowel::lower(base);
-            let upper = CasedBaseVowel::upper(base);
-
-            assert_eq!(
-                lower.0, base as u16,
-                "lower form must be the bare discriminant"
-            );
-            assert_eq!(
-                upper.0,
-                base as u16 | CasedBaseVowel::UPPER_MASK,
-                "upper form must set exactly the case bit",
-            );
-
-            for cased in [lower, upper] {
-                assert_eq!(
-                    cased.0 >> (CasedBaseVowel::UPPER_OFFSET + 1),
-                    0,
-                    "reserved bits above the case bit are set in {cased:?}",
-                );
-                assert!(
-                    !seen[cased.0 as usize],
-                    "duplicate packed value for {cased:?}",
-                );
-                seen[cased.0 as usize] = true;
-            }
-        }
-    }
-
-    /// Setters must never push the packed value outside the `(base, case)` space.
-    #[test]
-    fn setters_preserve_packed_bounds() {
-        for &base in &ALL_BASES {
-            let mut cased = CasedBaseVowel::lower(base);
-
-            cased.set_upper(true);
-            assert_eq!(cased, CasedBaseVowel::upper(base));
-
-            cased.set_upper(false);
-            assert_eq!(cased, CasedBaseVowel::lower(base));
-
-            for &replacement in &ALL_BASES {
-                cased.set(replacement);
-                assert_eq!(cased.get(), replacement);
-                assert!(
-                    cased.0 < CasedBaseVowel::UPPER_MASK
-                        || cased.0 - CasedBaseVowel::UPPER_MASK < CasedBaseVowel::UPPER_MASK,
-                    "{replacement:?} pushed the pack out of bounds: 0x{:x}",
-                    cased.0,
-                );
-            }
-        }
     }
 }
 
@@ -436,14 +373,14 @@ pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char 
     ENCODED_VOWELS[idx]
 }
 
-/// Decodes a precomposed Vietnamese vowel into a `(CasedBaseVowel, Tone)` pair,
+/// Decodes a precomposed Vietnamese vowel into a `(ExtendedBaseVowel, Tone)` pair,
 /// or `None` if `character` is not a vowel.
 ///
 /// Fastest measured variant: four non-overlapping code-point regions keep the
 /// branch tree small — ASCII (match), Latin-1, Latin Extended (match), and the
 /// Vietnamese block (U+1EA0..=U+1EF9) via O(1) direct LUT indexing.
 #[inline(always)]
-pub const fn decode_vowel(character: char) -> Option<(CasedBaseVowel, Tone)> {
+pub const fn decode_vowel(character: char) -> Option<(ExtendedBaseVowel, Tone)> {
     use BaseVowel::*;
     use Tone::*;
 
@@ -452,213 +389,213 @@ pub const fn decode_vowel(character: char) -> Option<(CasedBaseVowel, Tone)> {
     match code {
         // 1. ASCII Block (Fast path - Keystrokes)
         0x00..=0x7F => match character {
-            'a' => Some((CasedBaseVowel::lower(A), Flat)),
-            'A' => Some((CasedBaseVowel::upper(A), Flat)),
-            'o' => Some((CasedBaseVowel::lower(O), Flat)),
-            'O' => Some((CasedBaseVowel::upper(O), Flat)),
-            'e' => Some((CasedBaseVowel::lower(E), Flat)),
-            'E' => Some((CasedBaseVowel::upper(E), Flat)),
-            'i' => Some((CasedBaseVowel::lower(I), Flat)),
-            'I' => Some((CasedBaseVowel::upper(I), Flat)),
-            'u' => Some((CasedBaseVowel::lower(U), Flat)),
-            'U' => Some((CasedBaseVowel::upper(U), Flat)),
-            'y' => Some((CasedBaseVowel::lower(Y), Flat)),
-            'Y' => Some((CasedBaseVowel::upper(Y), Flat)),
+            'a' => Some((ExtendedBaseVowel::lower(A), Flat)),
+            'A' => Some((ExtendedBaseVowel::upper(A), Flat)),
+            'o' => Some((ExtendedBaseVowel::lower(O), Flat)),
+            'O' => Some((ExtendedBaseVowel::upper(O), Flat)),
+            'e' => Some((ExtendedBaseVowel::lower(E), Flat)),
+            'E' => Some((ExtendedBaseVowel::upper(E), Flat)),
+            'i' => Some((ExtendedBaseVowel::lower(I), Flat)),
+            'I' => Some((ExtendedBaseVowel::upper(I), Flat)),
+            'u' => Some((ExtendedBaseVowel::lower(U), Flat)),
+            'U' => Some((ExtendedBaseVowel::upper(U), Flat)),
+            'y' => Some((ExtendedBaseVowel::lower(Y), Flat)),
+            'Y' => Some((ExtendedBaseVowel::upper(Y), Flat)),
             _ => None,
         },
 
         // 2. Latin-1 Supplement (U+00C0..U+00FF)
         0x80..=0xFF => match character {
-            'ê' => Some((CasedBaseVowel::lower(ECircumflex), Flat)),
-            'Ê' => Some((CasedBaseVowel::upper(ECircumflex), Flat)),
-            'ô' => Some((CasedBaseVowel::lower(OCircumflex), Flat)),
-            'Ô' => Some((CasedBaseVowel::upper(OCircumflex), Flat)),
-            'â' => Some((CasedBaseVowel::lower(ACircumflex), Flat)),
-            'Â' => Some((CasedBaseVowel::upper(ACircumflex), Flat)),
-            'á' => Some((CasedBaseVowel::lower(A), Acute)),
-            'Á' => Some((CasedBaseVowel::upper(A), Acute)),
-            'à' => Some((CasedBaseVowel::lower(A), Grave)),
-            'À' => Some((CasedBaseVowel::upper(A), Grave)),
-            'ã' => Some((CasedBaseVowel::lower(A), Tilde)),
-            'Ã' => Some((CasedBaseVowel::upper(A), Tilde)),
-            'ó' => Some((CasedBaseVowel::lower(O), Acute)),
-            'Ó' => Some((CasedBaseVowel::upper(O), Acute)),
-            'ò' => Some((CasedBaseVowel::lower(O), Grave)),
-            'Ò' => Some((CasedBaseVowel::upper(O), Grave)),
-            'õ' => Some((CasedBaseVowel::lower(O), Tilde)),
-            'Õ' => Some((CasedBaseVowel::upper(O), Tilde)),
-            'é' => Some((CasedBaseVowel::lower(E), Acute)),
-            'É' => Some((CasedBaseVowel::upper(E), Acute)),
-            'è' => Some((CasedBaseVowel::lower(E), Grave)),
-            'È' => Some((CasedBaseVowel::upper(E), Grave)),
-            'í' => Some((CasedBaseVowel::lower(I), Acute)),
-            'Í' => Some((CasedBaseVowel::upper(I), Acute)),
-            'ì' => Some((CasedBaseVowel::lower(I), Grave)),
-            'Ì' => Some((CasedBaseVowel::upper(I), Grave)),
-            'ú' => Some((CasedBaseVowel::lower(U), Acute)),
-            'Ú' => Some((CasedBaseVowel::upper(U), Acute)),
-            'ù' => Some((CasedBaseVowel::lower(U), Grave)),
-            'Ù' => Some((CasedBaseVowel::upper(U), Grave)),
-            'ý' => Some((CasedBaseVowel::lower(Y), Acute)),
-            'Ý' => Some((CasedBaseVowel::upper(Y), Acute)),
+            'ê' => Some((ExtendedBaseVowel::lower(ECircumflex), Flat)),
+            'Ê' => Some((ExtendedBaseVowel::upper(ECircumflex), Flat)),
+            'ô' => Some((ExtendedBaseVowel::lower(OCircumflex), Flat)),
+            'Ô' => Some((ExtendedBaseVowel::upper(OCircumflex), Flat)),
+            'â' => Some((ExtendedBaseVowel::lower(ACircumflex), Flat)),
+            'Â' => Some((ExtendedBaseVowel::upper(ACircumflex), Flat)),
+            'á' => Some((ExtendedBaseVowel::lower(A), Acute)),
+            'Á' => Some((ExtendedBaseVowel::upper(A), Acute)),
+            'à' => Some((ExtendedBaseVowel::lower(A), Grave)),
+            'À' => Some((ExtendedBaseVowel::upper(A), Grave)),
+            'ã' => Some((ExtendedBaseVowel::lower(A), Tilde)),
+            'Ã' => Some((ExtendedBaseVowel::upper(A), Tilde)),
+            'ó' => Some((ExtendedBaseVowel::lower(O), Acute)),
+            'Ó' => Some((ExtendedBaseVowel::upper(O), Acute)),
+            'ò' => Some((ExtendedBaseVowel::lower(O), Grave)),
+            'Ò' => Some((ExtendedBaseVowel::upper(O), Grave)),
+            'õ' => Some((ExtendedBaseVowel::lower(O), Tilde)),
+            'Õ' => Some((ExtendedBaseVowel::upper(O), Tilde)),
+            'é' => Some((ExtendedBaseVowel::lower(E), Acute)),
+            'É' => Some((ExtendedBaseVowel::upper(E), Acute)),
+            'è' => Some((ExtendedBaseVowel::lower(E), Grave)),
+            'È' => Some((ExtendedBaseVowel::upper(E), Grave)),
+            'í' => Some((ExtendedBaseVowel::lower(I), Acute)),
+            'Í' => Some((ExtendedBaseVowel::upper(I), Acute)),
+            'ì' => Some((ExtendedBaseVowel::lower(I), Grave)),
+            'Ì' => Some((ExtendedBaseVowel::upper(I), Grave)),
+            'ú' => Some((ExtendedBaseVowel::lower(U), Acute)),
+            'Ú' => Some((ExtendedBaseVowel::upper(U), Acute)),
+            'ù' => Some((ExtendedBaseVowel::lower(U), Grave)),
+            'Ù' => Some((ExtendedBaseVowel::upper(U), Grave)),
+            'ý' => Some((ExtendedBaseVowel::lower(Y), Acute)),
+            'Ý' => Some((ExtendedBaseVowel::upper(Y), Acute)),
             _ => None,
         },
 
         // 3. Latin Extended
         0x0100..=0x01B0 => match character {
-            'ơ' => Some((CasedBaseVowel::lower(OHorn), Flat)),
-            'Ơ' => Some((CasedBaseVowel::upper(OHorn), Flat)),
-            'ă' => Some((CasedBaseVowel::lower(ABreve), Flat)),
-            'Ă' => Some((CasedBaseVowel::upper(ABreve), Flat)),
-            'ư' => Some((CasedBaseVowel::lower(UHorn), Flat)),
-            'Ư' => Some((CasedBaseVowel::upper(UHorn), Flat)),
-            'ĩ' => Some((CasedBaseVowel::lower(I), Tilde)),
-            'Ĩ' => Some((CasedBaseVowel::upper(I), Tilde)),
-            'ũ' => Some((CasedBaseVowel::lower(U), Tilde)),
-            'Ũ' => Some((CasedBaseVowel::upper(U), Tilde)),
+            'ơ' => Some((ExtendedBaseVowel::lower(OHorn), Flat)),
+            'Ơ' => Some((ExtendedBaseVowel::upper(OHorn), Flat)),
+            'ă' => Some((ExtendedBaseVowel::lower(ABreve), Flat)),
+            'Ă' => Some((ExtendedBaseVowel::upper(ABreve), Flat)),
+            'ư' => Some((ExtendedBaseVowel::lower(UHorn), Flat)),
+            'Ư' => Some((ExtendedBaseVowel::upper(UHorn), Flat)),
+            'ĩ' => Some((ExtendedBaseVowel::lower(I), Tilde)),
+            'Ĩ' => Some((ExtendedBaseVowel::upper(I), Tilde)),
+            'ũ' => Some((ExtendedBaseVowel::lower(U), Tilde)),
+            'Ũ' => Some((ExtendedBaseVowel::upper(U), Tilde)),
             _ => None,
         },
 
         // 4. Vietnamese block (U+1EA0..U+1EF9) -> Direct Indexing Table!
         0x1EA0..=0x1EF9 => {
             /// Direct lookup table (LUT) for the precomposed Vietnamese block (U+1EA0..=U+1EF9).
-            /// Index = `(code - 0x1EA0) as usize`, giving O(1) `(CasedBaseVowel, Tone)` lookup.
-            const DECODED_VIETNAMESE_BLOCK_LUT: [(CasedBaseVowel, Tone); 90] = [
+            /// Index = `(code - 0x1EA0) as usize`, giving O(1) `(ExtendedBaseVowel, Tone)` lookup.
+            const DECODED_VIETNAMESE_BLOCK_LUT: [(ExtendedBaseVowel, Tone); 90] = [
                 // 0x1EA0 - 0x1EA1 (Ạ, ạ)
-                (CasedBaseVowel::upper(A), Dot),
-                (CasedBaseVowel::lower(A), Dot),
+                (ExtendedBaseVowel::upper(A), Dot),
+                (ExtendedBaseVowel::lower(A), Dot),
                 // 0x1EA2 - 0x1EA3 (Ả, ả)
-                (CasedBaseVowel::upper(A), Hook),
-                (CasedBaseVowel::lower(A), Hook),
+                (ExtendedBaseVowel::upper(A), Hook),
+                (ExtendedBaseVowel::lower(A), Hook),
                 // 0x1EA4 - 0x1EA5 (Ấ, ấ)
-                (CasedBaseVowel::upper(ACircumflex), Acute),
-                (CasedBaseVowel::lower(ACircumflex), Acute),
+                (ExtendedBaseVowel::upper(ACircumflex), Acute),
+                (ExtendedBaseVowel::lower(ACircumflex), Acute),
                 // 0x1EA6 - 0x1EA7 (Ầ, ầ)
-                (CasedBaseVowel::upper(ACircumflex), Grave),
-                (CasedBaseVowel::lower(ACircumflex), Grave),
+                (ExtendedBaseVowel::upper(ACircumflex), Grave),
+                (ExtendedBaseVowel::lower(ACircumflex), Grave),
                 // 0x1EA8 - 0x1EA9 (Ẩ, ẩ)
-                (CasedBaseVowel::upper(ACircumflex), Hook),
-                (CasedBaseVowel::lower(ACircumflex), Hook),
+                (ExtendedBaseVowel::upper(ACircumflex), Hook),
+                (ExtendedBaseVowel::lower(ACircumflex), Hook),
                 // 0x1EAA - 0x1EAB (Ẫ, ẫ)
-                (CasedBaseVowel::upper(ACircumflex), Tilde),
-                (CasedBaseVowel::lower(ACircumflex), Tilde),
+                (ExtendedBaseVowel::upper(ACircumflex), Tilde),
+                (ExtendedBaseVowel::lower(ACircumflex), Tilde),
                 // 0x1EAC - 0x1EAD (Ậ, ậ)
-                (CasedBaseVowel::upper(ACircumflex), Dot),
-                (CasedBaseVowel::lower(ACircumflex), Dot),
+                (ExtendedBaseVowel::upper(ACircumflex), Dot),
+                (ExtendedBaseVowel::lower(ACircumflex), Dot),
                 // 0x1EAE - 0x1EAF (Ắ, ắ)
-                (CasedBaseVowel::upper(ABreve), Acute),
-                (CasedBaseVowel::lower(ABreve), Acute),
+                (ExtendedBaseVowel::upper(ABreve), Acute),
+                (ExtendedBaseVowel::lower(ABreve), Acute),
                 // 0x1EB0 - 0x1EB1 (Ằ, ằ)
-                (CasedBaseVowel::upper(ABreve), Grave),
-                (CasedBaseVowel::lower(ABreve), Grave),
+                (ExtendedBaseVowel::upper(ABreve), Grave),
+                (ExtendedBaseVowel::lower(ABreve), Grave),
                 // 0x1EB2 - 0x1EB3 (Ẳ, ẳ)
-                (CasedBaseVowel::upper(ABreve), Hook),
-                (CasedBaseVowel::lower(ABreve), Hook),
+                (ExtendedBaseVowel::upper(ABreve), Hook),
+                (ExtendedBaseVowel::lower(ABreve), Hook),
                 // 0x1EB4 - 0x1EB5 (Ẵ, ẵ)
-                (CasedBaseVowel::upper(ABreve), Tilde),
-                (CasedBaseVowel::lower(ABreve), Tilde),
+                (ExtendedBaseVowel::upper(ABreve), Tilde),
+                (ExtendedBaseVowel::lower(ABreve), Tilde),
                 // 0x1EB6 - 0x1EB7 (Ặ, ặ)
-                (CasedBaseVowel::upper(ABreve), Dot),
-                (CasedBaseVowel::lower(ABreve), Dot),
+                (ExtendedBaseVowel::upper(ABreve), Dot),
+                (ExtendedBaseVowel::lower(ABreve), Dot),
                 // 0x1EB8 - 0x1EB9 (Ẹ, ẹ)
-                (CasedBaseVowel::upper(E), Dot),
-                (CasedBaseVowel::lower(E), Dot),
+                (ExtendedBaseVowel::upper(E), Dot),
+                (ExtendedBaseVowel::lower(E), Dot),
                 // 0x1EBA - 0x1EBB (Ẻ, ẻ)
-                (CasedBaseVowel::upper(E), Hook),
-                (CasedBaseVowel::lower(E), Hook),
+                (ExtendedBaseVowel::upper(E), Hook),
+                (ExtendedBaseVowel::lower(E), Hook),
                 // 0x1EBC - 0x1EBD (Ẽ, ẽ)
-                (CasedBaseVowel::upper(E), Tilde),
-                (CasedBaseVowel::lower(E), Tilde),
+                (ExtendedBaseVowel::upper(E), Tilde),
+                (ExtendedBaseVowel::lower(E), Tilde),
                 // 0x1EBE - 0x1EBF (Ế, ế)
-                (CasedBaseVowel::upper(ECircumflex), Acute),
-                (CasedBaseVowel::lower(ECircumflex), Acute),
+                (ExtendedBaseVowel::upper(ECircumflex), Acute),
+                (ExtendedBaseVowel::lower(ECircumflex), Acute),
                 // 0x1EC0 - 0x1EC1 (Ề, ề)
-                (CasedBaseVowel::upper(ECircumflex), Grave),
-                (CasedBaseVowel::lower(ECircumflex), Grave),
+                (ExtendedBaseVowel::upper(ECircumflex), Grave),
+                (ExtendedBaseVowel::lower(ECircumflex), Grave),
                 // 0x1EC2 - 0x1EC3 (Ể, ể)
-                (CasedBaseVowel::upper(ECircumflex), Hook),
-                (CasedBaseVowel::lower(ECircumflex), Hook),
+                (ExtendedBaseVowel::upper(ECircumflex), Hook),
+                (ExtendedBaseVowel::lower(ECircumflex), Hook),
                 // 0x1EC4 - 0x1EC5 (Ễ, ễ)
-                (CasedBaseVowel::upper(ECircumflex), Tilde),
-                (CasedBaseVowel::lower(ECircumflex), Tilde),
+                (ExtendedBaseVowel::upper(ECircumflex), Tilde),
+                (ExtendedBaseVowel::lower(ECircumflex), Tilde),
                 // 0x1EC6 - 0x1EC7 (Ệ, ệ)
-                (CasedBaseVowel::upper(ECircumflex), Dot),
-                (CasedBaseVowel::lower(ECircumflex), Dot),
+                (ExtendedBaseVowel::upper(ECircumflex), Dot),
+                (ExtendedBaseVowel::lower(ECircumflex), Dot),
                 // 0x1EC8 - 0x1EC9 (Ỉ, ỉ)
-                (CasedBaseVowel::upper(I), Hook),
-                (CasedBaseVowel::lower(I), Hook),
+                (ExtendedBaseVowel::upper(I), Hook),
+                (ExtendedBaseVowel::lower(I), Hook),
                 // 0x1ECA - 0x1ECB (Ị, ị)
-                (CasedBaseVowel::upper(I), Dot),
-                (CasedBaseVowel::lower(I), Dot),
+                (ExtendedBaseVowel::upper(I), Dot),
+                (ExtendedBaseVowel::lower(I), Dot),
                 // 0x1ECC - 0x1ECD (Ọ, ọ)
-                (CasedBaseVowel::upper(O), Dot),
-                (CasedBaseVowel::lower(O), Dot),
+                (ExtendedBaseVowel::upper(O), Dot),
+                (ExtendedBaseVowel::lower(O), Dot),
                 // 0x1ECE - 0x1ECF (Ỏ, ỏ)
-                (CasedBaseVowel::upper(O), Hook),
-                (CasedBaseVowel::lower(O), Hook),
+                (ExtendedBaseVowel::upper(O), Hook),
+                (ExtendedBaseVowel::lower(O), Hook),
                 // 0x1ED0 - 0x1ED1 (Ố, ố)
-                (CasedBaseVowel::upper(OCircumflex), Acute),
-                (CasedBaseVowel::lower(OCircumflex), Acute),
+                (ExtendedBaseVowel::upper(OCircumflex), Acute),
+                (ExtendedBaseVowel::lower(OCircumflex), Acute),
                 // 0x1ED2 - 0x1ED3 (Ồ, ồ)
-                (CasedBaseVowel::upper(OCircumflex), Grave),
-                (CasedBaseVowel::lower(OCircumflex), Grave),
+                (ExtendedBaseVowel::upper(OCircumflex), Grave),
+                (ExtendedBaseVowel::lower(OCircumflex), Grave),
                 // 0x1ED4 - 0x1ED5 (Ổ, ổ)
-                (CasedBaseVowel::upper(OCircumflex), Hook),
-                (CasedBaseVowel::lower(OCircumflex), Hook),
+                (ExtendedBaseVowel::upper(OCircumflex), Hook),
+                (ExtendedBaseVowel::lower(OCircumflex), Hook),
                 // 0x1ED6 - 0x1ED7 (Ỗ, ỗ)
-                (CasedBaseVowel::upper(OCircumflex), Tilde),
-                (CasedBaseVowel::lower(OCircumflex), Tilde),
+                (ExtendedBaseVowel::upper(OCircumflex), Tilde),
+                (ExtendedBaseVowel::lower(OCircumflex), Tilde),
                 // 0x1ED8 - 0x1ED9 (Ộ, ộ)
-                (CasedBaseVowel::upper(OCircumflex), Dot),
-                (CasedBaseVowel::lower(OCircumflex), Dot),
+                (ExtendedBaseVowel::upper(OCircumflex), Dot),
+                (ExtendedBaseVowel::lower(OCircumflex), Dot),
                 // 0x1EDA - 0x1EDB (Ớ, ớ)
-                (CasedBaseVowel::upper(OHorn), Acute),
-                (CasedBaseVowel::lower(OHorn), Acute),
+                (ExtendedBaseVowel::upper(OHorn), Acute),
+                (ExtendedBaseVowel::lower(OHorn), Acute),
                 // 0x1EDC - 0x1EDD (Ờ, ờ)
-                (CasedBaseVowel::upper(OHorn), Grave),
-                (CasedBaseVowel::lower(OHorn), Grave),
+                (ExtendedBaseVowel::upper(OHorn), Grave),
+                (ExtendedBaseVowel::lower(OHorn), Grave),
                 // 0x1EDE - 0x1EDF (Ở, ở)
-                (CasedBaseVowel::upper(OHorn), Hook),
-                (CasedBaseVowel::lower(OHorn), Hook),
+                (ExtendedBaseVowel::upper(OHorn), Hook),
+                (ExtendedBaseVowel::lower(OHorn), Hook),
                 // 0x1EE0 - 0x1EE1 (Ỡ, ỡ)
-                (CasedBaseVowel::upper(OHorn), Tilde),
-                (CasedBaseVowel::lower(OHorn), Tilde),
+                (ExtendedBaseVowel::upper(OHorn), Tilde),
+                (ExtendedBaseVowel::lower(OHorn), Tilde),
                 // 0x1EE2 - 0x1EE3 (Ợ, ợ)
-                (CasedBaseVowel::upper(OHorn), Dot),
-                (CasedBaseVowel::lower(OHorn), Dot),
+                (ExtendedBaseVowel::upper(OHorn), Dot),
+                (ExtendedBaseVowel::lower(OHorn), Dot),
                 // 0x1EE4 - 0x1EE5 (Ụ, ụ)
-                (CasedBaseVowel::upper(U), Dot),
-                (CasedBaseVowel::lower(U), Dot),
+                (ExtendedBaseVowel::upper(U), Dot),
+                (ExtendedBaseVowel::lower(U), Dot),
                 // 0x1EE6 - 0x1EE7 (Ủ, ủ)
-                (CasedBaseVowel::upper(U), Hook),
-                (CasedBaseVowel::lower(U), Hook),
+                (ExtendedBaseVowel::upper(U), Hook),
+                (ExtendedBaseVowel::lower(U), Hook),
                 // 0x1EE8 - 0x1EE9 (Ứ, ứ)
-                (CasedBaseVowel::upper(UHorn), Acute),
-                (CasedBaseVowel::lower(UHorn), Acute),
+                (ExtendedBaseVowel::upper(UHorn), Acute),
+                (ExtendedBaseVowel::lower(UHorn), Acute),
                 // 0x1EEA - 0x1EEB (Ừ, ừ)
-                (CasedBaseVowel::upper(UHorn), Grave),
-                (CasedBaseVowel::lower(UHorn), Grave),
+                (ExtendedBaseVowel::upper(UHorn), Grave),
+                (ExtendedBaseVowel::lower(UHorn), Grave),
                 // 0x1EEC - 0x1EED (Ử, ử)
-                (CasedBaseVowel::upper(UHorn), Hook),
-                (CasedBaseVowel::lower(UHorn), Hook),
+                (ExtendedBaseVowel::upper(UHorn), Hook),
+                (ExtendedBaseVowel::lower(UHorn), Hook),
                 // 0x1EEE - 0x1EEF (Ữ, ữ)
-                (CasedBaseVowel::upper(UHorn), Tilde),
-                (CasedBaseVowel::lower(UHorn), Tilde),
+                (ExtendedBaseVowel::upper(UHorn), Tilde),
+                (ExtendedBaseVowel::lower(UHorn), Tilde),
                 // 0x1EF0 - 0x1EF1 (Ự, ự)
-                (CasedBaseVowel::upper(UHorn), Dot),
-                (CasedBaseVowel::lower(UHorn), Dot),
+                (ExtendedBaseVowel::upper(UHorn), Dot),
+                (ExtendedBaseVowel::lower(UHorn), Dot),
                 // 0x1EF2 - 0x1EF3 (Ỳ, ỳ)
-                (CasedBaseVowel::upper(Y), Grave),
-                (CasedBaseVowel::lower(Y), Grave),
+                (ExtendedBaseVowel::upper(Y), Grave),
+                (ExtendedBaseVowel::lower(Y), Grave),
                 // 0x1EF4 - 0x1EF5 (Ỵ, ỵ)
-                (CasedBaseVowel::upper(Y), Dot),
-                (CasedBaseVowel::lower(Y), Dot),
+                (ExtendedBaseVowel::upper(Y), Dot),
+                (ExtendedBaseVowel::lower(Y), Dot),
                 // 0x1EF6 - 0x1EF7 (Ỷ, ỷ)
-                (CasedBaseVowel::upper(Y), Hook),
-                (CasedBaseVowel::lower(Y), Hook),
+                (ExtendedBaseVowel::upper(Y), Hook),
+                (ExtendedBaseVowel::lower(Y), Hook),
                 // 0x1EF8 - 0x1EF9 (Ỹ, ỹ)
-                (CasedBaseVowel::upper(Y), Tilde),
-                (CasedBaseVowel::lower(Y), Tilde),
+                (ExtendedBaseVowel::upper(Y), Tilde),
+                (ExtendedBaseVowel::lower(Y), Tilde),
             ];
             let offset = (code - 0x1EA0) as usize;
             Some(DECODED_VIETNAMESE_BLOCK_LUT[offset])
@@ -704,4 +641,161 @@ pub const fn is_vowel(ch: char) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Canonical list of every [`BaseVowel`], kept in lockstep with the enum.
+    const ALL_BASES: [BaseVowel; BaseVowel::COUNT] = BaseVowel::VARIANTS_BY_ID;
+
+    /// Every [`BaseVowel`] discriminant must fit entirely below the case bit,
+    /// otherwise `ExtendedBaseVowel::get()`'s mask would silently drop it and the
+    /// round-trip would be lossy.
+    #[test]
+    fn base_vowel_discriminants_fit_below_the_case_bit() {
+        for &base in &ALL_BASES {
+            let raw = base as u16;
+            assert!(
+                raw < ExtendedBaseVowel::CASE_MASK,
+                "{base:?} (0x{raw:x}) overlaps the case bit at bit {}",
+                ExtendedBaseVowel::CASE_OFFSET,
+            );
+        }
+    }
+
+    /// All 24 `(base, case)` combinations must pack into distinct `u16`s, with
+    /// the lower form equal to the bare discriminant and the upper form exactly
+    /// one case-bit away. Reserved bits above the case bit stay clear.
+    #[test]
+    fn all_base_case_combinations_pack_distinctly() {
+        const PACK_SPACE: usize = 1 << (BaseVowel::NEXT_OFFSET as usize + 1);
+        let mut seen = [false; PACK_SPACE];
+
+        for &base in &ALL_BASES {
+            let lower = ExtendedBaseVowel::lower(base);
+            let upper = ExtendedBaseVowel::upper(base);
+
+            assert_eq!(
+                lower.0, base as u16,
+                "lower form must be the bare discriminant"
+            );
+            assert_eq!(
+                upper.0,
+                base as u16 | ExtendedBaseVowel::CASE_MASK,
+                "upper form must set exactly the case bit",
+            );
+
+            for cased in [lower, upper] {
+                assert_eq!(
+                    cased.0 >> (ExtendedBaseVowel::CASE_OFFSET + 1),
+                    0,
+                    "reserved bits above the case bit are set in {cased:?}",
+                );
+                assert!(
+                    !seen[cased.0 as usize],
+                    "duplicate packed value for {cased:?}",
+                );
+                seen[cased.0 as usize] = true;
+            }
+        }
+    }
+
+    /// Setters must never push the packed value outside the `(base, case)` space.
+    #[test]
+    fn setters_preserve_packed_bounds() {
+        for &base in &ALL_BASES {
+            let mut cased = ExtendedBaseVowel::lower(base);
+
+            cased.set_case(true);
+            assert_eq!(cased, ExtendedBaseVowel::upper(base));
+
+            cased.set_case(false);
+            assert_eq!(cased, ExtendedBaseVowel::lower(base));
+
+            for &replacement in &ALL_BASES {
+                cased.set(replacement);
+                assert_eq!(cased.get(), replacement);
+                assert!(
+                    cased.0 < ExtendedBaseVowel::CASE_MASK
+                        || cased.0 - ExtendedBaseVowel::CASE_MASK < ExtendedBaseVowel::CASE_MASK,
+                    "{replacement:?} pushed the pack out of bounds: 0x{:x}",
+                    cased.0,
+                );
+            }
+        }
+    }
+
+    // ─────────────── Construction aliases ───────────────
+    /// `new`, `lower` and `upper` must be exact aliases of `with_case`.
+    #[test]
+    fn extended_constructors_are_with_case_aliases() {
+        for &base in &ALL_BASES {
+            let lower = ExtendedBaseVowel::with_case(base, false);
+            let upper = ExtendedBaseVowel::with_case(base, true);
+
+            assert_eq!(ExtendedBaseVowel::new(base), lower);
+            assert_eq!(ExtendedBaseVowel::lower(base), lower);
+            assert_eq!(ExtendedBaseVowel::upper(base), upper);
+        }
+    }
+
+    // ─────────────── Reserved extension bits ───────────────
+    /// `set` must swap the base while preserving the case flag and any reserved
+    /// extension bits above the base region (integration tests cannot exercise
+    /// this, since the packed field is private).
+    #[test]
+    fn set_preserves_reserved_extension_bits() {
+        for &base in &ALL_BASES {
+            for &replacement in &ALL_BASES {
+                for upper in [false, true] {
+                    for &reserved in &[1u16 << 10, 1u16 << 12, 1u16 << 15] {
+                        let mut cased = ExtendedBaseVowel::with_case(base, upper);
+                        cased.0 |= reserved;
+
+                        cased.set(replacement);
+
+                        assert_eq!(cased.get(), replacement, "set must replace the base");
+                        assert_eq!(cased.is_upper(), upper, "set must not touch the case bit");
+                        assert_ne!(
+                            cased.0 & reserved,
+                            0,
+                            "set must preserve reserved extension bits"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // ─────────────── BaseVowel field round-trips ───────────────
+    /// `root()` / `shape()` must be the exact inverse of `from_parts` for every
+    /// valid variant, and `id()` the inverse of `from_id`.
+    #[test]
+    fn base_vowel_fields_round_trip_through_from_parts() {
+        for &base in &ALL_BASES {
+            assert_eq!(base.id(), (base as u16 >> BaseVowel::ID_OFFSET as usize) as usize);
+            assert_eq!(BaseVowel::from_id(base.id()), Ok(base));
+
+            assert_eq!(
+                BaseVowel::from_parts(base.root(), base.shape()),
+                Ok(base),
+                "root/shape extraction must rebuild {base:?}"
+            );
+        }
+    }
+
+    /// `remove_shape` must drop the shape and keep the plain root.
+    #[test]
+    fn remove_shape_matches_from_parts_with_none() {
+        for &base in &ALL_BASES {
+            assert_eq!(
+                base.remove_shape(),
+                BaseVowel::from_parts(base.root(), Shape::None)
+                    .expect("a plain root always exists"),
+                "remove_shape mismatch for {base:?}"
+            );
+        }
+    }
 }

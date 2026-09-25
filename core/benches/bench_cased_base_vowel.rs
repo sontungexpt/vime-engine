@@ -9,7 +9,7 @@ use std::hint::black_box;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
 
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel, Tone};
+use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel, Tone};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
@@ -188,7 +188,7 @@ fn report(
 }
 
 #[inline(always)]
-fn nucleus_bases_loop(vowels: &[CasedBaseVowel]) -> [BaseVowel; 3] {
+fn nucleus_bases_loop(vowels: &[ExtendedBaseVowel]) -> [BaseVowel; 3] {
     let mut bases = [BaseVowel::A; 3];
     for (dst, vowel) in bases.iter_mut().zip(vowels) {
         *dst = vowel.get();
@@ -197,7 +197,7 @@ fn nucleus_bases_loop(vowels: &[CasedBaseVowel]) -> [BaseVowel; 3] {
 }
 
 #[inline(always)]
-fn nucleus_bases_match(vowels: &[CasedBaseVowel]) -> [BaseVowel; 3] {
+fn nucleus_bases_match(vowels: &[ExtendedBaseVowel]) -> [BaseVowel; 3] {
     use BaseVowel::A;
     match vowels {
         [] => [A; 3],
@@ -209,8 +209,8 @@ fn nucleus_bases_match(vowels: &[CasedBaseVowel]) -> [BaseVowel; 3] {
 }
 
 fn main() {
-    let current: [CasedBaseVowel; 24] = std::array::from_fn(|i| {
-        CasedBaseVowel::new(VOWELS[i % VOWELS.len()], i / VOWELS.len() != 0)
+    let current: [ExtendedBaseVowel; 24] = std::array::from_fn(|i| {
+        ExtendedBaseVowel::with_case(VOWELS[i % VOWELS.len()], i / VOWELS.len() != 0)
     });
     let packed: [PackedCasedBaseVowel; 24] = std::array::from_fn(|i| {
         PackedCasedBaseVowel::new(VOWELS[i % VOWELS.len()], i / VOWELS.len() != 0)
@@ -223,7 +223,7 @@ fn main() {
     // Verify all vowel/case pairs and all tone encodings before timing.
     for &vowel in &VOWELS {
         for is_upper in [false, true] {
-            let a = CasedBaseVowel::new(vowel, is_upper);
+            let a = ExtendedBaseVowel::with_case(vowel, is_upper);
             let b = PackedCasedBaseVowel::new(vowel, is_upper);
             let c = IdCasedBaseVowel::new(vowel, is_upper);
             assert_eq!(a.get(), b.value());
@@ -240,7 +240,7 @@ fn main() {
             let mut a = a;
             let mut b = b;
             let mut c = c;
-            a.set_upper(!is_upper);
+            a.set_case(!is_upper);
             b.set_upper(!is_upper);
             c.set_upper(!is_upper);
             assert_eq!(a.is_upper(), b.is_upper());
@@ -255,7 +255,7 @@ fn main() {
 
     println!(
         "size: current {} bytes, u16-packed {} bytes, ID-packed {} bytes",
-        size_of::<CasedBaseVowel>(),
+        size_of::<ExtendedBaseVowel>(),
         size_of::<PackedCasedBaseVowel>(),
         size_of::<IdCasedBaseVowel>()
     );
@@ -337,32 +337,32 @@ fn main() {
 
     compare!(
         "get_value",
-        |v: CasedBaseVowel| v.get(),
+        |v: ExtendedBaseVowel| v.get(),
         |v: PackedCasedBaseVowel| v.value()
     );
     compare!(
         "get_case",
-        |v: CasedBaseVowel| v.is_upper(),
+        |v: ExtendedBaseVowel| v.is_upper(),
         |v: PackedCasedBaseVowel| v.is_upper()
     );
     compare_id!(
         "get_value (ID)",
-        |v: CasedBaseVowel| v.get(),
+        |v: ExtendedBaseVowel| v.get(),
         |v: IdCasedBaseVowel| v.value()
     );
     compare_id!(
         "get_case (ID)",
-        |v: CasedBaseVowel| v.is_upper(),
+        |v: ExtendedBaseVowel| v.is_upper(),
         |v: IdCasedBaseVowel| v.is_upper()
     );
     compare!(
         "to_char",
-        |v: CasedBaseVowel| v.to_char(),
+        |v: ExtendedBaseVowel| v.to_char(),
         |v: PackedCasedBaseVowel| v.to_char()
     );
     compare_id!(
         "to_char (ID)",
-        |v: CasedBaseVowel| v.to_char(),
+        |v: ExtendedBaseVowel| v.to_char(),
         |v: IdCasedBaseVowel| v.to_char()
     );
 
@@ -438,7 +438,7 @@ fn main() {
         || {
             for value in &current {
                 let mut value = black_box(*value);
-                value.set_upper(black_box(!value.is_upper()));
+                value.set_case(black_box(!value.is_upper()));
                 black_box(value);
             }
         },

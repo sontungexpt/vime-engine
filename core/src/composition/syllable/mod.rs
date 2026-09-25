@@ -4,7 +4,7 @@ mod input_effect;
 
 use crate::{
     keymap::Keymap,
-    phonology::{CasedBaseVowel, Coda, Onset, TonePlacement},
+    phonology::{ExtendedBaseVowel, Coda, Onset, TonePlacement},
 };
 
 pub use building::BuildingSyllable;
@@ -71,7 +71,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
 
     /// Replaces the tone-placement scheme.
     #[inline]
-    pub fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
+    pub const fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
         self.tone_placement = tone_placement;
     }
 
@@ -119,7 +119,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
 
     /// The nucleus vowels, `None` once dead.
     #[inline(always)]
-    pub fn vowels(&self) -> Option<&[CasedBaseVowel]> {
+    pub fn vowels(&self) -> Option<&[ExtendedBaseVowel]> {
         match &self.state {
             SyllableState::Building(builder) => Some(builder.vowels()),
             SyllableState::Dead(_) => None,

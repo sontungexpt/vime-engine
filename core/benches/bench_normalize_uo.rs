@@ -12,18 +12,18 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel};
+use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel};
 
-/// Faithful shrink of the `ArrayVec<CasedBaseVowel, 3>` nucleus + coda flag.
+/// Faithful shrink of the `ArrayVec<ExtendedBaseVowel, 3>` nucleus + coda flag.
 #[derive(Clone)]
 struct Nucleus {
-    vowels: [CasedBaseVowel; 3],
+    vowels: [ExtendedBaseVowel; 3],
     len: usize,
     coda_empty: bool,
 }
 
-fn v(b: BaseVowel) -> CasedBaseVowel {
-    CasedBaseVowel::new(b, false)
+fn v(b: BaseVowel) -> ExtendedBaseVowel {
+    ExtendedBaseVowel::with_case(b, false)
 }
 
 /// Old form, transcribed verbatim from `068edb6` `finalize_uo_shape`.

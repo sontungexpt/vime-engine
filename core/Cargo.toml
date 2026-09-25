@@ -69,3 +69,7 @@ harness = false
 [[bench]]
 name = "bench_decode_ascii"
 harness = false
+
+[[bench]]
+name = "bench_base_vowel_merged"
+harness = false

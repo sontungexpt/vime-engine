@@ -1,7 +1,7 @@
 //! Micro-benchmark: crate `InlineVec` vs `arrayvec::ArrayVec`.
 //!
 //! `InlineVec` replaces `ArrayVec` as the inline buffer backing
-//! `BuildingSyllable` (onset/coda `char`, nucleus `CasedBaseVowel`). Both
+//! `BuildingSyllable` (onset/coda `char`, nucleus `ExtendedBaseVowel`). Both
 //! types are measured on identical, capacity-bounded edit bursts — push-heavy
 //! typing, caret insert/remove, backspace pops, and read-out — over the same
 //! state population. Any regression from the swap shows up as ns/op.
@@ -11,7 +11,7 @@
 use std::time::Instant;
 
 use arrayvec::ArrayVec;
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel};
+use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel};
 use vime_engine::util::InlineVec;
 
 /// The `BuildingSyllable` buffer surface: bounded push/insert/pop/remove,
@@ -239,8 +239,8 @@ fn bench_pop<T: Copy, const N: usize>(
     println!("  checksum: ArrayVec {} / InlineVec {}", acc_av, acc_fa);
 }
 
-fn v(b: BaseVowel) -> CasedBaseVowel {
-    CasedBaseVowel::new(b, false)
+fn v(b: BaseVowel) -> ExtendedBaseVowel {
+    ExtendedBaseVowel::with_case(b, false)
 }
 
 fn main() {
@@ -257,8 +257,8 @@ fn main() {
 
     bench_pop::<char, 3>("onset", onset_specs, ('n', 'g', 'h', 'x'));
 
-    // ─────────────────────── Nucleus · CasedBaseVowel<3> ───────────────────────
-    let nucleus_specs: &[Vec<CasedBaseVowel>] = &[
+    // ─────────────────────── Nucleus · ExtendedBaseVowel<3> ───────────────────────
+    let nucleus_specs: &[Vec<ExtendedBaseVowel>] = &[
         vec![v(BaseVowel::A)],
         vec![v(BaseVowel::A), v(BaseVowel::E)],
         vec![v(BaseVowel::U), v(BaseVowel::O)],
@@ -267,7 +267,7 @@ fn main() {
         vec![v(BaseVowel::U), v(BaseVowel::O), v(BaseVowel::Y)],
         vec![v(BaseVowel::I), v(BaseVowel::E), v(BaseVowel::U)],
     ];
-    bench_pop::<CasedBaseVowel, 3>(
+    bench_pop::<ExtendedBaseVowel, 3>(
         "nucleus",
         nucleus_specs,
         (

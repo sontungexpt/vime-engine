@@ -30,5 +30,7 @@ pub trait Keymap {
     ///
     /// Returns `Some(Shape)` if `key` modifies `target` (e.g., `a` + `w` -> breve `ă`, `a` + `a` -> circumflex `â`),
     /// or `None` if `key` is not bound to a shape modifier for `target`.
+    ///
+    /// NOTE: In the future may be we will change target in to context or a array vowels for dfa state implementation but for now it's too complicated and no worth.
     fn decode_shape(&self, key: char, target: RootVowel) -> Option<Shape>;
 }

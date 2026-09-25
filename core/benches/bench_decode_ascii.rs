@@ -10,31 +10,31 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{decode_vowel, BaseVowel, BaseVowel::*, CasedBaseVowel, Tone, Tone::*};
+use vime_engine::phonology::{decode_vowel, BaseVowel, BaseVowel::*, ExtendedBaseVowel, Tone, Tone::*};
 
 /// Current fast path (as in `decode_vowel`).
 #[inline(always)]
-fn ascii_match(c: char) -> Option<(CasedBaseVowel, Tone)> {
+fn ascii_match(c: char) -> Option<(ExtendedBaseVowel, Tone)> {
     match c {
-        'a' => Some((CasedBaseVowel::lower(A), Flat)),
-        'A' => Some((CasedBaseVowel::upper(A), Flat)),
-        'o' => Some((CasedBaseVowel::lower(O), Flat)),
-        'O' => Some((CasedBaseVowel::upper(O), Flat)),
-        'e' => Some((CasedBaseVowel::lower(E), Flat)),
-        'E' => Some((CasedBaseVowel::upper(E), Flat)),
-        'i' => Some((CasedBaseVowel::lower(I), Flat)),
-        'I' => Some((CasedBaseVowel::upper(I), Flat)),
-        'u' => Some((CasedBaseVowel::lower(U), Flat)),
-        'U' => Some((CasedBaseVowel::upper(U), Flat)),
-        'y' => Some((CasedBaseVowel::lower(Y), Flat)),
-        'Y' => Some((CasedBaseVowel::upper(Y), Flat)),
+        'a' => Some((ExtendedBaseVowel::lower(A), Flat)),
+        'A' => Some((ExtendedBaseVowel::upper(A), Flat)),
+        'o' => Some((ExtendedBaseVowel::lower(O), Flat)),
+        'O' => Some((ExtendedBaseVowel::upper(O), Flat)),
+        'e' => Some((ExtendedBaseVowel::lower(E), Flat)),
+        'E' => Some((ExtendedBaseVowel::upper(E), Flat)),
+        'i' => Some((ExtendedBaseVowel::lower(I), Flat)),
+        'I' => Some((ExtendedBaseVowel::upper(I), Flat)),
+        'u' => Some((ExtendedBaseVowel::lower(U), Flat)),
+        'U' => Some((ExtendedBaseVowel::upper(U), Flat)),
+        'y' => Some((ExtendedBaseVowel::lower(Y), Flat)),
+        'Y' => Some((ExtendedBaseVowel::upper(Y), Flat)),
         _ => None,
     }
 }
 
 /// Bit-trick candidate: check the 0x20 case bit, force lowercase, match 6.
 #[inline(always)]
-fn ascii_bittrick(code: u32) -> Option<(CasedBaseVowel, Tone)> {
+fn ascii_bittrick(code: u32) -> Option<(ExtendedBaseVowel, Tone)> {
     let base = match (code | 0x20) as u8 as char {
         'a' => A,
         'o' => O,
@@ -44,7 +44,7 @@ fn ascii_bittrick(code: u32) -> Option<(CasedBaseVowel, Tone)> {
         'y' => Y,
         _ => return None,
     };
-    Some((CasedBaseVowel::new(base, (code & 0x20) == 0), Flat))
+    Some((ExtendedBaseVowel::with_case(base, (code & 0x20) == 0), Flat))
 }
 
 /// ASCII→priority-ID table: index by the raw `code & 0x7F` (both cases land in
@@ -75,19 +75,19 @@ const fn ascii_id_of(code: u32) -> u8 {
 
 /// LUT candidate: one masked load, one sentinel test, no match tree.
 #[inline(always)]
-fn ascii_lut(code: u32) -> Option<(CasedBaseVowel, Tone)> {
+fn ascii_lut(code: u32) -> Option<(ExtendedBaseVowel, Tone)> {
     let id = ASCII_LUT[(code & 0x7F) as usize];
     if id == 0xFF {
         return None;
     }
     // SAFETY: `id` came from the LUT, which only ever stores IDs `< 12`.
     let base = unsafe { BaseVowel::from_id_unchecked(id as usize) };
-Some((CasedBaseVowel::new(base, (code & 0x20) == 0), Flat))
+Some((ExtendedBaseVowel::with_case(base, (code & 0x20) == 0), Flat))
 }
 
 /// Folds a decode result into the checksum.
 #[inline(always)]
-fn fold(acc: u64, r: Option<(CasedBaseVowel, Tone)>) -> u64 {
+fn fold(acc: u64, r: Option<(ExtendedBaseVowel, Tone)>) -> u64 {
     match r {
         Some((cased, tone)) => acc
             .wrapping_mul(31)

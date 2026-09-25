@@ -11,17 +11,17 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{BaseVowel, CasedBaseVowel, Shape};
+use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel, Shape};
 
-/// Faithful shrink of the `ArrayVec<CasedBaseVowel, 3>` nucleus.
+/// Faithful shrink of the `ArrayVec<ExtendedBaseVowel, 3>` nucleus.
 #[derive(Clone)]
 struct Nucleus {
-    vowels: [CasedBaseVowel; 3],
+    vowels: [ExtendedBaseVowel; 3],
     len: usize,
 }
 
-fn v(b: BaseVowel) -> CasedBaseVowel {
-    CasedBaseVowel::new(b, false)
+fn v(b: BaseVowel) -> ExtendedBaseVowel {
+    ExtendedBaseVowel::with_case(b, false)
 }
 
 /// Shared shape-toggle: Horn on index `i` (reverts when already Horn).

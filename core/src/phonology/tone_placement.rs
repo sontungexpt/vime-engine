@@ -1,4 +1,4 @@
-use super::{BaseVowel, CasedBaseVowel};
+use super::{BaseVowel, ExtendedBaseVowel};
 
 /// A read-only view over a vowel nucleus.
 pub trait NucleusView {
@@ -30,7 +30,7 @@ impl NucleusView for [BaseVowel] {
     }
 }
 
-impl NucleusView for [CasedBaseVowel] {
+impl NucleusView for [ExtendedBaseVowel] {
     #[inline(always)]
     fn len(&self) -> usize {
         self.len()
