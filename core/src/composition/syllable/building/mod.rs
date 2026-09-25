@@ -7,8 +7,8 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        BaseVowel, Coda, ExtendedBaseVowel, NucleusState, Onset, RootVowel, Shape, Tone,
-        TonePlacement, NUCLEUS_MAX_LEN,
+        BaseVowel, Coda, ExtendedBaseVowel, NucleusState, Onset, PhonotacticValidator, RootVowel,
+        Shape, Tone, TonePlacement, ValidationError, NUCLEUS_MAX_LEN,
     },
     util::InlineVec,
 };
@@ -49,8 +49,6 @@ pub enum SyllableBuildError {
 }
 
 type Nucleus = InlineVec<ExtendedBaseVowel, NUCLEUS_MAX_LEN>;
-type OnsetChars = InlineVec<char, { Onset::MAX_LEN }>;
-type CodaChars = InlineVec<char, { Coda::MAX_LEN }>;
 
 impl Nucleus {
     /// Copies the vowels into `dst`, returning the number copied.
@@ -63,6 +61,9 @@ impl Nucleus {
         count
     }
 }
+
+type OnsetChars = InlineVec<char, { Onset::MAX_LEN }>;
+type CodaChars = InlineVec<char, { Coda::MAX_LEN }>;
 
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -170,23 +171,16 @@ impl BuildingSyllable {
         output
     }
 
-    // ─────────────────────────── Validation ───────────────────────────
-
-    #[inline]
-    fn transaction<T>(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> Result<T, SyllableBuildError>,
-    ) -> Result<T, SyllableBuildError> {
-        let snapshot = self.clone();
-
-        match f(self) {
-            Ok(value) => Ok(value),
-            Err(err) => {
-                *self = snapshot;
-                Err(err)
-            }
-        }
+    pub fn validate<V>(&self, validator: V) -> Result<(), ValidationError>
+    where
+        V: PhonotacticValidator,
+    {
+        let mut buf = [BaseVowel::Y; NUCLEUS_MAX_LEN];
+        let count = self.nucleus.bases(&mut buf);
+        validator.validate(self.onset_kind, &buf[..count], self.coda_kind, self.tone)
     }
+
+    // ─────────────────────────── Validation ───────────────────────────
 
     /// Mutates the onset; updates `onset_kind` on success, otherwise undoes
     /// the change with the undo data.
@@ -196,10 +190,6 @@ impl BuildingSyllable {
         F: FnOnce(&mut OnsetChars) -> T,
         R: FnOnce(&mut OnsetChars, T),
     {
-        if self.onset.len() >= Onset::MAX_LEN {
-            return false;
-        }
-
         let undo_data = update(&mut self.onset);
 
         // Validate the onset.
@@ -251,10 +241,6 @@ impl BuildingSyllable {
         F: FnOnce(&mut CodaChars) -> T,
         R: FnOnce(&mut CodaChars, T),
     {
-        if self.coda.len() >= Coda::MAX_LEN {
-            return false;
-        }
-
         let undo_data = update(&mut self.coda);
 
         match Coda::from_chars(&self.coda) {
@@ -549,7 +535,7 @@ impl BuildingSyllable {
                         return TransformResult::Applied;
                     }
 
-                    TransformResult::NotApplicable
+                    return TransformResult::NotApplicable;
                 }
 
                 _ => TransformResult::NotApplicable,

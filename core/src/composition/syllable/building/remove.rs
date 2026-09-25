@@ -67,20 +67,10 @@ impl BuildingSyllable {
     fn remove_onset(&mut self, onset_index: usize) -> bool {
         debug_assert!(onset_index < self.onset.len());
 
-        // Direct mutation: `try_update_onset` refuses a full cluster, but
-        // removal only ever shrinks, so the grow guard must not apply here.
-        let removed = self.onset.remove(onset_index);
-
-        match Onset::from_chars(&self.onset) {
-            Ok(kind) => {
-                self.onset_kind = kind;
-                true
-            }
-            Err(_) => {
-                self.onset.insert(onset_index, removed);
-                false
-            }
-        }
+        self.try_update_onset(
+            |onset| onset.remove(onset_index),
+            |onset, removed| _ = onset.insert(onset_index, removed),
+        )
     }
 
     #[inline]
@@ -158,19 +148,9 @@ impl BuildingSyllable {
     fn remove_coda(&mut self, index: usize) -> bool {
         debug_assert!(index < self.coda.len());
 
-        // Direct mutation: `try_update_coda` refuses a full cluster, but
-        // removal only ever shrinks, so the grow guard must not apply here.
-        let removed = self.coda.remove(index);
-
-        match Coda::from_chars(&self.coda) {
-            Ok(kind) => {
-                self.coda_kind = kind;
-                true
-            }
-            Err(_) => {
-                self.coda.insert(index, removed);
-                false
-            }
-        }
+        self.try_update_coda(
+            |coda| coda.remove(index),
+            |coda, removed| _ = coda.insert(index, removed),
+        )
     }
 }

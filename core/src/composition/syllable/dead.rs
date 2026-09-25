@@ -64,9 +64,28 @@ impl DeadSyllable {
         self.rejected_count
     }
 
+    /// Returns `true` when the buffer holds only accepted characters, i.e. the
+    /// rejected count is zero.
+    ///
+    /// In that state the whole syllable came from the last valid parse, so the
+    /// skim could be fed to a fresh builder and parsed again. Once any
+    /// character was rejected, the buffered text is verbatim and a re-parse
+    /// would not reproduce it.
+    #[inline(always)]
+    pub fn is_reparseable(&self) -> bool {
+        self.rejected_count == 0
+    }
+
     #[inline(always)]
     pub fn chars(&self) -> &[TokenState] {
         &self.chars
+    }
+
+    /// Yields the buffered characters, accepted and rejected alike, without
+    /// allocating an intermediate buffer.
+    #[inline(always)]
+    pub fn iter_chars(&self) -> impl Iterator<Item = char> + '_ {
+        self.chars.iter().map(|status| status.char())
     }
 
     #[inline(always)]

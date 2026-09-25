@@ -96,6 +96,10 @@ impl BuildingSyllable {
             return true;
         }
 
+        if self.onset.len() >= Onset::MAX_LEN {
+            return false;
+        }
+
         self.try_update_onset(
             |onset| onset.push(key),
             |onset, _| {
@@ -170,6 +174,9 @@ impl BuildingSyllable {
     /// not accept the input.
     #[inline]
     fn push_coda(&mut self, key: char) -> bool {
+        if self.coda.len() >= Coda::MAX_LEN {
+            return false;
+        }
         self.try_update_coda(
             |coda| coda.push(key),
             |coda, _| {

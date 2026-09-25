@@ -130,6 +130,9 @@ impl BuildingSyllable {
             return false;
         }
 
+        if self.onset.len() >= Onset::MAX_LEN {
+            return false;
+        }
         self.try_update_onset(
             |onset| onset.insert(index, key),
             |onset, _| _ = onset.remove(index),
@@ -208,6 +211,9 @@ impl BuildingSyllable {
     fn insert_coda(&mut self, coda_index: usize, input: char) -> bool {
         debug_assert!(coda_index <= self.coda.len());
 
+        if self.coda.len() >= Coda::MAX_LEN {
+            return false;
+        }
         self.try_update_coda(
             |coda| coda.insert(coda_index, input),
             |coda, _| _ = coda.remove(coda_index),

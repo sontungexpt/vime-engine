@@ -4,7 +4,7 @@ mod input_effect;
 
 use crate::{
     keymap::Keymap,
-    phonology::{ExtendedBaseVowel, Coda, Onset, TonePlacement},
+    phonology::{Coda, ExtendedBaseVowel, Onset, TonePlacement},
 };
 
 pub use building::BuildingSyllable;
@@ -219,6 +219,16 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         match &mut self.state {
             SyllableState::Dead(builder) => {
                 builder.remove(index);
+                if builder.is_reparseable() {
+                    let mut building = BuildingSyllable::default();
+                    for ch in builder.iter_chars() {
+                        if building.push(&self.keymap, ch).is_err() {
+                            return InputEffect::StructurallyChanged;
+                        }
+                    }
+                    // Parse success then change to building state;
+                    self.state = SyllableState::Building(building);
+                }
                 InputEffect::StructurallyChanged
             }
             SyllableState::Building(builder) => match builder.remove(index, self.tone_placement) {
