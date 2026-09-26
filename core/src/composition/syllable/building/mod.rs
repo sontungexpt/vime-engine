@@ -520,7 +520,7 @@ impl BuildingSyllable {
 
                 // ươ, ưo -> uô: drop the Horn on `ư`, then Circumflex the `o`.
                 (UHorn, OHorn | O) => {
-                    let oldo = self.nucleus[1].get();
+                    let old_o = self.nucleus[1].get();
 
                     if self.try_update_nucleus(
                         |nucleus| {
@@ -529,7 +529,7 @@ impl BuildingSyllable {
                         },
                         |nucleus, _| {
                             nucleus[0].set(UHorn);
-                            nucleus[1].set(oldo);
+                            nucleus[1].set(old_o);
                         },
                     ) {
                         return TransformResult::Applied;

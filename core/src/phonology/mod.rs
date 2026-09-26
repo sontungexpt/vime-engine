@@ -6,7 +6,7 @@ mod phonotactics;
 mod tone_placement;
 mod vowel;
 
-pub use case::Cased;
+pub use case::{Case, Cased};
 pub use coda::{Coda, CodaParseError};
 pub use nucleus::{NucleusState, NUCLEUS_MAX_LEN};
 pub use onset::{Onset, OnsetParseError};

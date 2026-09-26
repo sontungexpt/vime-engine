@@ -1,25 +1,56 @@
+/// Whether a value should be rendered with uppercase or lowercase letters.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    Lower = 0,
+    Upper = 1,
+}
+
+impl Case {
+    #[inline(always)]
+    pub const fn is_upper(self) -> bool {
+        matches!(self, Self::Upper)
+    }
+}
+
+impl From<Case> for bool {
+    #[inline(always)]
+    fn from(case: Case) -> Self {
+        case.is_upper()
+    }
+}
+
+impl From<bool> for Case {
+    #[inline(always)]
+    fn from(upper: bool) -> Self {
+        // SAFETY: `bool` is represented as 0 or 1, matching the `repr(u8)`
+        // discriminants of `Lower` and `Upper`.
+        unsafe { std::mem::transmute::<bool, Self>(upper) }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cased<T> {
     value: T,
-    is_upper: bool,
+    case: Case,
 }
 
 impl<T> Cased<T> {
     #[inline(always)]
-    pub const fn new(value: T, is_upper: bool) -> Self {
-        Self { value, is_upper }
+    pub const fn new(value: T, case: Case) -> Self {
+        Self { value, case }
     }
 
     /// Creates an uppercased value.
     #[inline(always)]
     pub const fn upper(value: T) -> Self {
-        Self::new(value, true)
+        Self::new(value, Case::Upper)
     }
 
     /// Creates a lowercased value.
     #[inline(always)]
     pub const fn lower(value: T) -> Self {
-        Self::new(value, false)
+        Self::new(value, Case::Lower)
     }
 
     /// The cased value.
@@ -31,7 +62,13 @@ impl<T> Cased<T> {
     /// `true` when the value carries the upper-case variant.
     #[inline(always)]
     pub const fn is_upper(&self) -> bool {
-        self.is_upper
+        self.case.is_upper()
+    }
+
+    /// The case carried by this value.
+    #[inline(always)]
+    pub const fn case(&self) -> Case {
+        self.case
     }
 
     /// Replaces the value, keeping the case as-is.
@@ -40,10 +77,16 @@ impl<T> Cased<T> {
         self.value = value;
     }
 
-    /// Replaces the case flag, keeping the value as-is.
+    /// Replaces the case, keeping the value as-is.
+    #[inline(always)]
+    pub fn set_case(&mut self, case: Case) {
+        self.case = case;
+    }
+
+    /// Replaces the case from an uppercase flag, keeping the value as-is.
     #[inline(always)]
     pub fn set_upper(&mut self, is_upper: bool) {
-        self.is_upper = is_upper;
+        self.set_case(is_upper.into());
     }
 }
 
