@@ -13,7 +13,7 @@
 //! 5. Short vowels `ă/â` need a closing sound, never stand open.
 
 use vime_engine::phonology::{BaseVowel, Coda, Onset, Tone};
-use vime_engine::phonology::{DefaultPhonotacticValidator, PhonotacticValidator, ValidationError};
+use vime_engine::phonology::{DefaultPhonotacticValidator, PhonotacticError, PhonotacticValidator};
 use BaseVowel::{ABreve, ACircumflex, ECircumflex, OCircumflex, OHorn, UHorn, A, E, I, O, U, Y};
 
 fn ok(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone) {
@@ -24,7 +24,7 @@ fn ok(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone) {
     );
 }
 
-fn err(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone, expected: ValidationError) {
+fn err(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone, expected: PhonotacticError) {
     assert_eq!(
         DefaultPhonotacticValidator.validate(onset, vowels, coda, tone),
         Err(expected),
@@ -165,7 +165,7 @@ fn accepts_common_syllables() {
 
 #[test]
 fn k_gh_ngh_require_leading_front_vowel() {
-    let e = ValidationError::MissingFrontVowel;
+    let e = PhonotacticError::MissingFrontVowel;
     err(Onset::K, &[A], Coda::None, Tone::Flat, e); // ka
     err(Onset::K, &[O], Coda::None, Tone::Flat, e); // ko
     err(Onset::K, &[OCircumflex], Coda::None, Tone::Flat, e); // kô
@@ -182,7 +182,7 @@ fn k_gh_ngh_require_leading_front_vowel() {
 
 #[test]
 fn c_g_ng_forbid_leading_front_vowel() {
-    let e = ValidationError::ForbiddenFrontVowel;
+    let e = PhonotacticError::ForbiddenFrontVowel;
     err(Onset::C, &[I], Coda::None, Tone::Flat, e); // ci
     err(Onset::C, &[I], Coda::Nh, Tone::Flat, e); // cinh
     err(Onset::C, &[E], Coda::None, Tone::Flat, e); // ce
@@ -199,7 +199,7 @@ fn c_g_ng_forbid_leading_front_vowel() {
 
 #[test]
 fn qu_initial_glide_leaves_no_second_u() {
-    let e = ValidationError::GlideAfterQu;
+    let e = PhonotacticError::GlideAfterQu;
     err(Onset::Qu, &[U], Coda::None, Tone::Flat, e); // quu
     err(Onset::Qu, &[U], Coda::T, Tone::Acute, e); // quút
     err(Onset::Qu, &[U, A], Coda::None, Tone::Flat, e); // quua
@@ -211,7 +211,7 @@ fn qu_initial_glide_leaves_no_second_u() {
 
 #[test]
 fn stop_coda_requires_entering_tone() {
-    let e = ValidationError::EnteringToneRequired;
+    let e = PhonotacticError::EnteringToneRequired;
     err(Onset::C, &[A], Coda::P, Tone::Flat, e); // cap
     err(Onset::T, &[A], Coda::P, Tone::Flat, e); // tap
     err(Onset::T, &[A], Coda::T, Tone::Flat, e); // tat
@@ -229,7 +229,7 @@ fn stop_coda_requires_entering_tone() {
 
 #[test]
 fn palatal_coda_needs_front_vowel_or_plain_a() {
-    let e = ValidationError::PalatalCodaVowelMismatch;
+    let e = PhonotacticError::PalatalCodaVowelMismatch;
     err(Onset::None, &[O], Coda::Nh, Tone::Flat, e); // onh
     err(Onset::None, &[OCircumflex], Coda::Nh, Tone::Flat, e); // ônh
     err(Onset::None, &[U], Coda::Nh, Tone::Flat, e); // unh
@@ -242,7 +242,7 @@ fn palatal_coda_needs_front_vowel_or_plain_a() {
 
 #[test]
 fn short_vowel_needs_a_coda() {
-    let e = ValidationError::CodaRequiredForShortVowel;
+    let e = PhonotacticError::ShortVowelRequiresCoda;
     err(Onset::S, &[ABreve], Coda::None, Tone::Flat, e); // să
     err(Onset::T, &[ACircumflex], Coda::None, Tone::Flat, e); // tâ
     err(Onset::C, &[ABreve], Coda::None, Tone::Flat, e); // că

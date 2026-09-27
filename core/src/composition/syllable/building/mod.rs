@@ -7,8 +7,8 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        BaseVowel, Coda, NucleusState, NucleusView, Onset, PhonotacticValidator, RootVowel, Shape,
-        Tone, TonePlacement, ValidationError, Vowel, NUCLEUS_MAX_LEN,
+        BaseVowel, Coda, NucleusState, NucleusView, Onset, PhonotacticError, PhonotacticValidator,
+        RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
     },
     util::InlineVec,
 };
@@ -49,18 +49,6 @@ pub enum SyllableBuildError {
 }
 
 type Nucleus = InlineVec<Vowel, NUCLEUS_MAX_LEN>;
-
-impl Nucleus {
-    /// Copies the vowels into `dst`, returning the number copied.
-    #[inline(always)]
-    fn bases(&self, dst: &mut [BaseVowel]) -> usize {
-        let count = self.len().min(dst.len());
-        for (src, dst) in self.iter().take(count).zip(&mut dst[..count]) {
-            *dst = src.base();
-        }
-        count
-    }
-}
 
 impl NucleusView for Nucleus {
     #[inline(always)]
@@ -181,13 +169,11 @@ impl BuildingSyllable {
         output
     }
 
-    pub fn validate<V>(&self, validator: V) -> Result<(), ValidationError>
+    pub fn validate<V>(&self, validator: V) -> Result<(), PhonotacticError>
     where
         V: PhonotacticValidator,
     {
-        let mut buf = [BaseVowel::Y; NUCLEUS_MAX_LEN];
-        let count = self.nucleus.bases(&mut buf);
-        validator.validate(self.onset_kind, &buf[..count], self.coda_kind, self.tone)
+        validator.validate(self.onset_kind, &self.nucleus, self.coda_kind, self.tone)
     }
 
     // ─────────────────────────── Validation ───────────────────────────

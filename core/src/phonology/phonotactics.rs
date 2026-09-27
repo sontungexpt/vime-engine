@@ -9,7 +9,7 @@
 //! Khi kiểm tra quy tắc chính tả, validator chỉ thực hiện các phép toán bitwise (`&`, `|`)
 //! giúp CPU thực thi không rẽ nhánh (branchless execution) và hoàn toàn tương thích `const fn`.
 
-use crate::phonology::{BaseVowel, Coda, Onset, Tone};
+use crate::phonology::{BaseVowel, Coda, NucleusView, Onset, Tone};
 
 /// Bitmask mã hóa các thuộc tính ÂM VỊ HỌC (phonotactic attributes) của vần.
 ///
@@ -57,15 +57,18 @@ impl PhonotacticFlags {
     /// Phụ âm đầu có âm đệm môi `Qu`: cấm nguyên âm theo sau là `u`.
     pub const ONSET_LABIOVELAR: Self = Self(1 << 8);
 
-    // ─────────────── Bitmask Phụ âm cuối (Coda Flags: Bits 9..10) ───────────────
+    /// `gi` cannot be followed by vowel `i`.
+    pub const ONSET_GI: Self = Self(1 << 9);
+
+    // ─────────────── Bitmask Phụ âm cuối (Coda Flags: Bits 10..11) ───────────────
 
     /// Phụ âm cuối TẮC (Stop Codas): `p`, `t`, `c`, `ch`.
     /// Buộc vần phải mang thanh Sắc (`Acute`) hoặc Nặng (`Dot`) (thanh nhập).
-    pub const CODA_STOP: Self = Self(1 << 9);
+    pub const CODA_ENTERING: Self = Self(1 << 10);
 
     /// Phụ âm cuối NGẠC (Palatal Codas): `ch`, `nh`.
     /// Chỉ được đứng sau các nguyên âm thuộc tập `VOWEL_ALLOWS_PALATAL`.
-    pub const CODA_PALATAL: Self = Self(1 << 10);
+    pub const CODA_PALATAL: Self = Self(1 << 11);
 
     // ─────────────── Helper Methods cho Bitwise Operations ───────────────
 
@@ -139,6 +142,9 @@ impl Onset {
             Self::C | Self::G | Self::Ng => PhonotacticFlags::ONSET_FORBIDS_FRONT,
             // qu -> Cấm nguyên âm u đi ngay sau
             Self::Qu => PhonotacticFlags::ONSET_LABIOVELAR,
+
+            Self::Gi => PhonotacticFlags::ONSET_GI,
+
             // Các phụ âm đầu khác không có quy tắc ràng buộc đặc biệt
             _ => PhonotacticFlags::empty(),
         }
@@ -151,9 +157,9 @@ impl Coda {
     pub const fn phonotactic_flags(self) -> PhonotacticFlags {
         match self {
             // p, t, c -> Âm tắc thuần túy (yêu cầu thanh Sắc / Nặng)
-            Self::P | Self::T | Self::C => PhonotacticFlags::CODA_STOP,
+            Self::P | Self::T | Self::C => PhonotacticFlags::CODA_ENTERING,
             // ch -> Vừa là âm tắc, vừa là âm ngạc
-            Self::Ch => PhonotacticFlags::CODA_STOP.union(PhonotacticFlags::CODA_PALATAL),
+            Self::Ch => PhonotacticFlags::CODA_ENTERING.union(PhonotacticFlags::CODA_PALATAL),
             // nh -> Âm ngạc thuần túy
             Self::Nh => PhonotacticFlags::CODA_PALATAL,
             // Không có phụ âm cuối hoặc các phụ âm khác (m, n, ng...)
@@ -167,7 +173,7 @@ impl Tone {
     ///
     /// Trong tiếng Việt, các từ có phụ âm cuối tắc (p, t, c, ch) chỉ chấp nhận thanh Sắc hoặc Nặng.
     #[inline(always)]
-    pub const fn allows_stop_coda(self) -> bool {
+    pub const fn allows_entering_coda(self) -> bool {
         matches!(self, Self::Acute | Self::Dot)
     }
 }
@@ -199,37 +205,40 @@ impl BaseVowel {
     }
 }
 
-/// Gộp (OR) cờ của toàn bộ nguyên âm cấu thành nucleus (tối đa 3 nguyên âm: ví dụ `oai`, `uyê`).
-///
-/// Dùng để tra cứu tổng thể thuộc tính của cả phần vần.
-#[inline(always)]
-pub const fn nucleus_flags(vowels: &[BaseVowel]) -> PhonotacticFlags {
-    let mut bits = 0u16;
-    let len = if vowels.len() > 3 { 3 } else { vowels.len() };
-    let mut i = 0;
-    while i < len {
-        bits |= vowels[i].phonotactic_flags().bits();
-        i += 1;
-    }
-    PhonotacticFlags(bits)
-}
-
 /// Các loại lỗi chính tả âm vị học có thể xảy ra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ValidationError {
+pub enum PhonotacticError {
     /// Phụ âm `k/gh/ngh` đứng trước nguyên âm không phải hàng trước (thiếu `i, e, ê, y`).
     MissingFrontVowel,
     /// Phụ âm `c/g/ng` đứng trước nguyên âm hàng trước (`i, e, ê, y`).
     ForbiddenFrontVowel,
     /// Phụ âm `Qu` đi ngay trước nguyên âm `u` (viết thừa `quu`).
     GlideAfterQu,
+    /// `gi` cannot be followed by nucleus vowel `i`.
+    GlideAfterGi,
+
     /// Phụ âm cuối tắc (`p, t, c, ch`) nhưng thiếu thanh Sắc hoặc Nặng.
     EnteringToneRequired,
     /// Phụ âm cuối ngạc (`ch, nh`) ghép sai nguyên âm (không phải `i, e, ê, y, a`).
     PalatalCodaVowelMismatch,
     /// Nguyên âm ngắn (`ă, â`) đứng ở vị trí mở cuối nucleus nhưng không có phụ âm cuối.
-    CodaRequiredForShortVowel,
+    ShortVowelRequiresCoda,
+
+    /// The coda is incompatible with `ă` or `â`.
+    ShortVowelCodaMismatch,
+
+    /// `u` or `ư` cannot occur before final `ch`.
+    RoundedVowelBeforeCh,
+
+    /// `ơ` cannot occur before final `p` or `t`.
+    OpenVowelCodaMismatch,
+
+    /// `i` cannot occur before final `ng` in the strict native spelling core.
+    IBeforeNg,
+
+    /// `e` cannot occur before final `ng` in the strict native spelling core.
+    EBeforeNg,
 }
 
 /// Kiểm tra tính hợp lệ chính tả của vần.
@@ -239,13 +248,15 @@ pub trait PhonotacticValidator {
     /// # Luồng xử lý:
     /// 1. Trích xuất cờ bitmask của nguyên âm ĐẦU (`first`) và nguyên âm CUỐI (`last`) trong nucleus.
     /// 2. Áp dụng các quy tắc chính tả dựa trên phép giao bitwise (`intersects`).
-    fn validate(
+    fn validate<N>(
         &self,
         onset: Onset,
-        vowels: &[BaseVowel],
+        vowels: &N,
         coda: Coda,
         tone: Tone,
-    ) -> Result<(), ValidationError>;
+    ) -> Result<(), PhonotacticError>
+    where
+        N: NucleusView + ?Sized;
 }
 
 /// Triển khai mặc định của [`PhonotacticValidator`] theo quy tắc chính tả tiếng Việt chuẩn.
@@ -254,69 +265,83 @@ pub struct DefaultPhonotacticValidator;
 
 impl PhonotacticValidator for DefaultPhonotacticValidator {
     #[inline(always)]
-    fn validate(
+    fn validate<N>(
         &self,
         onset: Onset,
-        vowels: &[BaseVowel],
+        nucleus: &N,
         coda: Coda,
         tone: Tone,
-    ) -> Result<(), ValidationError> {
+    ) -> Result<(), PhonotacticError>
+    where
+        N: NucleusView + ?Sized,
+    {
         // Trích xuất cờ bitmask của nguyên âm đầu và cuối trong nucleus mà không gây ra bounds check overhead.
-        let (first_flags, last_flags) = match vowels {
-            [] => return Ok(()),
-            [single] => {
-                let flags = single.phonotactic_flags();
-                (flags, flags)
-            }
-            [head, .., tail] => (head.phonotactic_flags(), tail.phonotactic_flags()),
-        };
+        let len = nucleus.len();
 
-        let o_flags = onset.phonotactic_flags();
+        if len == 0 {
+            return Ok(());
+        }
+
+        let first = unsafe { nucleus.at(0) };
+        let last = unsafe { nucleus.at(len - 1) };
+
+        // SAFETY: `at` requires `index < len()`. The early return above rules
+        // out `len == 0`, so both `0` and `len - 1` are in bounds.
+        let first_flags = first.phonotactic_flags();
+        let last_flags = last.phonotactic_flags();
+
+        let onset_flags = onset.phonotactic_flags();
 
         // ---------------------------------------------------------------------
         // Luật 1: Ràng buộc nguyên âm hàng trước đối với phụ âm đầu (xét nguyên âm ĐẦU)
         // ---------------------------------------------------------------------
         // k, gh, ngh -> Bắt buộc nguyên âm ngay sau phải thuộc tập FRONT (i, e, ê, y)
-        if o_flags.intersects(PhonotacticFlags::ONSET_REQUIRES_FRONT)
+        if onset_flags.intersects(PhonotacticFlags::ONSET_REQUIRES_FRONT)
             && !first_flags.intersects(PhonotacticFlags::VOWEL_FRONT)
         {
-            return Err(ValidationError::MissingFrontVowel);
+            return Err(PhonotacticError::MissingFrontVowel);
         }
+
         // c, g, ng -> Cấm nguyên âm ngay sau thuộc tập FRONT
-        if o_flags.intersects(PhonotacticFlags::ONSET_FORBIDS_FRONT)
+        if onset_flags.intersects(PhonotacticFlags::ONSET_FORBIDS_FRONT)
             && first_flags.intersects(PhonotacticFlags::VOWEL_FRONT)
         {
-            return Err(ValidationError::ForbiddenFrontVowel);
+            return Err(PhonotacticError::ForbiddenFrontVowel);
         }
 
         // ---------------------------------------------------------------------
         // Luật 2: Ràng buộc phụ âm Qu (xét nguyên âm ĐẦU)
         // ---------------------------------------------------------------------
         // Qu đã chứa sẵn âm đệm /w/ (u), cấm kết hợp với nguyên âm 'u' tiếp theo (ví dụ: "quu")
-        if o_flags.intersects(PhonotacticFlags::ONSET_LABIOVELAR)
+        if onset_flags.intersects(PhonotacticFlags::ONSET_LABIOVELAR)
             && first_flags.intersects(PhonotacticFlags::VOWEL_U)
         {
-            return Err(ValidationError::GlideAfterQu);
+            return Err(PhonotacticError::GlideAfterQu);
         }
 
-        let c_flags = coda.phonotactic_flags();
+        // gi + i → invalid
+        if onset_flags.intersects(PhonotacticFlags::ONSET_GI) && matches!(first, BaseVowel::I) {
+            return Err(PhonotacticError::GlideAfterGi);
+        }
+
+        let coda_flags = coda.phonotactic_flags();
 
         // ---------------------------------------------------------------------
         // Luật 3: Thanh Nhập bắt buộc cho phụ âm cuối tắc
         // ---------------------------------------------------------------------
         // Phụ âm cuối p, t, c, ch chặn hoàn toàn dòng khí -> Bắt buộc mang thanh Sắc hoặc Nặng
-        if c_flags.intersects(PhonotacticFlags::CODA_STOP) && !tone.allows_stop_coda() {
-            return Err(ValidationError::EnteringToneRequired);
+        if coda_flags.intersects(PhonotacticFlags::CODA_ENTERING) && !tone.allows_entering_coda() {
+            return Err(PhonotacticError::EnteringToneRequired);
         }
 
         // ---------------------------------------------------------------------
         // Luật 4: Ràng buộc phụ âm cuối ngạc (xét nguyên âm CUỐI)
         // ---------------------------------------------------------------------
         // ch, nh chỉ đứng ngay sau các nguyên âm i, e, ê, y hoặc a thường
-        if c_flags.intersects(PhonotacticFlags::CODA_PALATAL)
+        if coda_flags.intersects(PhonotacticFlags::CODA_PALATAL)
             && !last_flags.intersects(PhonotacticFlags::VOWEL_ALLOWS_PALATAL)
         {
-            return Err(ValidationError::PalatalCodaVowelMismatch);
+            return Err(PhonotacticError::PalatalCodaVowelMismatch);
         }
 
         // ---------------------------------------------------------------------
@@ -325,7 +350,46 @@ impl PhonotacticValidator for DefaultPhonotacticValidator {
         // ă, â có thời lượng phát âm cực ngắn -> Phải có phụ âm cuối đóng vần (ví dụ: "ăn", "ân")
         // Nếu đứng ở cuối nucleus mà không có coda -> Báo lỗi
         if last_flags.intersects(PhonotacticFlags::VOWEL_SHORT) && coda.is_none() {
-            return Err(ValidationError::CodaRequiredForShortVowel);
+            return Err(PhonotacticError::ShortVowelRequiresCoda);
+        }
+
+        // ă:
+        // allowed codas: c, ch, m, n, ng
+        if matches!(last, BaseVowel::ABreve) {
+            if !matches!(coda, Coda::C | Coda::Ch | Coda::M | Coda::N | Coda::Ng) {
+                return Err(PhonotacticError::ShortVowelCodaMismatch);
+            }
+        }
+
+        // â:
+        // allowed codas: c, m, n, ng, nh, p, t
+        if matches!(last, BaseVowel::ACircumflex) {
+            if !matches!(
+                coda,
+                Coda::C | Coda::M | Coda::N | Coda::Ng | Coda::Nh | Coda::P | Coda::T
+            ) {
+                return Err(PhonotacticError::ShortVowelCodaMismatch);
+            }
+        }
+
+        // u / ư cannot take final ch.
+        if matches!(coda, Coda::Ch) && matches!(last, BaseVowel::U | BaseVowel::UHorn) {
+            return Err(PhonotacticError::RoundedVowelBeforeCh);
+        }
+
+        // ơ cannot take final p / t.
+        if matches!(last, BaseVowel::OHorn) && matches!(coda, Coda::P | Coda::T) {
+            return Err(PhonotacticError::OpenVowelCodaMismatch);
+        }
+
+        // i + ng is not part of the strict native spelling core.
+        if matches!(last, BaseVowel::I) && matches!(coda, Coda::Ng) {
+            return Err(PhonotacticError::IBeforeNg);
+        }
+
+        // e + ng is not part of the strict native spelling core.
+        if matches!(last, BaseVowel::E) && matches!(coda, Coda::Ng) {
+            return Err(PhonotacticError::EBeforeNg);
         }
 
         Ok(())

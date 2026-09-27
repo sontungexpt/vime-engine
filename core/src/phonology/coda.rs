@@ -38,6 +38,11 @@ impl Coda {
     }
 
     #[inline(always)]
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
+
+    #[inline(always)]
     pub const fn from_id(id: u8) -> Option<Self> {
         if id < Self::COUNT as u8 {
             Some(unsafe { transmute(id as u8) })

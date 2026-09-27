@@ -11,6 +11,13 @@ pub enum RootVowel {
     A = 5,
 }
 
+impl RootVowel {
+    #[inline(always)]
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
+}
+
 /// A diacritic shape that attaches to a base vowel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
@@ -33,6 +40,11 @@ impl Shape {
     pub const fn is_some(self) -> bool {
         !matches!(self, Shape::None)
     }
+
+    #[inline(always)]
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
 }
 
 /// A Vietnamese lexical tone applied to the vowel.
@@ -52,6 +64,11 @@ impl Tone {
     #[inline(always)]
     pub const fn is_some(self) -> bool {
         !matches!(self, Self::Flat)
+    }
+
+    #[inline(always)]
+    pub const fn id(self) -> u8 {
+        self as u8
     }
 }
 
