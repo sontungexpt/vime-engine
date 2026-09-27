@@ -1,8 +1,8 @@
 //! Append path: `BuildingSyllable::push` and the literal helpers it drives.
 //!
-//! Pushing always acts at the end of the syllable. While the onset is still
-//! being parsed (no vowel, no coda), keys are offered to the onset first; once
-//! a vowel or coda exists the key is parsed as a transform, a vowel, or a coda.
+//! Pushing always acts at the end of the syllable. Before the nucleus or coda
+//! starts, a key may extend the onset or begin the nucleus. After that, keys
+//! may apply a transform or extend the nucleus or coda.
 
 use super::*;
 use crate::{
@@ -21,9 +21,8 @@ impl BuildingSyllable {
         key: char,
     ) -> Result<InputEffect, SyllableBuildError> {
         // ─────────────────────────── Onset ───────────────────────────
-        //
-        // No vowel and no coda: still parsing the onset. A stroke key can
-        // modify an existing D/Đ before being read as a literal character.
+        // No nucleus or coda yet: try a D/Đ stroke, then extend the onset,
+        // then try the key as the first vowel.
         if self.coda.is_empty() && self.nucleus.is_empty() {
             if self.try_toggle_d_stroke(keymap, key) == TransformResult::Applied {
                 return Ok(InputEffect::Transformed);
@@ -33,58 +32,60 @@ impl BuildingSyllable {
                 return Ok(InputEffect::StructurallyChanged);
             }
 
-            // A lone Q must be followed by U to be valid.
+            // A pending Q can only continue as QU.
             if self.onset.len() == 1 && is_q_ignore_case(self.onset[0]) {
                 return Err(SyllableBuildError::InvalidOnset);
             }
 
-            // The input may start the vowel nucleus.
             let Some(vowel) = Vowel::from_char(key) else {
                 return Err(SyllableBuildError::InvalidOnset);
             };
+
             if !self.push_vowel(vowel) {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
+
             return Ok(InputEffect::StructurallyChanged);
         }
 
         // ─────────────────────────── Nucleus ───────────────────────────
-        //
-        // Vowels and/or a coda exist: offer the transform keys (tone / shape /
-        // stroke) once, then parse the input as a literal vowel or coda.
+        // After the first vowel, transforms get first chance at each key.
         if self.try_transform(keymap, key, None) == TransformResult::Applied {
             return Ok(InputEffect::Transformed);
         }
 
         if self.coda.is_empty() {
-            // Vowel literal...
+            // With no coda yet, vowels extend the nucleus; other keys may
+            // start the coda.
             let Some(vowel) = Vowel::from_char(key) else {
-                // ...otherwise fall back to a coda.
                 if self.push_coda(key) {
-                    // Fold a leftover `uơ` / `ưo` prefix into `ươ` once a coda lands.
+                    // Once a coda starts, normalize `uơ` / `ưo` to `ươ`.
                     self.normalize_uo_horn();
                     return Ok(InputEffect::StructurallyChanged);
                 }
+
                 return Err(SyllableBuildError::InvalidCoda);
             };
-            // The nucleus may still reject the decoded vowel.
+
             if !self.push_vowel(vowel) {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
+
             self.normalize_uo_horn();
             return Ok(InputEffect::StructurallyChanged);
         }
 
-        // Coda literal.
+        // A coda has started, so only another coda character can follow.
         if self.push_coda(key) {
             return Ok(InputEffect::StructurallyChanged);
         }
+
         Err(SyllableBuildError::InvalidCoda)
     }
 
-    /// Consumes a literal character into the onset; returns `false` to fall
-    /// back to the vowel parser. `q` is a transitional prefix waiting for `u`;
-    /// `i` is left for the nucleus so `gi` stays ambiguous until another vowel.
+    /// Adds a literal character to the onset. Returns `false` when the key
+    /// should be considered for the nucleus. `q` waits for `u`, while `i` is
+    /// left for the nucleus to keep `gi` ambiguous until another vowel arrives.
     #[inline]
     fn push_onset(&mut self, key: char) -> bool {
         if is_i_ignore_case(key) {
@@ -123,36 +124,35 @@ impl BuildingSyllable {
         }
 
         let toneless_vowel = vowel.without_tone();
-        // First vowel; adopt its tone directly.
+        // The first vowel sets the syllable tone.
         if len == 0 {
             self.nucleus.push(toneless_vowel);
             self.tone = tone;
             return true;
         }
 
-        // Pre-toned vowels clash with a non-flat syllable tone (`á` + `ắ`), while
-        // `á` + `a` is valid.
+        // A non-flat vowel conflicts with an existing non-flat tone (`á` + `ắ`),
+        // but an unmarked vowel can follow one (`á` + `a`).
         let new_tone = match (self.tone, tone) {
-            // No tone yet -> adopt the incoming tone.
+            // The syllable has no tone yet, so take the incoming tone.
             (Tone::Flat, incoming) => incoming,
 
-            // No incoming tone -> keep the syllable tone.
+            // An unmarked vowel keeps the current syllable tone.
             (current, Tone::Flat) => current,
 
             // Two non-flat tones conflict.
             (_, _) => return false,
         };
 
-        // A vowel after `g i` moves the `i` into the onset, forming `gi` + V.
-        //
-        // `G + I + V` -> `Gi + V`.
+        // When a vowel follows `g i`, move `i` into the onset: `G + I + V` ->
+        // `Gi + V`.
         if len == 1 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
             let i = self.nucleus.pop().expect("nucleus contains i");
 
             self.onset.push(if i.is_upper() { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
 
-            // Only one vowel for now adopt its directly
+            // The new nucleus has one vowel, so adopt its tone directly.
             self.nucleus.push(toneless_vowel);
             self.tone = new_tone;
 
@@ -172,8 +172,7 @@ impl BuildingSyllable {
         true
     }
 
-    /// Consumes a literal char into the coda; returns `false` if the coda does
-    /// not accept the input.
+    /// Adds a literal character to the coda, returning `false` if it is invalid.
     #[inline]
     fn push_coda(&mut self, key: char) -> bool {
         if self.coda.len() >= Coda::MAX_LEN {
