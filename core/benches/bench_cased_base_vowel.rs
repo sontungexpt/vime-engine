@@ -9,7 +9,7 @@ use std::hint::black_box;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
 
-use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel, Tone};
+use vime_engine::phonology::{BaseVowel, Tone, Vowel};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
@@ -52,12 +52,12 @@ impl PackedCasedBaseVowel {
 
     #[inline(always)]
     const fn to_char(self) -> char {
-        vime_engine::phonology::encode_vowel(self.value(), Tone::Flat, self.is_upper())
+        vime_engine::phonology::Vowel::new(self.value(), Tone::Flat, self.is_upper()).to_char()
     }
 
     #[inline(always)]
     const fn to_char_tone(self, tone: Tone) -> char {
-        vime_engine::phonology::encode_vowel(self.value(), tone, self.is_upper())
+        vime_engine::phonology::Vowel::new(self.value(), tone, self.is_upper()).to_char()
     }
 }
 
@@ -71,7 +71,7 @@ impl IdCasedBaseVowel {
 
     #[inline(always)]
     const fn new(value: BaseVowel, is_upper: bool) -> Self {
-        Self(value.id() as u8 | ((is_upper as u8) << 4))
+        Self(value.priority_id() as u8 | ((is_upper as u8) << 4))
     }
 
     #[inline(always)]
@@ -97,17 +97,17 @@ impl IdCasedBaseVowel {
 
     #[inline(always)]
     const fn set_value(&mut self, value: BaseVowel) {
-        self.0 = (self.0 & Self::CASE_MASK) | value.id() as u8;
+        self.0 = (self.0 & Self::CASE_MASK) | value.priority_id() as u8;
     }
 
     #[inline(always)]
     fn to_char(self) -> char {
-        vime_engine::phonology::encode_vowel(self.value(), Tone::Flat, self.is_upper())
+        vime_engine::phonology::Vowel::new(self.value(), Tone::Flat, self.is_upper()).to_char()
     }
 
     #[inline(always)]
     fn to_char_tone(self, tone: Tone) -> char {
-        vime_engine::phonology::encode_vowel(self.value(), tone, self.is_upper())
+        vime_engine::phonology::Vowel::new(self.value(), tone, self.is_upper()).to_char()
     }
 }
 
@@ -188,29 +188,29 @@ fn report(
 }
 
 #[inline(always)]
-fn nucleus_bases_loop(vowels: &[ExtendedBaseVowel]) -> [BaseVowel; 3] {
+fn nucleus_bases_loop(vowels: &[Vowel]) -> [BaseVowel; 3] {
     let mut bases = [BaseVowel::A; 3];
     for (dst, vowel) in bases.iter_mut().zip(vowels) {
-        *dst = vowel.get();
+        *dst = vowel.base();
     }
     bases
 }
 
 #[inline(always)]
-fn nucleus_bases_match(vowels: &[ExtendedBaseVowel]) -> [BaseVowel; 3] {
+fn nucleus_bases_match(vowels: &[Vowel]) -> [BaseVowel; 3] {
     use BaseVowel::A;
     match vowels {
         [] => [A; 3],
-        [a] => [a.get(), A, A],
-        [a, b] => [a.get(), b.get(), A],
-        [a, b, c] => [a.get(), b.get(), c.get()],
+        [a] => [a.base(), A, A],
+        [a, b] => [a.base(), b.base(), A],
+        [a, b, c] => [a.base(), b.base(), c.base()],
         _ => unreachable!("nucleus capacity is 3"),
     }
 }
 
 fn main() {
-    let current: [ExtendedBaseVowel; 24] = std::array::from_fn(|i| {
-        ExtendedBaseVowel::with_case(VOWELS[i % VOWELS.len()], i / VOWELS.len() != 0)
+    let current: [Vowel; 24] = std::array::from_fn(|i| {
+        Vowel::new(VOWELS[i % VOWELS.len()], Tone::Flat, i / VOWELS.len() != 0)
     });
     let packed: [PackedCasedBaseVowel; 24] = std::array::from_fn(|i| {
         PackedCasedBaseVowel::new(VOWELS[i % VOWELS.len()], i / VOWELS.len() != 0)
@@ -223,39 +223,51 @@ fn main() {
     // Verify all vowel/case pairs and all tone encodings before timing.
     for &vowel in &VOWELS {
         for is_upper in [false, true] {
-            let a = ExtendedBaseVowel::with_case(vowel, is_upper);
+            let a = Vowel::new(vowel, Tone::Flat, is_upper);
             let b = PackedCasedBaseVowel::new(vowel, is_upper);
             let c = IdCasedBaseVowel::new(vowel, is_upper);
-            assert_eq!(a.get(), b.value());
-            assert_eq!(a.get(), c.value());
+            assert_eq!(a.base(), b.value());
+            assert_eq!(a.base(), c.value());
             assert_eq!(a.is_upper(), b.is_upper());
             assert_eq!(a.is_upper(), c.is_upper());
-            assert_eq!(a.to_char(), b.to_char());
-            assert_eq!(a.to_char(), c.to_char());
+            assert_eq!(
+                vime_engine::phonology::Vowel::new(a.base(), Tone::Flat, a.is_upper()).to_char(),
+                b.to_char()
+            );
+            assert_eq!(
+                vime_engine::phonology::Vowel::new(a.base(), Tone::Flat, a.is_upper()).to_char(),
+                c.to_char()
+            );
             for tone in TONES {
-                assert_eq!(a.to_char_tone(tone), b.to_char_tone(tone));
-                assert_eq!(a.to_char_tone(tone), c.to_char_tone(tone));
+                assert_eq!(
+                    vime_engine::phonology::Vowel::new(a.base(), tone, a.is_upper()).to_char(),
+                    b.to_char_tone(tone)
+                );
+                assert_eq!(
+                    vime_engine::phonology::Vowel::new(a.base(), tone, a.is_upper()).to_char(),
+                    c.to_char_tone(tone)
+                );
             }
 
             let mut a = a;
             let mut b = b;
             let mut c = c;
-            a.set_case(!is_upper);
+            a.set_upper(!is_upper);
             b.set_upper(!is_upper);
             c.set_upper(!is_upper);
             assert_eq!(a.is_upper(), b.is_upper());
             assert_eq!(a.is_upper(), c.is_upper());
-            a.set(BaseVowel::OHorn);
+            a.set_base(BaseVowel::OHorn);
             b.set_value(BaseVowel::OHorn);
             c.set_value(BaseVowel::OHorn);
-            assert_eq!((a.get(), a.is_upper()), (b.value(), b.is_upper()));
-            assert_eq!((a.get(), a.is_upper()), (c.value(), c.is_upper()));
+            assert_eq!((a.base(), a.is_upper()), (b.value(), b.is_upper()));
+            assert_eq!((a.base(), a.is_upper()), (c.value(), c.is_upper()));
         }
     }
 
     println!(
         "size: current {} bytes, u16-packed {} bytes, ID-packed {} bytes",
-        size_of::<ExtendedBaseVowel>(),
+        size_of::<Vowel>(),
         size_of::<PackedCasedBaseVowel>(),
         size_of::<IdCasedBaseVowel>()
     );
@@ -337,39 +349,39 @@ fn main() {
 
     compare!(
         "get_value",
-        |v: ExtendedBaseVowel| v.get(),
+        |v: Vowel| v.base(),
         |v: PackedCasedBaseVowel| v.value()
     );
     compare!(
         "get_case",
-        |v: ExtendedBaseVowel| v.is_upper(),
+        |v: Vowel| v.is_upper(),
         |v: PackedCasedBaseVowel| v.is_upper()
     );
     compare_id!(
         "get_value (ID)",
-        |v: ExtendedBaseVowel| v.get(),
+        |v: Vowel| v.base(),
         |v: IdCasedBaseVowel| v.value()
     );
     compare_id!(
         "get_case (ID)",
-        |v: ExtendedBaseVowel| v.is_upper(),
+        |v: Vowel| v.is_upper(),
         |v: IdCasedBaseVowel| v.is_upper()
     );
     compare!(
         "to_char",
-        |v: ExtendedBaseVowel| v.to_char(),
+        |v: Vowel| vime_engine::phonology::Vowel::new(v.base(), Tone::Flat, v.is_upper()).to_char(),
         |v: PackedCasedBaseVowel| v.to_char()
     );
     compare_id!(
         "to_char (ID)",
-        |v: ExtendedBaseVowel| v.to_char(),
+        |v: Vowel| vime_engine::phonology::Vowel::new(v.base(), Tone::Flat, v.is_upper()).to_char(),
         |v: IdCasedBaseVowel| v.to_char()
     );
 
     let current_tone = time(
         || {
             for (i, value) in current.iter().enumerate() {
-                black_box(value.to_char_tone(black_box(TONES[i % TONES.len()])));
+                black_box(value.with_tone(black_box(TONES[i % TONES.len()])).to_char());
             }
         },
         rounds,
@@ -388,7 +400,14 @@ fn main() {
     let id_tone = time(
         || {
             for (i, value) in id_packed.iter().enumerate() {
-                black_box(value.to_char_tone(black_box(TONES[i % TONES.len()])));
+                black_box(
+                    vime_engine::phonology::Vowel::new(
+                        value.value(),
+                        black_box(TONES[i % TONES.len()]),
+                        value.is_upper(),
+                    )
+                    .to_char(),
+                );
             }
         },
         rounds,
@@ -409,9 +428,7 @@ fn main() {
     let array_lookup = time(
         || {
             for &id in &ids {
-                black_box(unsafe {
-                    BaseVowel::from_id_unchecked(black_box(id as usize))
-                });
+                black_box(unsafe { BaseVowel::from_id_unchecked(black_box(id as usize)) });
             }
         },
         rounds,
@@ -426,19 +443,13 @@ fn main() {
         rounds,
         iters,
     );
-    report(
-        "from_id",
-        array_lookup,
-        lut_lookup,
-        ids.len(),
-        iters,
-    );
+    report("from_id", array_lookup, lut_lookup, ids.len(), iters);
 
     let current_case_setter = time(
         || {
             for value in &current {
                 let mut value = black_box(*value);
-                value.set_case(black_box(!value.is_upper()));
+                value.set_upper(black_box(!value.is_upper()));
                 black_box(value);
             }
         },
@@ -486,7 +497,7 @@ fn main() {
         || {
             for (i, value) in current.iter().enumerate() {
                 let mut value = black_box(*value);
-                value.set(black_box(VOWELS[(i + 1) % VOWELS.len()]));
+                value.set_base(black_box(VOWELS[(i + 1) % VOWELS.len()]));
                 black_box(value);
             }
         },

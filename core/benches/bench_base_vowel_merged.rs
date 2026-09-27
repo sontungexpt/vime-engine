@@ -1,4 +1,4 @@
-//! Compare the current `(BaseVowel, ExtendedBaseVowel)` pair with a merged
+//! Compare the current packed `Vowel` with a merged
 //! alternative where case lives inside a single `#[repr(transparent)] u16`
 //! struct (`[6 reserved | 1 Upper | 4 Priority ID | 2 Shape | 3 Root]`).
 //!
@@ -7,18 +7,14 @@
 //! Run with:
 //!   cargo bench --bench bench_base_vowel_merged
 //!
-//! Layout note: the merged value is bit-identical to today's `ExtendedBaseVowel`
-//! raw bits (base fields at 0..8, case bit at 9), so `decode_vowel`/`encode_vowel`
-//! results can be reinterpreted verbatim. The measured deltas are the operations
-//! the wrapper forced us through: `.get()` before every field extraction, and a
-//! separate `(value, is_upper)` everywhere render used encode.
+//! This benchmark retains an older candidate representation for comparison.
 
 use std::hint::black_box;
 use std::mem::{size_of, transmute};
 use std::time::{Duration, Instant};
 
 use vime_engine::phonology::{
-    decode_vowel, BaseVowel as ProdBaseVowel, ExtendedBaseVowel as ProdCased, RootVowel, Shape, Tone,
+    BaseVowel as ProdBaseVowel, RootVowel, Shape, Tone, Vowel, Vowel as ProdCased,
 };
 
 // ─── Candidate: the merged BaseVowel as noted ───
@@ -58,12 +54,11 @@ impl BaseVowel {
         Self((id << Self::ID_OFFSET) | ((shape as u16) << Self::SHAPE_OFFSET) | (root as u16))
     }
 
-    // SAFETY: bit layout is identical (base 0..8, case 9), so a plain
-    // reinterpretation of a production ExtendedBaseVowel is a valid merged value.
     #[inline(always)]
     const fn from_cased(cased: ProdCased) -> Self {
-        // SAFETY: ProdCased is repr(transparent) over u16 with the same layout.
-        unsafe { transmute::<ProdCased, BaseVowel>(cased) }
+        let base = cased.base();
+        Self::new_raw(base.priority_id() as u16, base.shape(), base.root())
+            .with_case(cased.is_upper())
     }
 
     // ─────────────── Case operations ───────────────
@@ -84,7 +79,11 @@ impl BaseVowel {
 
     #[inline(always)]
     pub const fn with_case(self, upper: bool) -> Self {
-        if upper { self.to_upper() } else { self.to_lower() }
+        if upper {
+            self.to_upper()
+        } else {
+            self.to_lower()
+        }
     }
 
     #[inline(always)]
@@ -129,15 +128,25 @@ const ENCODED_CHARS: [char; 144] = [
 
 #[inline(always)]
 fn merged_render(v: BaseVowel, tone: Tone) -> char {
-    let idx = ((v.id() * 6 + tone as usize) << 1) | (v.is_upper() as usize);
+    let idx = (((v.id() as usize) * 6 + tone as usize) << 1) | (v.is_upper() as usize);
     ENCODED_CHARS[idx]
 }
 
 // ─── Decode: the production decode tree, reinterpreted per the layout ───
 
 #[inline(always)]
+fn decode_vowel_pair(ch: char) -> Option<(ProdCased, Tone)> {
+    Vowel::from_char(ch).map(|vowel| {
+        (
+            ProdCased::new(vowel.base(), Tone::Flat, vowel.is_upper()),
+            vowel.tone(),
+        )
+    })
+}
+
+#[inline(always)]
 fn merged_decode(ch: char) -> Option<(BaseVowel, Tone)> {
-    decode_vowel(ch).map(|(cased, tone)| (BaseVowel::from_cased(cased), tone))
+    decode_vowel_pair(ch).map(|(cased, tone)| (BaseVowel::from_cased(cased), tone))
 }
 
 // ─── Harness helpers ───
@@ -217,59 +226,69 @@ fn main() {
     let mut chars_match = true;
     for &prod in &VOWELS {
         for upper in [false, true] {
-            let prod_cased = ProdCased::with_case(prod, upper);
+            let prod_cased = ProdCased::new(prod, Tone::Flat, upper);
             let merged = BaseVowel::from_cased(prod_cased);
             assert_eq!(
                 merged.bare(),
-                BaseVowel::from_cased(ProdCased::lower(prod)),
+                BaseVowel::from_cased(ProdCased::lower(prod, Tone::Flat)),
                 "{prod:?} bare mismatch"
             );
-            assert_eq!(
-                merged.is_upper(),
-                upper,
-                "{prod:?} case mismatch"
-            );
-            let prod_id = prod_cased.get().id();
-            let prod_shape = prod_cased.get().shape();
-            let prod_root = prod_cased.get().root();
-            assert_eq!(merged.id(), prod_id, "{prod:?} id mismatch");
+            assert_eq!(merged.is_upper(), upper, "{prod:?} case mismatch");
+            let prod_id = prod_cased.base().priority_id() as usize;
+            let prod_shape = prod_cased.base().shape();
+            let prod_root = prod_cased.base().root();
+            assert_eq!(merged.id() as usize, prod_id, "{prod:?} id mismatch");
             assert_eq!(merged.shape(), prod_shape, "{prod:?} shape mismatch");
             assert_eq!(merged.root(), prod_root, "{prod:?} root mismatch");
             assert!(
                 merged.to_upper().is_upper() && !merged.to_lower().is_upper(),
                 "{prod:?} case flip broken"
             );
-            let p = prod_cased.to_char();
+            let p = Vowel::new(prod_cased.base(), Tone::Flat, prod_cased.is_upper()).to_char();
             let m = merged_render(merged, Tone::Flat);
             chars_match &= p == m;
             assert_eq!(p, m, "{prod:?} flat render mismatch");
         }
     }
     let norm = |r: Option<(ProdCased, Tone)>| {
-        r.map(|(c, t)| (c.get().id(), c.get().shape(), c.get().root(), c.is_upper(), t))
+        r.map(|(c, t)| {
+            (
+                c.base().priority_id() as usize,
+                c.base().shape(),
+                c.base().root(),
+                c.is_upper(),
+                t,
+            )
+        })
     };
     for code in 0x0000..=0x3000 {
-        let Some(ch) = char::from_u32(code) else { continue };
+        let Some(ch) = char::from_u32(code) else {
+            continue;
+        };
         assert_eq!(
-            norm(decode_vowel(ch)),
-            norm(merged_decode(ch).map(|(v, t)| (ProdCased::with_case(
-                ProdBaseVowel::from_id(v.bare().id()).unwrap(),
-                v.is_upper()
-            ), t))),
+            norm(decode_vowel_pair(ch)),
+            norm(merged_decode(ch).map(|(v, t)| (
+                ProdCased::new(
+                    ProdBaseVowel::from_priority_id(v.bare().id()).unwrap(),
+                    Tone::Flat,
+                    v.is_upper()
+                ),
+                t
+            ))),
             "decode mismatch at U+{code:04X}"
         );
     }
 
     println!(
-        "size: current ExtendedBaseVowel {} bytes, merged BaseVowel {} bytes (no wrapper)",
+        "size: current Vowel {} bytes, merged BaseVowel {} bytes (no wrapper)",
         size_of::<ProdCased>(),
         size_of::<BaseVowel>()
     );
     // Re-derive production chars for the merged table to prove byte equality.
     let mut table_match = true;
     for &ch in &ENCODED_CHARS {
-        if let Some((cased, tone)) = decode_vowel(ch) {
-            table_match &= ch == cased.to_char_tone(tone);
+        if let Some((cased, tone)) = decode_vowel_pair(ch) {
+            table_match &= ch == Vowel::new(cased.base(), tone, cased.is_upper()).to_char();
         }
     }
     println!("merged render table == production encode: {table_match}");
@@ -278,16 +297,52 @@ fn main() {
     let rounds = 40;
     let iters = 200_000;
     let current: Vec<ProdCased> = (0..24)
-        .map(|i| ProdCased::with_case(VOWELS[i % VOWELS.len()], i / VOWELS.len() != 0))
+        .map(|i| ProdCased::new(VOWELS[i % VOWELS.len()], Tone::Flat, i / VOWELS.len() != 0))
         .collect();
     let merged: Vec<BaseVowel> = current.iter().map(|&c| BaseVowel::from_cased(c)).collect();
     let count = current.len();
 
     println!("\nfield extraction (ns/op):");
-    compare!("id", count, &current, &merged, |c: ProdCased| c.get().id(), |v: BaseVowel| v.id(), rounds, iters);
-    compare!("shape", count, &current, &merged, |c: ProdCased| c.get().shape(), |v: BaseVowel| v.shape(), rounds, iters);
-    compare!("root", count, &current, &merged, |c: ProdCased| c.get().root(), |v: BaseVowel| v.root(), rounds, iters);
-    compare!("is_upper", count, &current, &merged, |c: ProdCased| c.is_upper(), |v: BaseVowel| v.is_upper(), rounds, iters);
+    compare!(
+        "id",
+        count,
+        &current,
+        &merged,
+        |c: ProdCased| c.base().priority_id(),
+        |v: BaseVowel| v.id(),
+        rounds,
+        iters
+    );
+    compare!(
+        "shape",
+        count,
+        &current,
+        &merged,
+        |c: ProdCased| c.base().shape(),
+        |v: BaseVowel| v.shape(),
+        rounds,
+        iters
+    );
+    compare!(
+        "root",
+        count,
+        &current,
+        &merged,
+        |c: ProdCased| c.base().root(),
+        |v: BaseVowel| v.root(),
+        rounds,
+        iters
+    );
+    compare!(
+        "is_upper",
+        count,
+        &current,
+        &merged,
+        |c: ProdCased| c.is_upper(),
+        |v: BaseVowel| v.is_upper(),
+        rounds,
+        iters
+    );
 
     println!("\ncase transforms (ns/op):");
     compare!(
@@ -295,7 +350,7 @@ fn main() {
         count,
         &current,
         &merged,
-        |c: ProdCased| ProdCased::lower(c.get()),
+        |c: ProdCased| ProdCased::lower(c.base(), Tone::Flat),
         |v: BaseVowel| v.to_lower(),
         rounds,
         iters
@@ -305,7 +360,7 @@ fn main() {
         count,
         &current,
         &merged,
-        |c: ProdCased| ProdCased::with_case(c.get(), !c.is_upper()),
+        |c: ProdCased| c.with_upper(!c.is_upper()),
         |v: BaseVowel| v.with_case(!v.is_upper()),
         rounds,
         iters
@@ -317,7 +372,7 @@ fn main() {
         count,
         &current,
         &merged,
-        |c: ProdCased| c.to_char(),
+        |c: ProdCased| Vowel::new(c.base(), Tone::Flat, c.is_upper()).to_char(),
         |v: BaseVowel| merged_render(v, Tone::Flat),
         rounds,
         iters
@@ -325,7 +380,14 @@ fn main() {
     let c_tone = time(
         || {
             for (i, value) in current.iter().enumerate() {
-                black_box(value.to_char_tone(black_box(TONES[i % TONES.len()])));
+                black_box(
+                    Vowel::new(
+                        value.base(),
+                        black_box(TONES[i % TONES.len()]),
+                        value.is_upper(),
+                    )
+                    .to_char(),
+                );
             }
         },
         rounds,
@@ -334,7 +396,10 @@ fn main() {
     let m_tone = time(
         || {
             for (i, value) in merged.iter().enumerate() {
-                black_box(merged_render(black_box(*value), black_box(TONES[i % TONES.len()])));
+                black_box(merged_render(
+                    black_box(*value),
+                    black_box(TONES[i % TONES.len()]),
+                ));
             }
         },
         rounds,
@@ -347,8 +412,8 @@ fn main() {
     let c_pipe = time(
         || {
             for &ch in &keys {
-                let (cased, tone) = decode_vowel(black_box(ch)).expect("vowel key");
-                black_box(cased.to_char_tone(tone));
+                let (cased, tone) = decode_vowel_pair(black_box(ch)).expect("vowel key");
+                black_box(Vowel::new(cased.base(), tone, cased.is_upper()).to_char());
             }
         },
         rounds,

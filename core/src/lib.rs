@@ -3,18 +3,23 @@
 //! Architecture:
 //!
 //! ```text
-//! Input → Interpreter → Processor → Unicode
+//! KeyEvent → Keymap → Composition → SyllableBuilder → phonology → Vietnamese text
 //! ```
 //!
-//! - [`character`]: semantic Vietnamese vowels as primitive `(base, tone, case)`
-//!   triples and the [`decode`]/[`encode`] codec over precomposed characters.
-//! - [`Interpreter`]: turns a key plus [`keymap::Keymap`] into
-//!   shape or tone changes, per input-method configuration
-//!   (`SimpleInterpreter`).
-//! - [`Processor`]: Vietnamese rules; applies actions to semantic vowels,
-//!   and parses/renders canonical ASCII syllables into Vietnamese text.
-//! - [`Composition`] + [`Engine`]: raw input buffering, cursor editing, and
-//!   the frontend-facing state machine.
+//! - [`KeyEvent`]: a [`Key`] plus [`KeyStates`]; the only input the engine takes.
+//! - [`keymap::Keymap`]: classifies a key as a tone, vowel-shape or
+//!   `d`/`đ` stroke key and decodes it (`DefaultKeymap` for Telex/VNI/VIQR).
+//! - [`Composition`]: the raw keystroke buffer, its cursor, and the incremental
+//!   syllable parser driven by that keymap.
+//! - [`SyllableBuilder`](composition::syllable::SyllableBuilder): the two-phase
+//!   syllable buffer — a validated `BuildingSyllable`, or a verbatim
+//!   `DeadSyllable` once the input can no longer form a Vietnamese syllable.
+//! - [`phonology`]: the shared model both phases rely on — the `Vowel` codec
+//!   (`encode_vowel`/`decode_vowel`), [`NucleusState`](phonology::NucleusState),
+//!   [`PhonotacticValidator`](phonology::PhonotacticValidator) and
+//!   [`TonePlacement`](phonology::TonePlacement).
+//! - [`Engine`]: the frontend-facing state machine, turning each [`KeyEvent`]
+//!   into a [`Result`] (re-render, commit, ignore or forward the key).
 
 mod config;
 mod engine;

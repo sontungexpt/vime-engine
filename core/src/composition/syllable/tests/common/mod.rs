@@ -12,7 +12,7 @@
 //! the expected and actual onset / vowels / tone / coda side by side.
 
 use crate::composition::syllable::building::BuildingSyllable;
-use crate::phonology::{BaseVowel, ExtendedBaseVowel, Coda, Onset, Tone};
+use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
 /// much faster than `(BaseVowel::VowelCase::Lower)`.
@@ -158,9 +158,9 @@ pub fn check_syllable_eq(
     expected: &ExpectedSyllable,
     input: &[char],
 ) -> Result<(), String> {
-    let vowel_pair = |v: &ExtendedBaseVowel| {
+    let vowel_pair = |v: &Vowel| {
         (
-            v.get(),
+            v.base(),
             if v.is_upper() {
                 VowelCase::Upper
             } else {
@@ -172,7 +172,7 @@ pub fn check_syllable_eq(
     let matches = builder.onset_kind() == expected.onset_kind
         && builder.onset() == expected.onset
         && builder
-            .vowels()
+            .nucleus()
             .iter()
             .map(vowel_pair)
             .eq(expected.vowels.iter().copied())
@@ -184,7 +184,7 @@ pub fn check_syllable_eq(
         return Ok(());
     }
 
-    let actual_vowels = builder.vowels().iter().map(vowel_pair).collect::<Vec<_>>();
+    let actual_vowels = builder.nucleus().iter().map(vowel_pair).collect::<Vec<_>>();
     Err(format!(
         "input={input:?}\n  expected: {}\n  actual:   {}",
         describe(

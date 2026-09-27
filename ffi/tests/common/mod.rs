@@ -9,7 +9,7 @@
 use std::ffi::CStr;
 
 use vime::{
-    VimeAction, VimeInputMethod, VimeEngineHandle, VimeKey, VimeKeyEvent, VimeOutput,
+    VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
     VimeTonePlacement,
 };
 

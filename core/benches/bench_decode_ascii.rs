@@ -1,40 +1,40 @@
-//! Benchmarks the two forms of `decode_vowel`'s ASCII fast path.
+//! Benchmarks alternate ASCII decoders against `Vowel::from_char`.
 //!
 //! Variant A is the current 12-arm per-case `match` (one arm per vowel, both
 //! cases). Variant B is the bit-trick form: uppercase detected from ASCII's
 //! 0x20 case bit, lowercase derived via `| 0x20`, then a 6-arm match on the
-//! lowercased letter. Both must agree with the crate's `decode_vowel` over the
+//! lowercased letter. Both must agree with `Vowel::from_char` over the
 //! whole ASCII range; a per-item folding checksum keeps results observable.
 //!   cargo bench --bench bench_decode_ascii
 
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{decode_vowel, BaseVowel, BaseVowel::*, ExtendedBaseVowel, Tone, Tone::*};
+use vime_engine::phonology::{BaseVowel, BaseVowel::*, Tone::*, Vowel};
 
 /// Current fast path (as in `decode_vowel`).
 #[inline(always)]
-fn ascii_match(c: char) -> Option<(ExtendedBaseVowel, Tone)> {
+fn ascii_match(c: char) -> Option<Vowel> {
     match c {
-        'a' => Some((ExtendedBaseVowel::lower(A), Flat)),
-        'A' => Some((ExtendedBaseVowel::upper(A), Flat)),
-        'o' => Some((ExtendedBaseVowel::lower(O), Flat)),
-        'O' => Some((ExtendedBaseVowel::upper(O), Flat)),
-        'e' => Some((ExtendedBaseVowel::lower(E), Flat)),
-        'E' => Some((ExtendedBaseVowel::upper(E), Flat)),
-        'i' => Some((ExtendedBaseVowel::lower(I), Flat)),
-        'I' => Some((ExtendedBaseVowel::upper(I), Flat)),
-        'u' => Some((ExtendedBaseVowel::lower(U), Flat)),
-        'U' => Some((ExtendedBaseVowel::upper(U), Flat)),
-        'y' => Some((ExtendedBaseVowel::lower(Y), Flat)),
-        'Y' => Some((ExtendedBaseVowel::upper(Y), Flat)),
+        'a' => Some(Vowel::lower(A, Flat)),
+        'A' => Some(Vowel::upper(A, Flat)),
+        'o' => Some(Vowel::lower(O, Flat)),
+        'O' => Some(Vowel::upper(O, Flat)),
+        'e' => Some(Vowel::lower(E, Flat)),
+        'E' => Some(Vowel::upper(E, Flat)),
+        'i' => Some(Vowel::lower(I, Flat)),
+        'I' => Some(Vowel::upper(I, Flat)),
+        'u' => Some(Vowel::lower(U, Flat)),
+        'U' => Some(Vowel::upper(U, Flat)),
+        'y' => Some(Vowel::lower(Y, Flat)),
+        'Y' => Some(Vowel::upper(Y, Flat)),
         _ => None,
     }
 }
 
 /// Bit-trick candidate: check the 0x20 case bit, force lowercase, match 6.
 #[inline(always)]
-fn ascii_bittrick(code: u32) -> Option<(ExtendedBaseVowel, Tone)> {
+fn ascii_bittrick(code: u32) -> Option<Vowel> {
     let base = match (code | 0x20) as u8 as char {
         'a' => A,
         'o' => O,
@@ -44,7 +44,7 @@ fn ascii_bittrick(code: u32) -> Option<(ExtendedBaseVowel, Tone)> {
         'y' => Y,
         _ => return None,
     };
-    Some((ExtendedBaseVowel::with_case(base, (code & 0x20) == 0), Flat))
+    Some(Vowel::new(base, Flat, (code & 0x20) == 0))
 }
 
 /// ASCII→priority-ID table: index by the raw `code & 0x7F` (both cases land in
@@ -75,23 +75,23 @@ const fn ascii_id_of(code: u32) -> u8 {
 
 /// LUT candidate: one masked load, one sentinel test, no match tree.
 #[inline(always)]
-fn ascii_lut(code: u32) -> Option<(ExtendedBaseVowel, Tone)> {
+fn ascii_lut(code: u32) -> Option<Vowel> {
     let id = ASCII_LUT[(code & 0x7F) as usize];
     if id == 0xFF {
         return None;
     }
     // SAFETY: `id` came from the LUT, which only ever stores IDs `< 12`.
     let base = unsafe { BaseVowel::from_id_unchecked(id as usize) };
-Some((ExtendedBaseVowel::with_case(base, (code & 0x20) == 0), Flat))
+    Some(Vowel::new(base, Flat, (code & 0x20) == 0))
 }
 
 /// Folds a decode result into the checksum.
 #[inline(always)]
-fn fold(acc: u64, r: Option<(ExtendedBaseVowel, Tone)>) -> u64 {
+fn fold(acc: u64, r: Option<Vowel>) -> u64 {
     match r {
-        Some((cased, tone)) => acc
+        Some(vowel) => acc
             .wrapping_mul(31)
-            .wrapping_add(cased.get() as u64 * 7 + tone as u64 + 1),
+            .wrapping_add(vowel.base() as u64 * 7 + vowel.tone() as u64 + vowel.is_upper() as u64),
         None => acc ^ 0x9E37_79B9_7F4A_7C15,
     }
 }
@@ -143,7 +143,7 @@ fn main() {
             "bittrick mismatch at 0x{code:02x}"
         );
         assert_eq!(
-            decode_vowel(c),
+            Vowel::from_char(c),
             ascii_lut(code),
             "lut mismatch at 0x{code:02x}"
         );

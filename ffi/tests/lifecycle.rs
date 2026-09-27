@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Engine, key_event};
+use common::{key_event, Engine};
 use vime::{VimeAction, VimeInputMethod, VimeKey, VimeTonePlacement};
 
 #[test]
@@ -80,8 +80,20 @@ fn switch_then_commit_uses_new_placement() {
 #[test]
 fn navigate_empty_buffer_forwards() {
     let mut engine = Engine::create().unwrap();
-    assert_eq!(engine.process(key_event(VimeKey::Left)).action, VimeAction::Forward);
-    assert_eq!(engine.process(key_event(VimeKey::Right)).action, VimeAction::Forward);
-    assert_eq!(engine.process(key_event(VimeKey::Backspace)).action, VimeAction::Forward);
-    assert_eq!(engine.process(key_event(VimeKey::Delete)).action, VimeAction::Forward);
+    assert_eq!(
+        engine.process(key_event(VimeKey::Left)).action,
+        VimeAction::Forward
+    );
+    assert_eq!(
+        engine.process(key_event(VimeKey::Right)).action,
+        VimeAction::Forward
+    );
+    assert_eq!(
+        engine.process(key_event(VimeKey::Backspace)).action,
+        VimeAction::Forward
+    );
+    assert_eq!(
+        engine.process(key_event(VimeKey::Delete)).action,
+        VimeAction::Forward
+    );
 }

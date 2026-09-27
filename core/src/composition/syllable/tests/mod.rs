@@ -7,6 +7,7 @@
 //! * [`remove`] — `BuildingSyllableBuilder::remove` at an explicit index.
 //! * [`lifecycle`] — the two-phase `SyllableBuilder` state machine
 //!   (building → dead → building again).
+//! * [`render`] — rendered output: tone placement and the precomposed codec.
 //!
 //! The shared assertion harness lives in [`common`] (the `ExpectedSyllable`
 //! model and `check_syllable_eq`); the push behaviour data and its runner live
@@ -18,3 +19,4 @@ mod insert;
 mod lifecycle;
 mod push;
 mod remove;
+mod render;

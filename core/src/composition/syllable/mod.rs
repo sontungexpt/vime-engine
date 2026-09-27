@@ -4,7 +4,7 @@ mod input_effect;
 
 use crate::{
     keymap::Keymap,
-    phonology::{Coda, ExtendedBaseVowel, Onset, TonePlacement},
+    phonology::{Coda, Onset, TonePlacement, Vowel},
 };
 
 pub use building::BuildingSyllable;
@@ -119,9 +119,9 @@ impl<KM: Keymap> SyllableBuilder<KM> {
 
     /// The nucleus vowels, `None` once dead.
     #[inline(always)]
-    pub fn vowels(&self) -> Option<&[ExtendedBaseVowel]> {
+    pub fn vowels(&self) -> Option<&[Vowel]> {
         match &self.state {
-            SyllableState::Building(builder) => Some(builder.vowels()),
+            SyllableState::Building(builder) => Some(builder.nucleus()),
             SyllableState::Dead(_) => None,
         }
     }

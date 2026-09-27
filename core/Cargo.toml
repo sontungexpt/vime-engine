@@ -9,9 +9,18 @@ license = "MIT"
 
 [dev-dependencies]
 arrayvec = "0.7"
+criterion = "0.8.2"
 
 [[bench]]
 name = "bench_apply_uo_horn"
+harness = false
+
+[[bench]]
+name = "bench_vowel_layout"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_from_root"
 harness = false
 
 [[bench]]
@@ -72,4 +81,32 @@ harness = false
 
 [[bench]]
 name = "bench_base_vowel_merged"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_id"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_id_production"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_from_parts"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_constructors"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_versions"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_option_lut"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_remove_shape"
 harness = false

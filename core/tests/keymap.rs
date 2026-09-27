@@ -7,8 +7,8 @@
 //!   and that non-ASCII / out-of-range input is safely rejected without a
 //!   shift-overflow panic.
 
-use vime_engine::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
 use vime_engine::phonology::{RootVowel, Shape, Tone};
+use vime_engine::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
 
 /// `(key, Tone)` pairs of the Telex layout.
 const TELEX_TONES: [(char, Tone); 6] = [
@@ -71,7 +71,9 @@ const VIQR_SHAPES: [(char, RootVowel, Shape); 6] = [
 ];
 
 /// ASCII characters bound to no role in any shipped layout.
-const NEUTRAL: [char; 14] = ['b', 'c', 'g', 'h', 'k', 'l', 'm', 'n', 'p', 'q', 't', 'u', 'y', 'v'];
+const NEUTRAL: [char; 14] = [
+    'b', 'c', 'g', 'h', 'k', 'l', 'm', 'n', 'p', 'q', 't', 'u', 'y', 'v',
+];
 
 // ------------------------------------------------------------ shared assertions
 
@@ -83,9 +85,19 @@ fn assert_tone_keys(km: impl Keymap, tones: &[(char, Tone)]) {
             km.is_tone_key(key.to_ascii_uppercase()),
             "uppercase {key:?} must be a tone key"
         );
-        assert_eq!(km.decode_tone(key), Some(tone), "tone decode mismatch for {key:?}");
-        assert!(!km.is_shape_key(key), "tone key {key:?} must not be a shape key");
-        assert!(!km.is_stroke_key(key), "tone key {key:?} must not be a stroke key");
+        assert_eq!(
+            km.decode_tone(key),
+            Some(tone),
+            "tone decode mismatch for {key:?}"
+        );
+        assert!(
+            !km.is_shape_key(key),
+            "tone key {key:?} must not be a shape key"
+        );
+        assert!(
+            !km.is_stroke_key(key),
+            "tone key {key:?} must not be a stroke key"
+        );
     }
 }
 
@@ -102,8 +114,14 @@ fn assert_shape_keys(km: impl Keymap, shapes: &[(char, RootVowel, Shape)]) {
             Some(shape),
             "shape decode mismatch for {key:?} on {owner:?}"
         );
-        assert!(!km.is_tone_key(key), "shape key {key:?} must not be a tone key");
-        assert!(!km.is_stroke_key(key), "shape key {key:?} must not be a stroke key");
+        assert!(
+            !km.is_tone_key(key),
+            "shape key {key:?} must not be a tone key"
+        );
+        assert!(
+            !km.is_stroke_key(key),
+            "shape key {key:?} must not be a stroke key"
+        );
         assert_eq!(
             km.decode_shape(key, RootVowel::Y),
             None,
@@ -120,8 +138,14 @@ fn assert_stroke_keys(km: impl Keymap, strokes: &[char]) {
             km.is_stroke_key(key.to_ascii_uppercase()),
             "uppercase {key:?} must be a stroke key"
         );
-        assert!(!km.is_tone_key(key), "stroke key {key:?} must not be a tone key");
-        assert!(!km.is_shape_key(key), "stroke key {key:?} must not be a shape key");
+        assert!(
+            !km.is_tone_key(key),
+            "stroke key {key:?} must not be a tone key"
+        );
+        assert!(
+            !km.is_shape_key(key),
+            "stroke key {key:?} must not be a shape key"
+        );
     }
 }
 
@@ -131,9 +155,16 @@ fn assert_neutral(km: impl Keymap, neutral: &[char]) {
         assert!(!km.is_tone_key(ch), "{ch:?} must not be a tone key");
         assert!(!km.is_shape_key(ch), "{ch:?} must not be a shape key");
         assert!(!km.is_stroke_key(ch), "{ch:?} must not be a stroke key");
-        assert!(!km.is_transform_key(ch), "{ch:?} must not be a transform key");
+        assert!(
+            !km.is_transform_key(ch),
+            "{ch:?} must not be a transform key"
+        );
         assert_eq!(km.decode_tone(ch), None, "{ch:?} must not decode as a tone");
-        assert_eq!(km.decode_shape(ch, RootVowel::A), None, "{ch:?} must not decode as a shape");
+        assert_eq!(
+            km.decode_shape(ch, RootVowel::A),
+            None,
+            "{ch:?} must not decode as a shape"
+        );
     }
 }
 
@@ -224,7 +255,10 @@ fn mask_is_case_insensitive_for_punctuation_too() {
     // bit 0x20 possibly set, so they must map to themselves in the bitmask.
     let viqr = DefaultKeymap::viqr();
     for &ch in &['^', '`', '~', '(', '+', '?', '.'] {
-        assert!(viqr.is_shape_key(ch) || viqr.is_tone_key(ch), "viqr {ch:?} must be bound");
+        assert!(
+            viqr.is_shape_key(ch) || viqr.is_tone_key(ch),
+            "viqr {ch:?} must be bound"
+        );
     }
 }
 
@@ -259,7 +293,16 @@ fn assert_invalid(build: impl FnOnce() -> Rules<'static>) {
 fn rules_reject_duplicate_tone_key() {
     assert_invalid(|| {
         Rules::new(
-            &[ToneRule { key: b's', tone: Tone::Acute }, ToneRule { key: b's', tone: Tone::Grave }],
+            &[
+                ToneRule {
+                    key: b's',
+                    tone: Tone::Acute,
+                },
+                ToneRule {
+                    key: b's',
+                    tone: Tone::Grave,
+                },
+            ],
             &[],
             &[],
         )
@@ -270,8 +313,15 @@ fn rules_reject_duplicate_tone_key() {
 fn rules_reject_tone_shape_collision() {
     assert_invalid(|| {
         Rules::new(
-            &[ToneRule { key: b's', tone: Tone::Acute }],
-            &[ShapeRule { key: b's', on: RootVowel::A, shape: Shape::Breve }],
+            &[ToneRule {
+                key: b's',
+                tone: Tone::Acute,
+            }],
+            &[ShapeRule {
+                key: b's',
+                on: RootVowel::A,
+                shape: Shape::Breve,
+            }],
             &[],
         )
     });
@@ -283,8 +333,16 @@ fn rules_reject_shape_same_owner_duplicate() {
         Rules::new(
             &[],
             &[
-                ShapeRule { key: b'w', on: RootVowel::A, shape: Shape::Breve },
-                ShapeRule { key: b'w', on: RootVowel::A, shape: Shape::Circumflex },
+                ShapeRule {
+                    key: b'w',
+                    on: RootVowel::A,
+                    shape: Shape::Breve,
+                },
+                ShapeRule {
+                    key: b'w',
+                    on: RootVowel::A,
+                    shape: Shape::Circumflex,
+                },
             ],
             &[],
         )
@@ -297,9 +355,21 @@ fn rules_allow_multi_owner_shape_reuse() {
     let rules = Rules::new(
         &[],
         &[
-            ShapeRule { key: b'w', on: RootVowel::A, shape: Shape::Breve },
-            ShapeRule { key: b'w', on: RootVowel::O, shape: Shape::Horn },
-            ShapeRule { key: b'w', on: RootVowel::U, shape: Shape::Horn },
+            ShapeRule {
+                key: b'w',
+                on: RootVowel::A,
+                shape: Shape::Breve,
+            },
+            ShapeRule {
+                key: b'w',
+                on: RootVowel::O,
+                shape: Shape::Horn,
+            },
+            ShapeRule {
+                key: b'w',
+                on: RootVowel::U,
+                shape: Shape::Horn,
+            },
         ],
         &[],
     );
@@ -314,7 +384,14 @@ fn rules_reject_duplicate_stroke() {
 #[test]
 fn rules_reject_stroke_tone_collision() {
     assert_invalid(|| {
-        Rules::new(&[ToneRule { key: b'z', tone: Tone::Acute }], &[], &[b'z'])
+        Rules::new(
+            &[ToneRule {
+                key: b'z',
+                tone: Tone::Acute,
+            }],
+            &[],
+            &[b'z'],
+        )
     });
 }
 
@@ -323,7 +400,11 @@ fn rules_reject_stroke_shape_collision() {
     assert_invalid(|| {
         Rules::new(
             &[],
-            &[ShapeRule { key: b'z', on: RootVowel::A, shape: Shape::Breve }],
+            &[ShapeRule {
+                key: b'z',
+                on: RootVowel::A,
+                shape: Shape::Breve,
+            }],
             &[b'z'],
         )
     });
@@ -331,13 +412,26 @@ fn rules_reject_stroke_shape_collision() {
 
 #[test]
 fn rules_reject_non_ascii_key() {
-    for bad in [&[ToneRule { key: 0xFF, tone: Tone::Acute }][..], &[ToneRule { key: 0x80, tone: Tone::Acute }][..]] {
+    for bad in [
+        &[ToneRule {
+            key: 0xFF,
+            tone: Tone::Acute,
+        }][..],
+        &[ToneRule {
+            key: 0x80,
+            tone: Tone::Acute,
+        }][..],
+    ] {
         assert_invalid(|| Rules::new(bad, &[], &[]));
     }
     assert_invalid(|| {
         Rules::new(
             &[],
-            &[ShapeRule { key: 0xF0, on: RootVowel::A, shape: Shape::Breve }],
+            &[ShapeRule {
+                key: 0xF0,
+                on: RootVowel::A,
+                shape: Shape::Breve,
+            }],
             &[],
         )
     });

@@ -12,18 +12,18 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel};
+use vime_engine::phonology::{BaseVowel, Tone, Vowel};
 
-/// Faithful shrink of the `ArrayVec<ExtendedBaseVowel, 3>` nucleus + coda flag.
+/// Faithful shrink of the `ArrayVec<Vowel, 3>` nucleus + coda flag.
 #[derive(Clone)]
 struct Nucleus {
-    vowels: [ExtendedBaseVowel; 3],
+    vowels: [Vowel; 3],
     len: usize,
     coda_empty: bool,
 }
 
-fn v(b: BaseVowel) -> ExtendedBaseVowel {
-    ExtendedBaseVowel::with_case(b, false)
+fn v(b: BaseVowel) -> Vowel {
+    Vowel::lower(b, Tone::Flat)
 }
 
 /// Old form, transcribed verbatim from `068edb6` `finalize_uo_shape`.
@@ -34,12 +34,12 @@ fn old_normalize(n: &mut Nucleus) {
         return;
     }
 
-    match (vowels[0].get(), vowels[1].get()) {
+    match (vowels[0].base(), vowels[1].base()) {
         (BaseVowel::U, BaseVowel::OHorn) => {
-            vowels[0].set(BaseVowel::UHorn);
+            vowels[0].set_base(BaseVowel::UHorn);
         }
         (BaseVowel::UHorn, BaseVowel::O) => {
-            vowels[1].set(BaseVowel::OHorn);
+            vowels[1].set_base(BaseVowel::OHorn);
         }
         _ => {}
     }
@@ -53,9 +53,9 @@ fn new_normalize(n: &mut Nucleus) {
     }
 
     if let [v0, v1, ..] = &mut n.vowels[..n.len] {
-        match (v0.get(), v1.get()) {
-            (BaseVowel::U, BaseVowel::OHorn) => v0.set(BaseVowel::UHorn),
-            (BaseVowel::UHorn, BaseVowel::O) => v1.set(BaseVowel::OHorn),
+        match (v0.base(), v1.base()) {
+            (BaseVowel::U, BaseVowel::OHorn) => v0.set_base(BaseVowel::UHorn),
+            (BaseVowel::UHorn, BaseVowel::O) => v1.set_base(BaseVowel::OHorn),
             _ => {}
         }
     }
@@ -69,9 +69,9 @@ fn hybrid_normalize(n: &mut Nucleus) {
     }
 
     if let [v0, v1, ..] = &mut n.vowels[..n.len] {
-        match (v0.get(), v1.get()) {
-            (BaseVowel::U, BaseVowel::OHorn) => v0.set(BaseVowel::UHorn),
-            (BaseVowel::UHorn, BaseVowel::O) => v1.set(BaseVowel::OHorn),
+        match (v0.base(), v1.base()) {
+            (BaseVowel::U, BaseVowel::OHorn) => v0.set_base(BaseVowel::UHorn),
+            (BaseVowel::UHorn, BaseVowel::O) => v1.set_base(BaseVowel::OHorn),
             _ => {}
         }
     }

@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{Engine, key_event};
+use common::{key_event, Engine};
 use vime::{VimeAction, VimeKey};
 
 #[test]
@@ -37,9 +37,8 @@ fn repeated_backspace_eventually_forwards() {
     engine.type_text("viet");
 
     // Keep backspacing until the engine reports nothing left to delete.
-    let forwarded = (0..8).any(|_| {
-        engine.process(key_event(VimeKey::Backspace)).action == VimeAction::Forward
-    });
+    let forwarded =
+        (0..8).any(|_| engine.process(key_event(VimeKey::Backspace)).action == VimeAction::Forward);
     assert!(forwarded, "backspacing to empty must eventually forward");
 }
 
@@ -47,7 +46,10 @@ fn repeated_backspace_eventually_forwards() {
 fn delete_does_not_apply_at_end() {
     let mut engine = Engine::create().unwrap();
     engine.type_text("viet");
-    assert_eq!(engine.process(key_event(VimeKey::Delete)).action, VimeAction::Forward);
+    assert_eq!(
+        engine.process(key_event(VimeKey::Delete)).action,
+        VimeAction::Forward
+    );
 }
 
 #[test]
@@ -59,12 +61,18 @@ fn left_at_buffer_start_forwards() {
     for _ in 0..4 {
         engine.process(key_event(VimeKey::Left));
     }
-    assert_eq!(engine.process(key_event(VimeKey::Left)).action, VimeAction::Forward);
+    assert_eq!(
+        engine.process(key_event(VimeKey::Left)).action,
+        VimeAction::Forward
+    );
 }
 
 #[test]
 fn right_at_buffer_end_forwards() {
     let mut engine = Engine::create().unwrap();
     engine.type_text("viet");
-    assert_eq!(engine.process(key_event(VimeKey::Right)).action, VimeAction::Forward);
+    assert_eq!(
+        engine.process(key_event(VimeKey::Right)).action,
+        VimeAction::Forward
+    );
 }

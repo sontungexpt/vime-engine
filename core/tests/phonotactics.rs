@@ -12,10 +12,8 @@
 //! 4. Palatal codas `ch/nh` follow only a front vowel or plain `a`.
 //! 5. Short vowels `ă/â` need a closing sound, never stand open.
 
-use vime_engine::phonology::{
-    DefaultPhonotacticValidator, PhonotacticValidator, ValidationError,
-};
 use vime_engine::phonology::{BaseVowel, Coda, Onset, Tone};
+use vime_engine::phonology::{DefaultPhonotacticValidator, PhonotacticValidator, ValidationError};
 use BaseVowel::{ABreve, ACircumflex, ECircumflex, OCircumflex, OHorn, UHorn, A, E, I, O, U, Y};
 
 fn ok(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone) {

@@ -111,7 +111,7 @@ macro_rules! build_mask {
     }};
 }
 
-/// Configuration-driven key mapping backed by [`KeyMask`] lookups, declared via [`Rules`].
+/// Configuration-driven key mapping backed by `KeyMask` lookups, declared via [`Rules`].
 ///
 /// ASCII keys only — Unicode keys need a custom [`Keymap`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

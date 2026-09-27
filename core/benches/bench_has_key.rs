@@ -130,13 +130,46 @@ fn main() {
     let workload: Vec<char> = {
         let mut w = Vec::new();
         for (ch, weight) in [
-            ('a', 20), ('e', 16), ('o', 18), ('i', 18), ('u', 16),
-            ('s', 6), ('f', 4), ('r', 6), ('x', 4), ('j', 3), ('z', 2),
-            ('w', 6), ('d', 6), ('n', 24), ('t', 20), ('c', 14), ('h', 12),
-            ('g', 10), ('k', 10), ('l', 10), ('m', 8), ('p', 6), ('q', 4),
-            ('b', 8), ('y', 4), ('v', 4), ('A', 4), ('O', 4), ('S', 2),
-            ('F', 2), ('D', 2), ('W', 2), ('1', 2), ('3', 2), (' ', 2),
-            ('!', 2), (';', 2), ('[', 2), ('đ', 1), ('ệ', 1),
+            ('a', 20),
+            ('e', 16),
+            ('o', 18),
+            ('i', 18),
+            ('u', 16),
+            ('s', 6),
+            ('f', 4),
+            ('r', 6),
+            ('x', 4),
+            ('j', 3),
+            ('z', 2),
+            ('w', 6),
+            ('d', 6),
+            ('n', 24),
+            ('t', 20),
+            ('c', 14),
+            ('h', 12),
+            ('g', 10),
+            ('k', 10),
+            ('l', 10),
+            ('m', 8),
+            ('p', 6),
+            ('q', 4),
+            ('b', 8),
+            ('y', 4),
+            ('v', 4),
+            ('A', 4),
+            ('O', 4),
+            ('S', 2),
+            ('F', 2),
+            ('D', 2),
+            ('W', 2),
+            ('1', 2),
+            ('3', 2),
+            (' ', 2),
+            ('!', 2),
+            (';', 2),
+            ('[', 2),
+            ('đ', 1),
+            ('ệ', 1),
         ] {
             for _ in 0..weight {
                 w.push(ch);
@@ -149,9 +182,22 @@ fn main() {
     let workload_unicode: Vec<char> = {
         let mut w = Vec::new();
         for (ch, weight) in [
-            ('a', 8), ('s', 2), ('w', 2), ('A', 2),
-            ('đ', 14), ('ệ', 14), ('ơ', 12), ('ư', 12), ('ă', 10), ('â', 10),
-            ('Ŧ', 4), ('é', 6), ('Ā', 6), ('Ⓐ', 2), ('\u{0511}', 2), ('ç', 4),
+            ('a', 8),
+            ('s', 2),
+            ('w', 2),
+            ('A', 2),
+            ('đ', 14),
+            ('ệ', 14),
+            ('ơ', 12),
+            ('ư', 12),
+            ('ă', 10),
+            ('â', 10),
+            ('Ŧ', 4),
+            ('é', 6),
+            ('Ā', 6),
+            ('Ⓐ', 2),
+            ('\u{0511}', 2),
+            ('ç', 4),
         ] {
             for _ in 0..weight {
                 w.push(ch);
@@ -284,25 +330,21 @@ fn main() {
         iters,
     ));
     println!("unicode-heavy probes per pass: {}", probes_unicode as usize);
+    println!("guard    (V0):   {:>8.2} ns/probe  (best of {rounds})", ug);
+    println!("ascii    (V1):   {:>8.2} ns/probe  (best of {rounds})", ua);
+    println!("clamp    (V2):   {:>8.2} ns/probe  (best of {rounds})", uc);
+    println!("multiply (V3):   {:>8.2} ns/probe  (best of {rounds})", um);
+    let ubest = [
+        ("guard", ug),
+        ("ascii", ua),
+        ("clamp", uc),
+        ("multiply", um),
+    ]
+    .into_iter()
+    .min_by(|a, b| a.1.total_cmp(&b.1))
+    .unwrap();
     println!(
-        "guard    (V0):   {:>8.2} ns/probe  (best of {rounds})",
-        ug
+        "winner (unicode-heavy): {} ({:.2} ns/probe)",
+        ubest.0, ubest.1
     );
-    println!(
-        "ascii    (V1):   {:>8.2} ns/probe  (best of {rounds})",
-        ua
-    );
-    println!(
-        "clamp    (V2):   {:>8.2} ns/probe  (best of {rounds})",
-        uc
-    );
-    println!(
-        "multiply (V3):   {:>8.2} ns/probe  (best of {rounds})",
-        um
-    );
-    let ubest = [("guard", ug), ("ascii", ua), ("clamp", uc), ("multiply", um)]
-        .into_iter()
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .unwrap();
-    println!("winner (unicode-heavy): {} ({:.2} ns/probe)", ubest.0, ubest.1);
 }

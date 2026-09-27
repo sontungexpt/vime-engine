@@ -24,7 +24,9 @@ fn both_ascii_or(a: char, b: char) -> bool {
 fn probe_and(pairs: &[(char, char)]) -> u64 {
     let mut acc = 0u64;
     for &(a, b) in pairs {
-        acc = acc.wrapping_mul(31).wrapping_add(both_ascii_and(a, b) as u64);
+        acc = acc
+            .wrapping_mul(31)
+            .wrapping_add(both_ascii_and(a, b) as u64);
     }
     black_box(acc)
 }
@@ -33,7 +35,9 @@ fn probe_and(pairs: &[(char, char)]) -> u64 {
 fn probe_or(pairs: &[(char, char)]) -> u64 {
     let mut acc = 0u64;
     for &(a, b) in pairs {
-        acc = acc.wrapping_mul(31).wrapping_add(both_ascii_or(a, b) as u64);
+        acc = acc
+            .wrapping_mul(31)
+            .wrapping_add(both_ascii_or(a, b) as u64);
     }
     black_box(acc)
 }
@@ -57,7 +61,10 @@ fn main() {
     let mix = |ascii: usize| -> Vec<(char, char)> {
         let mut v = Vec::new();
         for i in 0..ascii {
-            v.push(((b'a' + (i as u8 % 26)) as char, (b'z' - (i as u8 % 26)) as char));
+            v.push((
+                (b'a' + (i as u8 % 26)) as char,
+                (b'z' - (i as u8 % 26)) as char,
+            ));
         }
         for i in 0..vietnam.len() {
             v.push((vietnam[i], vietnam[i]));

@@ -11,31 +11,31 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::{BaseVowel, ExtendedBaseVowel, Shape};
+use vime_engine::phonology::{BaseVowel, Shape, Tone, Vowel};
 
-/// Faithful shrink of the `ArrayVec<ExtendedBaseVowel, 3>` nucleus.
+/// Faithful shrink of the `ArrayVec<Vowel, 3>` nucleus.
 #[derive(Clone)]
 struct Nucleus {
-    vowels: [ExtendedBaseVowel; 3],
+    vowels: [Vowel; 3],
     len: usize,
 }
 
-fn v(b: BaseVowel) -> ExtendedBaseVowel {
-    ExtendedBaseVowel::with_case(b, false)
+fn v(b: BaseVowel) -> Vowel {
+    Vowel::lower(b, Tone::Flat)
 }
 
 /// Shared shape-toggle: Horn on index `i` (reverts when already Horn).
 #[inline(always)]
 fn apply_horn(n: &mut Nucleus, i: usize) -> bool {
-    let old = n.vowels[i].get();
-    if old.has_shape(Shape::Horn) {
-        n.vowels[i].set(old.remove_shape());
+    let old = n.vowels[i].base();
+    if old.is_shape(Shape::Horn) {
+        n.vowels[i].set_base(old.remove_shape());
         return true;
     }
-    let Ok(new) = old.replace_shape(Shape::Horn) else {
+    let Some(new) = old.replace_shape(Shape::Horn) else {
         return false;
     };
-    n.vowels[i].set(new);
+    n.vowels[i].set_base(new);
     true
 }
 
@@ -46,11 +46,11 @@ fn slicelet_uo_horn(n: &mut Nucleus) -> bool {
         return false;
     };
 
-    match (v0.get(), v1.get()) {
+    match (v0.base(), v1.base()) {
         // ươ -> uo (Revert)
         (BaseVowel::UHorn, BaseVowel::OHorn) => {
-            v0.set(BaseVowel::U);
-            v1.set(BaseVowel::O);
+            v0.set_base(BaseVowel::U);
+            v1.set_base(BaseVowel::O);
             true
         }
         // ưô, ưo, uo, uô -> Horn on index 1
@@ -66,11 +66,11 @@ fn slicelet_uo_horn(n: &mut Nucleus) -> bool {
 #[inline(always)]
 fn indexed_uo_horn(n: &mut Nucleus) -> bool {
     let vowels = &n.vowels;
-    match (vowels[0].get(), vowels[1].get()) {
+    match (vowels[0].base(), vowels[1].base()) {
         // ươ -> uo (Revert)
         (BaseVowel::UHorn, BaseVowel::OHorn) => {
-            n.vowels[0].set(BaseVowel::U);
-            n.vowels[1].set(BaseVowel::O);
+            n.vowels[0].set_base(BaseVowel::U);
+            n.vowels[1].set_base(BaseVowel::O);
             true
         }
         // ưô, ưo, uo, uô -> Horn on index 1
