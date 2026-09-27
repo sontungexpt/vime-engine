@@ -74,12 +74,12 @@ impl Onset {
     }
 
     #[inline(always)]
-    pub const fn from_id(id: usize) -> Result<Self, OnsetParseError> {
+    pub const fn from_id(id: u8) -> Option<Self> {
         // Safety: real discriminants are contiguous from 0 through MAX_ID.
-        if id < Self::COUNT {
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id as u8) })
+        if id < Self::COUNT as u8 {
+            Some(unsafe { std::mem::transmute::<u8, Self>(id) })
         } else {
-            Err(OnsetParseError)
+            None
         }
     }
 
