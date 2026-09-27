@@ -38,11 +38,11 @@ impl Coda {
     }
 
     #[inline(always)]
-    pub const fn from_id(id: usize) -> Result<Self, CodaParseError> {
-        if id < Self::COUNT {
-            Ok(unsafe { transmute::<u8, Self>(id as u8) })
+    pub const fn from_id(id: u8) -> Option<Self> {
+        if id < Self::COUNT as u8 {
+            Some(unsafe { transmute(id as u8) })
         } else {
-            Err(CodaParseError)
+            None
         }
     }
 
