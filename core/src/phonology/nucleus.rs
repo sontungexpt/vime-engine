@@ -15,125 +15,263 @@ pub enum NucleusState {
     InComplete,
 }
 
+macro_rules! nucleus_rules {
+    // ============================================================
+    // Public entry point
+    // ============================================================
+
+    ($vowels:ident; $($rules:tt)*) => {
+        nucleus_rules! {
+            @collect
+            $vowels
+            []
+            []
+            $($rules)*
+        }
+    };
+
+    // ============================================================
+    // Empty nucleus
+    // ============================================================
+
+    (@collect
+        $vowels:ident
+        [$($two:tt)*]
+        [$($three:tt)*]
+
+        [] => $state:ident,
+        $($rest:tt)*
+    ) => {
+        nucleus_rules! {
+            @collect
+            $vowels
+            [$($two)*]
+            [$($three)*]
+            $($rest)*
+        }
+    };
+
+    // ============================================================
+    // Single vowel
+    // ============================================================
+
+    (@collect
+        $vowels:ident
+        [$($two:tt)*]
+        [$($three:tt)*]
+
+        [$a:ident] => $state:ident,
+        $($rest:tt)*
+    ) => {
+        nucleus_rules! {
+            @collect
+            $vowels
+            [$($two)*]
+            [$($three)*]
+            $($rest)*
+        }
+    };
+
+    // ============================================================
+    // Two vowels
+    // ============================================================
+
+    (@collect
+        $vowels:ident
+        [$($two:tt)*]
+        [$($three:tt)*]
+
+        [$a:ident, $b:ident] => $state:ident,
+        $($rest:tt)*
+    ) => {
+        nucleus_rules! {
+            @collect
+            $vowels
+            [$($two)* [$a, $b] => $state,]
+            [$($three)*]
+            $($rest)*
+        }
+    };
+
+    // ============================================================
+    // Three vowels
+    // ============================================================
+
+    (@collect
+        $vowels:ident
+        [$($two:tt)*]
+        [$($three:tt)*]
+
+        [$a:ident, $b:ident, $c:ident] => $state:ident,
+        $($rest:tt)*
+    ) => {
+        nucleus_rules! {
+            @collect
+            $vowels
+            [$($two)*]
+            [$($three)* [$a, $b, $c] => $state,]
+            $($rest)*
+        }
+    };
+
+    // ============================================================
+    // End: generate expression
+    // ============================================================
+
+    (@collect
+        $vowels:ident
+        [$($two:tt)*]
+        [$($three:tt)*]
+    ) => {
+        match $vowels.len() {
+            // [ ] => InComplete
+            0 => InComplete,
+
+            // [A], [E], [I], ... => Valid
+            //
+            // Single-vowel rules are intentionally kept in the rule table
+            // as documentation, but do not need individual match arms.
+            1 => Valid,
+
+            // Two-vowel rules are collected from the rule table above.
+            2 => match $vowels {
+                $($two)*
+                _ => Dead,
+            },
+
+            // Three-vowel rules are collected from the rule table above.
+            3 => match $vowels {
+                $($three)*
+                _ => Dead,
+            },
+
+            // NUCLEUS_MAX_LEN = 3.
+            _ => Dead,
+        }
+    };
+}
+
 impl NucleusState {
     #[inline(always)]
     pub fn is_dead(self) -> bool {
         matches!(self, Self::Dead)
     }
 
+    #[inline(always)]
     pub fn check(vowels: &[BaseVowel]) -> Self {
         use BaseVowel::*;
         use NucleusState::*;
 
-        match vowels {
+        nucleus_rules! {
+            vowels;
+
             [] => InComplete,
 
             // ─────────────────── Single vowels ───────────────────
-            [A] => Valid,           // a
-            [ABreve] => Valid,      // ă
-            [ACircumflex] => Valid, // â
+            // Kept explicitly for readability/documentation.
+            // All single vowels are handled uniformly by `1 => Valid`.
+            [A] => Valid,
+            [ABreve] => Valid,
+            [ACircumflex] => Valid,
 
-            [E] => Valid,           // e
-            [ECircumflex] => Valid, // ê
+            [E] => Valid,
+            [ECircumflex] => Valid,
 
-            [I] => Valid, // i
-            [Y] => Valid, // y
+            [I] => Valid,
+            [Y] => Valid,
 
-            [O] => Valid,           // o
-            [OCircumflex] => Valid, // ô
-            [OHorn] => Valid,       // ơ
+            [O] => Valid,
+            [OCircumflex] => Valid,
+            [OHorn] => Valid,
 
-            [U] => Valid,     // u
-            [UHorn] => Valid, // ư
+            [U] => Valid,
+            [UHorn] => Valid,
 
             // ─────────────────── a family ───────────────────
-            [A, I] => Valid,           // ai
-            [A, O] => Valid,           // ao
-            [A, U] => Valid,           // au
-            [A, Y] => Valid,           // ay
-            [ACircumflex, U] => Valid, // âu
-            [ACircumflex, Y] => Valid, // ây
+            [A, I] => Valid,
+            [A, O] => Valid,
+            [A, U] => Valid,
+            [A, Y] => Valid,
+            [ACircumflex, U] => Valid,
+            [ACircumflex, Y] => Valid,
 
             // ─────────────────── i / y family ───────────────────
-            [I, A] => Valid,              // ia
-            [I, E] => InComplete,         // ie
-            [I, ECircumflex] => Valid,    // iê
-            [I, E, U] => InComplete,      // ieu
-            [I, ECircumflex, U] => Valid, // iêu
-            [I, U] => Valid,              // iu
+            [I, A] => Valid,
+            [I, E] => InComplete,
+            [I, ECircumflex] => Valid,
+            [I, E, U] => InComplete,
+            [I, ECircumflex, U] => Valid,
+            [I, U] => Valid,
 
-            [Y, E] => InComplete,         // ye
-            [Y, ECircumflex] => Valid,    // yê
-            [Y, E, U] => InComplete,      // yeu
-            [Y, ECircumflex, U] => Valid, // yêu
+            [Y, E] => InComplete,
+            [Y, ECircumflex] => Valid,
+            [Y, E, U] => InComplete,
+            [Y, ECircumflex, U] => Valid,
 
             // ─────────────────── e family ───────────────────
-            [E, O] => Valid,           // eo
-            [E, U] => InComplete,      // eu
-            [ECircumflex, U] => Valid, // êu
+            [E, O] => Valid,
+            [E, U] => InComplete,
+            [ECircumflex, U] => Valid,
 
             // ─────────────────── o family ───────────────────
-            [O, A] => Valid,           // oa
-            [O, ABreve] => Valid,      // oă
-            [O, A, I] => Valid,        // oai
-            [O, A, O] => Valid,        // oao
-            [O, A, U] => Valid,        // oau
-            [O, A, Y] => Valid,        // oay
-            [O, E] => Valid,           // oe
-            [O, E, O] => Valid,        // oeo
-            [O, I] => Valid,           // oi
-            [OCircumflex, I] => Valid, // ôi
-            [OHorn, I] => Valid,       // ơi
-            [O, O] => InComplete,      // oo
+            [O, A] => Valid,
+            [O, ABreve] => Valid,
+            [O, A, I] => Valid,
+            [O, A, O] => Valid,
+            [O, A, U] => Valid,
+            [O, A, Y] => Valid,
+            [O, E] => Valid,
+            [O, E, O] => Valid,
+            [O, I] => Valid,
+            [OCircumflex, I] => Valid,
+            [OHorn, I] => Valid,
+            [O, O] => InComplete,
 
             // ─────────────────── u + y family ───────────────────
-            [U, Y] => Valid,              // uy
-            [U, Y, U] => Valid,           // uyu
-            [U, Y, A] => Valid,           // uya
-            [U, Y, E] => InComplete,      // uye
-            [U, Y, ECircumflex] => Valid, // uyê
+            [U, Y] => Valid,
+            [U, Y, U] => Valid,
+            [U, Y, A] => Valid,
+            [U, Y, E] => InComplete,
+            [U, Y, ECircumflex] => Valid,
 
             // ─────────────────── u + a family ───────────────────
-            [U, A] => Valid,              // ua
-            [U, A, O] => Valid,           // uao
-            [U, ACircumflex] => Valid,    // uâ
-            [U, ACircumflex, Y] => Valid, // uây
+            [U, A] => Valid,
+            [U, A, O] => Valid,
+            [U, ACircumflex] => Valid,
+            [U, ACircumflex, Y] => Valid,
 
-            // ─────────────────── u + o transactional family ───────────────────
-            [U, O] => InComplete,      // uo
-            [U, OHorn] => Valid,       // uơ
-            [U, OCircumflex] => Valid, // uô
+            // ─────────────────── u + o family ───────────────────
+            [U, O] => InComplete,
+            [U, OHorn] => Valid,
+            [U, OCircumflex] => Valid,
 
-            [U, O, I] => InComplete,      // uoi
-            [U, OCircumflex, I] => Valid, // uôi
-            [U, OHorn, I] => InComplete,  // uơi
+            [U, O, I] => InComplete,
+            [U, OCircumflex, I] => Valid,
+            [U, OHorn, I] => InComplete,
 
-            [U, O, U] => InComplete,     // uou
-            [U, OHorn, U] => InComplete, // uơu
+            [U, O, U] => InComplete,
+            [U, OHorn, U] => InComplete,
 
             // ─────────────────── u + e family ───────────────────
-            [U, E] => InComplete,      // ue
-            [U, ECircumflex] => Valid, // uê
-            [U, I] => Valid,           // ui
+            [U, E] => InComplete,
+            [U, ECircumflex] => Valid,
+            [U, I] => Valid,
 
-            // ─────────────────── ư + o transactional family ───────────────────
-            [UHorn, O] => InComplete, // ưo
-            [UHorn, OHorn] => Valid,  // ươ
+            // ─────────────────── ư + o family ───────────────────
+            [UHorn, O] => InComplete,
+            [UHorn, OHorn] => Valid,
 
-            [UHorn, O, I] => InComplete, // ưoi
-            [UHorn, OHorn, I] => Valid,  // ươi
+            [UHorn, O, I] => InComplete,
+            [UHorn, OHorn, I] => Valid,
 
-            [UHorn, O, U] => InComplete, // ưou
-            [UHorn, OHorn, U] => Valid,  // ươu
+            [UHorn, O, U] => InComplete,
+            [UHorn, OHorn, U] => Valid,
 
             // ─────────────────── ư family ───────────────────
-            [UHorn, A] => Valid,  // ưa
-            [UHorn, I] => Valid,  // ưi
-            [U, U] => InComplete, // uu
-            [UHorn, U] => Valid,  // ưu
-
-            // ─────────────────── Invalid ───────────────────
-            _ => Dead,
+            [UHorn, A] => Valid,
+            [UHorn, I] => Valid,
+            [U, U] => InComplete,
+            [UHorn, U] => Valid,
         }
     }
 }
