@@ -7,8 +7,8 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        BaseVowel, Coda, NucleusState, Onset, PhonotacticValidator, RootVowel, Shape, Tone,
-        TonePlacement, ValidationError, Vowel, NUCLEUS_MAX_LEN,
+        BaseVowel, Coda, NucleusState, NucleusView, Onset, PhonotacticValidator, RootVowel, Shape,
+        Tone, TonePlacement, ValidationError, Vowel, NUCLEUS_MAX_LEN,
     },
     util::InlineVec,
 };
@@ -60,6 +60,18 @@ impl Nucleus {
             *dst = src.base();
         }
         count
+    }
+}
+
+impl NucleusView for Nucleus {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    #[inline(always)]
+    fn at(&self, index: usize) -> BaseVowel {
+        self[index].base()
     }
 }
 
@@ -124,23 +136,23 @@ impl BuildingSyllable {
 
     #[inline(always)]
     pub fn tone_vowel_index(&self, tone_placement: TonePlacement) -> Option<usize> {
-        tone_placement.vowel_index(&self.nucleus[..], self.coda.is_empty())
+        tone_placement.vowel_index(&self.nucleus, self.coda.is_empty())
     }
 
     // ─────────────────────────── Lifecycle ───────────────────────────
 
     #[inline]
     pub fn reset(&mut self) {
-        self.onset_kind = Onset::default();
+        self.onset_kind = Onset::None;
         self.onset.clear();
 
         self.nucleus.clear();
-        self.nucleus_state = NucleusState::default();
+        self.nucleus_state = NucleusState::InComplete;
 
-        self.coda_kind = Coda::default();
+        self.coda_kind = Coda::None;
         self.coda.clear();
 
-        self.tone = Tone::default();
+        self.tone = Tone::Flat;
     }
 
     // ─────────────────────────── Rendering ───────────────────────────
@@ -464,7 +476,7 @@ impl BuildingSyllable {
         let old = self.nucleus[vowel_index].base();
 
         // Shape already present -> revert to base.
-        if old.has_shape(shape) && shape.is_some() {
+        if old.is_shape(shape) && shape.is_some() {
             self.nucleus[vowel_index].set_base(old.remove_shape());
             return TransformResult::Reverted;
         }

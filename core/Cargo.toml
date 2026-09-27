@@ -16,6 +16,14 @@ name = "bench_apply_uo_horn"
 harness = false
 
 [[bench]]
+name = "bench_vowel_layout"
+harness = false
+
+[[bench]]
+name = "bench_base_vowel_from_root"
+harness = false
+
+[[bench]]
 name = "bench_coda"
 harness = false
 

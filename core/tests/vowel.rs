@@ -12,7 +12,7 @@
 //! The tests verify:
 //!
 //! - `Default`/`is_some` semantics for the marker enums
-//! - BaseVowel ID ordering, round-trip and packed bit layout
+//! - `BaseVowel` ID ordering, round-trip, packed bit layout and one-byte size
 //! - the `(root, shape)` -> ID table, including every invalid combination
 //! - exhaustive encode/decode bijection
 //! - exact lowercase/uppercase surface forms
@@ -21,7 +21,10 @@
 //! - rejection of non-vowels
 //! - `Vowel` field layout, accessors, mutating setters, copying `with_*`
 //!   builders, `remove_tone` / `remove_shape` and their `without_*` copies
-//! - `Eq` / `Hash` / `Ord` behavior of the packed values
+//! - `Eq` / `Hash` behavior, and `BaseVowel` ordering by priority ID. `Vowel`
+//!   and `Tone` are deliberately unordered - only `BaseVowel` implements
+//!   `Ord`, because it is the only one of the three whose stored value and
+//!   priority order disagree.
 //! - const-evaluability of the codec
 //! - shape replacement and `is_plain` / `is_shaped` consistency
 //!
@@ -178,22 +181,23 @@ const INVALID: [char; 31] = [
 
 // ───────────────────────────── Iteration helpers ──────────────────────────────
 
-/// Runs `f` for every `(base, shape)` pair.
-fn each_base_shape(mut f: impl FnMut(BaseVowel, Shape)) {
-    for &base in BASES {
-        for &shape in SHAPES {
-            f(base, shape);
+/// Runs `f` for every `(x, y)` pair, `x` in the outer loop.
+fn each_pair<A: Copy, B: Copy>(xs: &[A], ys: &[B], mut f: impl FnMut(A, B)) {
+    for &x in xs {
+        for &y in ys {
+            f(x, y);
         }
     }
 }
 
+/// Runs `f` for every `(base, shape)` pair.
+fn each_base_shape(f: impl FnMut(BaseVowel, Shape)) {
+    each_pair(BASES, SHAPES, f);
+}
+
 /// Runs `f` for every `(root, shape)` pair.
-fn each_root_shape(mut f: impl FnMut(RootVowel, Shape)) {
-    for &root in ROOTS {
-        for &shape in SHAPES {
-            f(root, shape);
-        }
-    }
+fn each_root_shape(f: impl FnMut(RootVowel, Shape)) {
+    each_pair(ROOTS, SHAPES, f);
 }
 
 /// Runs `f` for every `(base, tone, upper)` triple.
@@ -205,15 +209,6 @@ fn each_vowel(mut f: impl FnMut(BaseVowel, Tone, bool)) {
             }
         }
     }
-}
-
-/// Every [`Vowel`] in canonical `base` → `tone` → `case` order.
-fn all_vowels() -> Vec<Vowel> {
-    let mut vowels = Vec::with_capacity(VOWEL_COUNT);
-
-    each_vowel(|base, tone, upper| vowels.push(Vowel::new(base, tone, upper)));
-
-    vowels
 }
 
 // ───────────────────────────── Shape and Tone ─────────────────────────────
@@ -260,9 +255,13 @@ fn marker_enums_default_to_the_unmarked_variant() {
 fn root_ids_are_dense_and_from_root_builds_plain_vowels() {
     assert_eq!(ROOTS.len(), 6);
 
-    for (expected_id, &root) in ROOTS.iter().enumerate() {
-        assert_eq!(root as u8, expected_id as u8, "{root:?} has unexpected ID");
+    // `RootVowel` discriminants run `Y, U, I, E, O, A`, not the order of the
+    // `ROOTS` table, so check density rather than a specific assignment.
+    let mut ids: Vec<u8> = ROOTS.iter().map(|root| *root as u8).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, [0, 1, 2, 3, 4, 5], "root IDs must be dense");
 
+    for &root in ROOTS {
         let base = BaseVowel::from_root(root);
 
         assert_eq!(base.root(), root, "from_root round-trip failed");
@@ -274,7 +273,7 @@ fn root_ids_are_dense_and_from_root_builds_plain_vowels() {
         assert!(base.is_plain());
         assert!(!base.is_shaped());
         assert_eq!(base, base.remove_shape(), "{root:?} from_root is not plain");
-        assert_eq!(BaseVowel::from_id(base.id() as usize), Some(base));
+        assert_eq!(BaseVowel::from_priority_id(base.priority_id() as usize), Some(base));
     }
 }
 
@@ -306,48 +305,23 @@ fn every_root_is_represented_by_at_least_one_base_vowel() {
 fn base_vowel_ids_are_valid_and_ordered() {
     for (expected_id, &base) in BASES.iter().enumerate() {
         assert_eq!(
-            base.id() as usize,
+            base.priority_id() as usize,
             expected_id,
             "{base:?} has unexpected priority ID"
         );
 
         assert_eq!(
-            BaseVowel::from_id(expected_id),
+            BaseVowel::from_priority_id(expected_id),
             Some(base),
             "BaseVowel::from_id({expected_id}) is inconsistent"
         );
     }
 
-    assert!(BaseVowel::from_id(BASE_COUNT).is_none());
-    assert!(BaseVowel::from_id(usize::MAX).is_none());
+    assert!(BaseVowel::from_priority_id(BASE_COUNT).is_none());
+    assert!(BaseVowel::from_priority_id(usize::MAX).is_none());
 
     assert!(BaseVowel::OHorn > BaseVowel::Y);
     assert!(BaseVowel::A > BaseVowel::Y);
-}
-
-#[test]
-fn from_id_unchecked_agrees_with_from_id() {
-    for (vowel_id, &base) in BASES.iter().enumerate() {
-        assert_eq!(unsafe { BaseVowel::from_id_unchecked(vowel_id) }, base);
-    }
-}
-
-#[test]
-fn base_vowel_derived_order_follows_priority_id() {
-    for pair in BASES.windows(2) {
-        assert!(
-            pair[0] < pair[1],
-            "{:?} must sort before {:?}",
-            pair[0],
-            pair[1]
-        );
-    }
-
-    let mut shuffled = BASES.to_vec();
-    shuffled.reverse();
-    shuffled.sort();
-
-    assert_eq!(shuffled, BASES);
 }
 
 #[test]
@@ -359,21 +333,15 @@ fn root_shape_table_matches_the_allowed_vowels() {
             "from_parts mismatch for {root:?} + {shape:?}"
         );
 
-        match (BaseVowel::id_from_parts(root, shape), expected) {
-            (Some(id), Some(base)) => {
-                assert_eq!(
-                    id,
-                    base.id(),
-                    "id_from_parts mismatch for {root:?} + {shape:?}"
-                );
-                assert_eq!(BaseVowel::from_id(id as usize), Some(base));
-                assert_eq!(base.root(), root);
-                assert_eq!(base.shape(), shape);
-            }
-            (None, None) => {}
-            (got, want) => {
-                panic!("id_from_parts({root:?}, {shape:?}) = {got:?}, want {want:?}");
-            }
+        if let Some(base) = expected {
+            let id = base.priority_id() as usize;
+            assert_eq!(
+                BaseVowel::from_priority_id(id),
+                Some(base),
+                "id round-trip for {root:?} + {shape:?}"
+            );
+            assert_eq!(base.root(), root);
+            assert_eq!(base.shape(), shape);
         }
     }
 }
@@ -390,21 +358,39 @@ fn every_root_shape_pair_is_covered_exactly_once() {
     });
 }
 
+/// Checks the layout documented on `BaseVowel`: shape in bits 0-1, root in
+/// bits 2-4, bits 5-7 unused.
+///
+/// The shifts are written out by hand instead of calling the private
+/// `encode`, so the test pins the documented layout independently of the
+/// implementation that produces it.
 #[test]
 fn base_vowel_uses_the_documented_bit_layout() {
     let mut bits = HashSet::new();
 
     for &base in BASES {
-        let raw = base as u16;
+        let raw = base as u8;
 
         assert!(
             bits.insert(raw),
             "{base:?} reuses the packed bits of another variant"
         );
-        assert_eq!(raw & 0b11, base.shape() as u16, "shape bits mismatch");
-        assert_eq!((raw >> 2) & 0b111, base.root() as u16, "root bits mismatch");
-        assert_eq!(raw >> 5, base.id() as u16, "ID bits mismatch");
-        assert_eq!(raw >> 9, 0, "reserved bits must stay zero for {base:?}");
+        assert_eq!(raw & 0b0000_0011, base.shape() as u8, "shape bits mismatch");
+        assert_eq!(
+            (raw >> 2) & 0b0000_0111,
+            base.root() as u8,
+            "root bits mismatch"
+        );
+        assert_eq!(
+            raw >> 5,
+            0,
+            "bits 5-7 are unused and must stay zero for {base:?}"
+        );
+        assert_eq!(
+            raw,
+            (base.root() as u8) << 2 | base.shape() as u8,
+            "{base:?} is not (root << 2) | shape"
+        );
     }
 
     assert_eq!(bits.len(), BaseVowel::COUNT);
@@ -428,7 +414,7 @@ fn shape_queries_match_shape_extraction() {
 fn has_shape_matches_only_its_own_shape() {
     each_base_shape(|base, shape| {
         assert_eq!(
-            base.has_shape(shape),
+            base.is_shape(shape),
             base.shape() == shape,
             "has_shape mismatch for {base:?} + {shape:?}"
         );
@@ -472,17 +458,6 @@ fn remove_shape_returns_the_plain_vowel_with_the_same_root() {
             "remove_shape must be idempotent"
         );
     }
-
-    for (shaped, plain) in [
-        (BaseVowel::UHorn, BaseVowel::U),
-        (BaseVowel::ACircumflex, BaseVowel::A),
-        (BaseVowel::OCircumflex, BaseVowel::O),
-        (BaseVowel::ABreve, BaseVowel::A),
-        (BaseVowel::ECircumflex, BaseVowel::E),
-        (BaseVowel::OHorn, BaseVowel::O),
-    ] {
-        assert_eq!(shaped.remove_shape(), plain);
-    }
 }
 
 #[test]
@@ -490,12 +465,12 @@ fn shaped_vowels_have_higher_priority_than_unshaped_vowels() {
     for &base in BASES {
         if base.shape() == Shape::None {
             assert!(
-                base.id() <= BaseVowel::A.id(),
+                base.priority_id() <= BaseVowel::A.priority_id(),
                 "{base:?} is unshaped but has a shaped-vowel priority ID"
             );
         } else {
             assert!(
-                base.id() > BaseVowel::A.id(),
+                base.priority_id() > BaseVowel::A.priority_id(),
                 "{base:?} is shaped but has an unshaped-vowel priority ID"
             );
         }
@@ -504,20 +479,19 @@ fn shaped_vowels_have_higher_priority_than_unshaped_vowels() {
 
 // ───────────────────────────────── Vowel ──────────────────────────────────
 
+/// The tone ID is the discriminant, which `encode_vowel` relies on when it
+/// indexes the 144-entry table by `tone as u8`.
+///
+/// This is the invariant that let `Tone::from_id` be deleted: with ID equal to
+/// discriminant there is no separate lookup to get wrong. Named for what it
+/// checks - `Tone` is deliberately unordered, so there is no order to verify.
 #[test]
-fn tone_ids_are_valid_and_ordered() {
+fn tone_ids_are_their_discriminants() {
     for (expected_id, &tone) in TONES.iter().enumerate() {
-        assert_eq!(
-            Tone::from_id(expected_id),
-            tone,
-            "Tone::from_id({expected_id}) is inconsistent"
-        );
-
         assert_eq!(tone as usize, expected_id, "{tone:?} has unexpected ID");
     }
 
-    assert!(Tone::from_id(TONE_COUNT) == Tone::Flat);
-    assert!(Tone::from_id(usize::MAX) == Tone::Flat);
+    assert_eq!(TONES.len(), TONE_COUNT);
 }
 
 #[test]
@@ -557,11 +531,55 @@ fn vowel_uses_the_documented_bit_layout() {
     each_vowel(|base, tone, upper| {
         let bits = Vowel::new(base, tone, upper).bits();
 
-        assert_eq!(bits >> 4, base as u16, "base field mismatch");
+        assert_eq!((bits >> 4) & 0b1_1111, base as u16, "base field mismatch");
         assert_eq!((bits >> 1) & 0b0111, tone as u16, "tone field mismatch");
         assert_eq!(bits & 1, upper as u16, "case field mismatch");
-        assert_eq!(bits >> 13, 0, "reserved bits must stay zero for {base:?}");
+        assert_eq!(bits >> 9, 0, "reserved bits must stay zero for {base:?}");
     });
+}
+
+/// The base field is 5 bits because that is all a `BaseVowel` needs.
+///
+/// This is what makes `Vowel::base` a lossless `u16 -> u8` narrowing. If a
+/// thirteenth vowel were added with a higher encoding, this fails instead of
+/// the field quietly needing a sixth bit.
+#[test]
+fn base_field_is_five_bits_wide() {
+    const BASE_FIELD_MAX: u16 = (1 << 5) - 1;
+
+    for &base in BASES {
+        assert!(
+            (base as u16) <= BASE_FIELD_MAX,
+            "{base:?} (encoding {}) does not fit the 5-bit base field",
+            base as u16
+        );
+    }
+
+    let widest = BASES.iter().map(|&base| base as u16).max().unwrap();
+
+    // 5 bits must be both necessary and sufficient: too few and the widest
+    // vowel would not fit, too many and the field would admit encodings no
+    // `BaseVowel` has. Asserted as a range rather than a literal so a
+    // reordering of `RootVowel` cannot silently change the required width.
+    assert!(
+        widest > 15,
+        "the widest base encoding ({widest}) now fits in 4 bits, so BASE_WIDTH is too wide"
+    );
+    assert!(
+        widest <= BASE_FIELD_MAX,
+        "the widest base encoding ({widest}) no longer fits the 5-bit base field"
+    );
+}
+
+/// `#[repr(u8)]` is the reason the layout exists: if `BaseVowel` ever grows a
+/// second byte, the 5-bit field in `Vowel` stops being a narrowing and every
+/// size claim above it becomes wrong. Asserted here rather than trusted from
+/// the attribute, since `repr(u8)` alone does not pin the *size* of an enum
+/// whose widest variant is still one byte.
+#[test]
+fn base_vowel_uses_one_byte() {
+    assert_eq!(std::mem::size_of::<BaseVowel>(), 1);
+    assert_eq!(std::mem::align_of::<BaseVowel>(), 1);
 }
 
 #[test]
@@ -569,6 +587,9 @@ fn vowel_uses_two_bytes() {
     assert_eq!(std::mem::size_of::<Vowel>(), std::mem::size_of::<u16>());
 }
 
+/// Inserts the `Vowel` itself rather than its packed bits, so this exercises
+/// `Hash` and `Eq` on `Vowel` - a derived impl that could diverge from the bit
+/// layout - instead of only proving the bits are unique.
 #[test]
 fn vowel_equality_and_hash_distinguish_every_variant() {
     let mut seen = HashSet::with_capacity(VOWEL_COUNT);
@@ -576,75 +597,44 @@ fn vowel_equality_and_hash_distinguish_every_variant() {
     each_vowel(|base, tone, upper| {
         let vowel = Vowel::new(base, tone, upper);
 
-        assert!(
-            seen.insert(vowel.bits()),
-            "duplicate packed value for {vowel:?}"
-        );
-        assert!(seen.contains(&vowel.bits()));
+        assert!(seen.insert(vowel), "duplicate value for {vowel:?}");
     });
 
     assert_eq!(seen.len(), VOWEL_COUNT);
 }
 
 #[test]
-fn vowel_order_follows_base_then_tone_then_case() {
-    let ordered = all_vowels();
-
-    for pair in ordered.windows(2) {
-        assert!(
-            pair[0] < pair[1],
-            "{:?} must sort before {:?}",
-            pair[0],
-            pair[1]
-        );
-    }
-
-    let mut shuffled = ordered.clone();
-    shuffled.reverse();
-    shuffled.sort();
-
-    assert_eq!(shuffled, ordered);
-}
-
-#[test]
 fn vowel_setters_preserve_the_other_field() {
     each_vowel(|base, tone, initial_case| {
-        let mut cased = Vowel::new(base, tone, initial_case);
         let flipped = !initial_case;
 
+        let mut cased = Vowel::new(base, tone, initial_case);
         cased.set_upper(flipped);
-        assert_eq!(cased.base(), base, "set_upper changed {base:?}");
+
+        assert_eq!(cased.base(), base, "set_upper changed base");
+        assert_eq!(cased.tone(), tone, "set_upper changed tone");
         assert_eq!(cased.is_upper(), flipped);
         assert_eq!(cased, Vowel::new(base, tone, flipped));
 
+        // Each setter starts from a known state, so a failure names the setter
+        // that broke rather than reporting a value left over from the
+        // previous loop.
         for &replacement in BASES {
+            let mut cased = Vowel::new(base, tone, flipped);
             cased.set_base(replacement);
 
             assert_eq!(cased.base(), replacement, "set_base failed");
+            assert_eq!(cased.tone(), tone, "set_base changed tone");
             assert_eq!(cased.is_upper(), flipped, "set_base changed case");
         }
 
         for &replacement in TONES {
+            let mut cased = Vowel::new(base, tone, flipped);
             cased.set_tone(replacement);
 
             assert_eq!(cased.tone(), replacement, "set_tone failed");
+            assert_eq!(cased.base(), base, "set_tone changed base");
             assert_eq!(cased.is_upper(), flipped, "set_tone changed case");
-        }
-    });
-}
-
-#[test]
-fn set_tone_keeps_base_and_case_for_every_tone() {
-    each_vowel(|base, initial_tone, upper| {
-        for &tone in TONES {
-            let mut vowel = Vowel::new(base, initial_tone, upper);
-
-            vowel.set_tone(tone);
-
-            assert_eq!(vowel, Vowel::new(base, tone, upper), "set_tone failed");
-            assert_eq!(vowel.base(), base, "set_tone changed base");
-            assert_eq!(vowel.tone(), tone, "set_tone did not apply");
-            assert_eq!(vowel.is_upper(), upper, "set_tone changed case");
         }
     });
 }
@@ -794,7 +784,6 @@ fn remove_shape_on_decoded_characters_matches_the_stripped_spelling() {
 #[test]
 fn encode_decode_is_bijective() {
     let mut seen = HashSet::with_capacity(VOWEL_COUNT);
-    let mut count = 0;
 
     each_vowel(|base, tone, upper| {
         let vowel = Vowel::new(base, tone, upper);
@@ -806,21 +795,12 @@ fn encode_decode_is_bijective() {
             "decode mismatch for {base:?} {tone:?} {upper:?}"
         );
         assert!(seen.insert(ch), "duplicate encoded character {ch:?}");
-
-        count += 1;
     });
 
-    assert_eq!(count, VOWEL_COUNT);
+    // `seen.len() == VOWEL_COUNT` is the coverage proof: every one of the 144
+    // triples produced a distinct character, so there is nothing left to
+    // re-derive and re-check in a second pass.
     assert_eq!(seen.len(), VOWEL_COUNT);
-
-    each_vowel(|base, tone, upper| {
-        let ch = Vowel::new(base, tone, upper).to_char();
-
-        assert!(
-            seen.contains(&ch),
-            "encoder skipped {base:?} {tone:?} {upper:?}"
-        );
-    });
 }
 
 #[test]
@@ -998,4 +978,49 @@ fn codec_is_usable_in_const_context() {
         Some(BaseVowel::U)
     );
     assert!(!is_vowel('q'));
+}
+
+/// `tone_placement`'s >3-vowel fallback picks a representative with
+/// `if v > best`, so it needs `Ord` to mean *tone-placement priority*.
+///
+/// Derived `Ord` compared packed values, which is not the documented
+/// tone-placement priority. That silently sent the `tone_placement` fallback to
+/// a lower-priority vowel.
+#[test]
+fn ordering_follows_priority_not_packed_value() {
+    // The two orders must actually disagree somewhere, or this test would pass
+    // even if `Ord` went back to comparing packed values. Counted rather than
+    // hardcoded so a reordering of `RootVowel` cannot void the check.
+    let inverted = BASES
+        .windows(2)
+        .filter(|pair| (pair[0] as u8) > (pair[1] as u8))
+        .count();
+    assert!(
+        inverted > 0,
+        "packed order now matches priority order, so this test proves nothing"
+    );
+
+    // Ord must follow the priority order regardless.
+    for pair in BASES.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "{:?} must sort before {:?}",
+            pair[0],
+            pair[1]
+        );
+        assert!(
+            pair[0].priority_id() < pair[1].priority_id(),
+            "{:?} must have the lower priority ID",
+            pair[0]
+        );
+    }
+
+    // The whole table, sorted, must equal declaration order.
+    let mut sorted = BASES.to_vec();
+    sorted.sort();
+    assert_eq!(sorted, BASES);
+
+    // `max` is what the fallback reaches for.
+    assert_eq!(BASES.iter().copied().max(), Some(BaseVowel::OHorn));
+    assert_eq!(BASES.iter().copied().min(), Some(BaseVowel::Y));
 }

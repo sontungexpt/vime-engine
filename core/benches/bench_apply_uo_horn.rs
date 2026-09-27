@@ -28,7 +28,7 @@ fn v(b: BaseVowel) -> Vowel {
 #[inline(always)]
 fn apply_horn(n: &mut Nucleus, i: usize) -> bool {
     let old = n.vowels[i].base();
-    if old.has_shape(Shape::Horn) {
+    if old.is_shape(Shape::Horn) {
         n.vowels[i].set_base(old.remove_shape());
         return true;
     }

@@ -57,7 +57,8 @@ impl BaseVowel {
     #[inline(always)]
     const fn from_cased(cased: ProdCased) -> Self {
         let base = cased.base();
-        Self::new_raw(base.id() as u16, base.shape(), base.root()).with_case(cased.is_upper())
+        Self::new_raw(base.priority_id() as u16, base.shape(), base.root())
+            .with_case(cased.is_upper())
     }
 
     // ─────────────── Case operations ───────────────
@@ -233,7 +234,7 @@ fn main() {
                 "{prod:?} bare mismatch"
             );
             assert_eq!(merged.is_upper(), upper, "{prod:?} case mismatch");
-            let prod_id = prod_cased.base().id() as usize;
+            let prod_id = prod_cased.base().priority_id() as usize;
             let prod_shape = prod_cased.base().shape();
             let prod_root = prod_cased.base().root();
             assert_eq!(merged.id() as usize, prod_id, "{prod:?} id mismatch");
@@ -252,7 +253,7 @@ fn main() {
     let norm = |r: Option<(ProdCased, Tone)>| {
         r.map(|(c, t)| {
             (
-                c.base().id() as usize,
+                c.base().priority_id() as usize,
                 c.base().shape(),
                 c.base().root(),
                 c.is_upper(),
@@ -268,7 +269,7 @@ fn main() {
             norm(decode_vowel_pair(ch)),
             norm(merged_decode(ch).map(|(v, t)| (
                 ProdCased::new(
-                    ProdBaseVowel::from_id(v.bare().id()).unwrap(),
+                    ProdBaseVowel::from_priority_id(v.bare().id()).unwrap(),
                     Tone::Flat,
                     v.is_upper()
                 ),
@@ -307,7 +308,7 @@ fn main() {
         count,
         &current,
         &merged,
-        |c: ProdCased| c.base().id(),
+        |c: ProdCased| c.base().priority_id(),
         |v: BaseVowel| v.id(),
         rounds,
         iters

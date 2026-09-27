@@ -1,13 +1,14 @@
-//! Compare the two ways to resolve a `(RootVowel, Shape)` pair into a
+//! Compare the ways to resolve a `(RootVowel, Shape)` pair into a
 //! `BaseVowel`:
 //!
-//! * `id_lut_then_variants_by_id` — what [`BaseVowel::from_parts`] does today:
-//!   look the tone-placement ID up in `[Option<u8>; 24]`, then index
-//!   `[BaseVowel; 12]` with it. Two dependent loads.
 //! * `direct_variants_by_root_shape` — one lookup in `[Option<BaseVowel>; 24]`,
 //!   returning the variant itself. One load.
-//! * `packed_discriminant_transmute` — keep the ID lookup but rebuild the
-//!   packed discriminant instead of indexing `VARIANTS_BY_ID`.
+//! * `valid_mask_transmute` — what [`BaseVowel::from_parts`] does today: test
+//!   the encoded pair against a 24-bit validity mask, then transmute the
+//!   encoding itself, which *is* the `#[repr(u8)]` discriminant. No table.
+//! * `id_lut_then_variants_by_id` — the pre-`#[repr(u8)]` implementation: look
+//!   the ID up in `[Option<u8>; 24]`, then index `[BaseVowel; 12]`. Two
+//!   dependent loads. Kept as a historical reference point.
 //!
 //! The pair the hot path actually resolves is `replace_shape`, so the last
 //! group measures that end to end.
@@ -24,8 +25,6 @@ use vime_engine::phonology::{BaseVowel, RootVowel, Shape};
 const INVALID: usize = u16::MAX as usize;
 const REPEATS: usize = 256;
 const SHAPE_WIDTH: usize = 2;
-const ROOT_OFFSET: usize = 2;
-const ID_OFFSET: usize = 5;
 
 /// Every valid pair, in tone-placement ID order.
 const VALID_PARTS: [(RootVowel, Shape); 12] = [
@@ -76,27 +75,27 @@ const ALL_PARTS: [(RootVowel, Shape); 24] = [
 // are measurable from Criterion without exposing them from the crate.
 
 const ID_BY_ROOT_SHAPE: [Option<u8>; 24] = [
-    Some(BaseVowel::A.id()),
-    Some(BaseVowel::ACircumflex.id()),
-    Some(BaseVowel::ABreve.id()),
+    Some(BaseVowel::A.priority_id()),
+    Some(BaseVowel::ACircumflex.priority_id()),
+    Some(BaseVowel::ABreve.priority_id()),
     None,
-    Some(BaseVowel::E.id()),
-    Some(BaseVowel::ECircumflex.id()),
-    None,
-    None,
-    Some(BaseVowel::I.id()),
+    Some(BaseVowel::E.priority_id()),
+    Some(BaseVowel::ECircumflex.priority_id()),
     None,
     None,
-    None,
-    Some(BaseVowel::O.id()),
-    Some(BaseVowel::OCircumflex.id()),
-    None,
-    Some(BaseVowel::OHorn.id()),
-    Some(BaseVowel::U.id()),
+    Some(BaseVowel::I.priority_id()),
     None,
     None,
-    Some(BaseVowel::UHorn.id()),
-    Some(BaseVowel::Y.id()),
+    None,
+    Some(BaseVowel::O.priority_id()),
+    Some(BaseVowel::OCircumflex.priority_id()),
+    None,
+    Some(BaseVowel::OHorn.priority_id()),
+    Some(BaseVowel::U.priority_id()),
+    None,
+    None,
+    Some(BaseVowel::UHorn.priority_id()),
+    Some(BaseVowel::Y.priority_id()),
     None,
     None,
     None,
@@ -144,10 +143,7 @@ const VARIANTS_BY_ROOT_SHAPE: [Option<BaseVowel>; 24] = [
     None,
 ];
 
-/// Candidate 1: the shipped implementation, one ID lookup plus one index.
-///
-/// The `match` is kept verbatim instead of `Option::map` so this stays a
-/// byte-for-byte copy of the body it replaced.
+/// Candidate: the pre-`#[repr(u8)]` implementation, one ID lookup plus one index.
 #[allow(clippy::manual_map)]
 #[inline(always)]
 fn id_lut_then_variants_by_id(root: RootVowel, shape: Shape) -> Option<BaseVowel> {
@@ -158,27 +154,42 @@ fn id_lut_then_variants_by_id(root: RootVowel, shape: Shape) -> Option<BaseVowel
     }
 }
 
-/// Candidate 2: a single lookup that yields the variant directly.
+/// Candidate: a single lookup that yields the variant directly.
 #[inline(always)]
 fn direct_variants_by_root_shape(root: RootVowel, shape: Shape) -> Option<BaseVowel> {
     let index = ((root as usize) << SHAPE_WIDTH) | shape as usize;
     VARIANTS_BY_ROOT_SHAPE[index]
 }
 
-/// Candidate 3: keep the ID lookup, rebuild the packed discriminant.
-#[allow(clippy::question_mark)]
+/// Bench-local copy of the private production validity mask: bit `i` is set when
+/// encoding `i` is one of the 12 declared root/shape pairs.
+const VALID_MASK: u32 = (1 << 0)
+    | (1 << 1)
+    | (1 << 2)
+    | (1 << 4)
+    | (1 << 5)
+    | (1 << 8)
+    | (1 << 12)
+    | (1 << 13)
+    | (1 << 15)
+    | (1 << 16)
+    | (1 << 19)
+    | (1 << 20);
+
+/// Candidate: the shipped implementation, copied verbatim from
+/// `BaseVowel::from_parts` at `core/src/phonology/vowel.rs:257`. The encoding
+/// `root * 4 + shape` is the `#[repr(u8)]` discriminant, so the mask test both
+/// validates the pair and produces the variant.
 #[inline(always)]
-fn packed_discriminant_transmute(root: RootVowel, shape: Shape) -> Option<BaseVowel> {
-    let index = ((root as usize) << SHAPE_WIDTH) | shape as usize;
-    let Some(vowel_id) = ID_BY_ROOT_SHAPE[index] else {
-        return None;
-    };
-
-    let raw = ((vowel_id as u16) << ID_OFFSET) | ((root as u16) << ROOT_OFFSET) | shape as u16;
-
-    // SAFETY: the ID LUT only holds `Some` for the 12 declared root/shape
-    // pairs, and ID + components of a declared pair form its discriminant.
-    Some(unsafe { std::mem::transmute::<u16, BaseVowel>(raw) })
+fn valid_mask_transmute(root: RootVowel, shape: Shape) -> Option<BaseVowel> {
+    let id = ((root as u8) << SHAPE_WIDTH as u8) | shape as u8;
+    if (VALID_MASK & (1 << id)) != 0 {
+        // SAFETY: `VALID_MASK` only has bits set for the 12 declared
+        // root/shape pairs, and each of those is a declared `BaseVowel`.
+        Some(unsafe { std::mem::transmute::<u8, BaseVowel>(id) })
+    } else {
+        None
+    }
 }
 
 #[inline(always)]
@@ -203,8 +214,8 @@ fn direct(root: RootVowel, shape: Shape) -> usize {
 }
 
 #[inline(always)]
-fn transmute(root: RootVowel, shape: Shape) -> usize {
-    packed_discriminant_transmute(root, shape)
+fn mask(root: RootVowel, shape: Shape) -> usize {
+    valid_mask_transmute(root, shape)
         .map(|base| base as u16 as usize)
         .unwrap_or(INVALID)
 }
@@ -234,9 +245,17 @@ fn replace_shape_id_lut(base: BaseVowel, shape: Shape) -> usize {
     match ID_BY_ROOT_SHAPE[index] {
         Some(vowel_id) => {
             let new = VARIANTS_BY_ID[vowel_id as usize];
-            (base.id() as usize) + (new as u16 as usize)
+            (base.priority_id() as usize) + (new as u16 as usize)
         }
-        None => base.id() as usize,
+        None => base.priority_id() as usize,
+    }
+}
+
+#[inline(always)]
+fn replace_shape_mask(base: BaseVowel, shape: Shape) -> usize {
+    match valid_mask_transmute(base.root(), shape) {
+        Some(new) => (base.priority_id() as usize) + (new as u16 as usize),
+        None => base.priority_id() as usize,
     }
 }
 
@@ -244,8 +263,8 @@ fn replace_shape_id_lut(base: BaseVowel, shape: Shape) -> usize {
 fn replace_shape_direct(base: BaseVowel, shape: Shape) -> usize {
     let index = ((base.root() as usize) << SHAPE_WIDTH) | shape as usize;
     match VARIANTS_BY_ROOT_SHAPE[index] {
-        Some(new) => (base.id() as usize) + (new as u16 as usize),
-        None => base.id() as usize,
+        Some(new) => (base.priority_id() as usize) + (new as u16 as usize),
+        None => base.priority_id() as usize,
     }
 }
 
@@ -283,8 +302,8 @@ fn bench_from_parts(c: &mut Criterion) {
             );
             assert_eq!(
                 BaseVowel::from_parts(root, shape),
-                packed_discriminant_transmute(root, shape),
-                "transmute candidate diverges for {root:?} + {shape:?}"
+                valid_mask_transmute(root, shape),
+                "mask candidate diverges for {root:?} + {shape:?}"
             );
         }
 
@@ -299,8 +318,8 @@ fn bench_from_parts(c: &mut Criterion) {
         group.bench_function("direct_variants_by_root_shape", |b| {
             b.iter(|| sum_pairs(values, direct));
         });
-        group.bench_function("packed_discriminant_transmute", |b| {
-            b.iter(|| sum_pairs(values, transmute));
+        group.bench_function("valid_mask_transmute", |b| {
+            b.iter(|| sum_pairs(values, mask));
         });
         group.finish();
     }
@@ -332,9 +351,9 @@ fn bench_from_parts_repeated(c: &mut Criterion) {
             |b, &value| b.iter(|| sum_repeated(value, direct)),
         );
         group.bench_with_input(
-            BenchmarkId::new("packed_discriminant_transmute", name),
+            BenchmarkId::new("valid_mask_transmute", name),
             &parts,
-            |b, &value| b.iter(|| sum_repeated(value, transmute)),
+            |b, &value| b.iter(|| sum_repeated(value, mask)),
         );
     }
     group.finish();
@@ -346,8 +365,8 @@ fn bench_replace_shape(c: &mut Criterion) {
         let expected = base.replace_shape(shape);
         let id_lut_result = replace_shape_id_lut(base, shape);
         let direct_result = replace_shape_direct(base, shape);
-        let expected_id = expected.map_or(base.id() as usize, |v| {
-            (base.id() as usize) + (v as u16 as usize)
+        let expected_id = expected.map_or(base.priority_id() as usize, |v| {
+            (base.priority_id() as usize) + (v as u16 as usize)
         });
         assert_eq!(
             id_lut_result, expected_id,
@@ -356,6 +375,11 @@ fn bench_replace_shape(c: &mut Criterion) {
         assert_eq!(
             direct_result, expected_id,
             "direct turn mismatch for {base:?}"
+        );
+        assert_eq!(
+            replace_shape_mask(base, shape),
+            expected_id,
+            "mask turn mismatch for {base:?}"
         );
     }
 
@@ -378,6 +402,18 @@ fn bench_replace_shape(c: &mut Criterion) {
             let mut total = 0usize;
             for &(base, shape) in black_box(&SHAPE_TURNS) {
                 total = total.wrapping_add(black_box(replace_shape_direct(
+                    black_box(base),
+                    black_box(shape),
+                )));
+            }
+            black_box(total)
+        });
+    });
+    group.bench_function("valid_mask_transmute", |b| {
+        b.iter(|| {
+            let mut total = 0usize;
+            for &(base, shape) in black_box(&SHAPE_TURNS) {
+                total = total.wrapping_add(black_box(replace_shape_mask(
                     black_box(base),
                     black_box(shape),
                 )));
@@ -428,6 +464,10 @@ fn bench_large(c: &mut Criterion) {
                 BaseVowel::from_parts(root, shape),
                 direct_variants_by_root_shape(root, shape)
             );
+            assert_eq!(
+                BaseVowel::from_parts(root, shape),
+                valid_mask_transmute(root, shape)
+            );
         }
 
         let mut group = c.benchmark_group(format!("from_parts/{group_name}"));
@@ -441,8 +481,8 @@ fn bench_large(c: &mut Criterion) {
         group.bench_function("direct_variants_by_root_shape", |b| {
             b.iter(|| sum_pairs(values, direct));
         });
-        group.bench_function("packed_discriminant_transmute", |b| {
-            b.iter(|| sum_pairs(values, transmute));
+        group.bench_function("valid_mask_transmute", |b| {
+            b.iter(|| sum_pairs(values, mask));
         });
         group.finish();
     }

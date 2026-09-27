@@ -166,7 +166,7 @@ fn from_id_lookup(root: RootVowel, shape: Shape) -> Result<BaseVowel, ()> {
     if id == INVALID_ID {
         Err(())
     } else {
-        BaseVowel::from_id(id as usize).ok_or(())
+        BaseVowel::from_priority_id(id as usize).ok_or(())
     }
 }
 
@@ -178,20 +178,6 @@ fn variant_table_from_parts(root: RootVowel, shape: Shape) -> Result<BaseVowel, 
     } else {
         Ok(VARIANTS_BY_ID[id as usize])
     }
-}
-
-#[inline(always)]
-fn transmute_from_parts(root: RootVowel, shape: Shape) -> Result<BaseVowel, ()> {
-    let id = table_id_from_parts(root, shape);
-    if id == INVALID_ID {
-        return Err(());
-    }
-
-    let raw = ((id as u16) << 5) | ((root as u16) << 2) | shape as u16;
-
-    // SAFETY: the ID LUT marks this exact root/shape combination valid and
-    // provides its matching ID, so `raw` is a declared BaseVowel discriminant.
-    Ok(unsafe { std::mem::transmute::<u16, BaseVowel>(raw) })
 }
 
 #[inline(always)]
@@ -283,6 +269,10 @@ fn bench_from_parts(c: &mut Criterion) {
     group.finish();
 }
 
+/// The former `transmute` candidate cannot exist under `#[repr(u8)]`: a `u16`
+/// discriminant no longer fits `BaseVowel`. The surviving candidate is the
+/// variant table; the mask-based `from_parts` body is measured in
+/// `bench_base_vowel_from_parts.rs`.
 fn bench_variant_table_vs_transmute(c: &mut Criterion) {
     for (group_name, values) in [
         ("valid_12", &VALID_PARTS[..]),
@@ -291,14 +281,13 @@ fn bench_variant_table_vs_transmute(c: &mut Criterion) {
         for &(root, shape) in values {
             assert_eq!(
                 variant_table_from_parts(root, shape),
-                transmute_from_parts(root, shape),
+                BaseVowel::from_parts(root, shape).ok_or(()),
                 "constructor mismatch for {root:?} + {shape:?}"
             );
         }
 
-        let mut group = c.benchmark_group(format!(
-            "base_vowel_constructor/variant_table_vs_transmute/{group_name}"
-        ));
+        let mut group =
+            c.benchmark_group(format!("base_vowel_constructor/variant_table/{group_name}"));
         group.throughput(Throughput::Elements(values.len() as u64));
         group.bench_function("variant_table", |b| {
             b.iter(|| {
@@ -309,10 +298,10 @@ fn bench_variant_table_vs_transmute(c: &mut Criterion) {
                 })
             });
         });
-        group.bench_function("packed_discriminant_transmute", |b| {
+        group.bench_function("production", |b| {
             b.iter(|| {
                 sum(values, |(root, shape)| {
-                    transmute_from_parts(root, shape)
+                    BaseVowel::from_parts(root, shape)
                         .map(|vowel| vowel as u16 as usize)
                         .unwrap_or(INVALID)
                 })

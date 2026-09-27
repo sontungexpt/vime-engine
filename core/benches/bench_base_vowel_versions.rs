@@ -145,7 +145,7 @@ fn head_id(v: Head) -> usize {
 }
 #[inline(always)]
 fn current_id(v: Current) -> usize {
-    v.id() as usize
+    v.priority_id() as usize
 }
 #[inline(always)]
 fn proposed_id(v: Proposed) -> usize {
@@ -211,7 +211,7 @@ fn head_from_id(id: usize) -> usize {
 }
 #[inline(always)]
 fn current_from_id(id: usize) -> usize {
-    Current::from_id(id)
+    Current::from_priority_id(id)
         .map(|v| v as u16 as usize)
         .unwrap_or(INVALID)
 }

@@ -45,7 +45,7 @@ fn pack_key(v: &[BaseVowel]) -> u16 {
 
     let mut key = len as u16;
     for (i, vowel) in v.iter().enumerate() {
-        key |= (vowel.id() as u16) << (4 * (i + 1));
+        key |= (vowel.priority_id() as u16) << (4 * (i + 1));
     }
     key
 }
@@ -176,14 +176,14 @@ fn build_lut() -> Box<[NucleusState; 4096]> {
 /// Packs a nucleus into the 3-nibble LUT key.
 #[inline(always)]
 fn lut_key(s: &Seq) -> usize {
-    let a = s.buf[0].id() as usize;
+    let a = s.buf[0].priority_id() as usize;
     let b = if s.len > 1 {
-        s.buf[1].id() as usize
+        s.buf[1].priority_id() as usize
     } else {
         SENTINEL
     };
     let c = if s.len > 2 {
-        s.buf[2].id() as usize
+        s.buf[2].priority_id() as usize
     } else {
         SENTINEL
     };
