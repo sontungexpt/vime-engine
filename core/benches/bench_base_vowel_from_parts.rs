@@ -75,27 +75,27 @@ const ALL_PARTS: [(RootVowel, Shape); 24] = [
 // are measurable from Criterion without exposing them from the crate.
 
 const ID_BY_ROOT_SHAPE: [Option<u8>; 24] = [
-    Some(BaseVowel::A.priority_id()),
-    Some(BaseVowel::ACircumflex.priority_id()),
-    Some(BaseVowel::ABreve.priority_id()),
+    Some(BaseVowel::A.id()),
+    Some(BaseVowel::ACircumflex.id()),
+    Some(BaseVowel::ABreve.id()),
     None,
-    Some(BaseVowel::E.priority_id()),
-    Some(BaseVowel::ECircumflex.priority_id()),
-    None,
-    None,
-    Some(BaseVowel::I.priority_id()),
+    Some(BaseVowel::E.id()),
+    Some(BaseVowel::ECircumflex.id()),
     None,
     None,
-    None,
-    Some(BaseVowel::O.priority_id()),
-    Some(BaseVowel::OCircumflex.priority_id()),
-    None,
-    Some(BaseVowel::OHorn.priority_id()),
-    Some(BaseVowel::U.priority_id()),
+    Some(BaseVowel::I.id()),
     None,
     None,
-    Some(BaseVowel::UHorn.priority_id()),
-    Some(BaseVowel::Y.priority_id()),
+    None,
+    Some(BaseVowel::O.id()),
+    Some(BaseVowel::OCircumflex.id()),
+    None,
+    Some(BaseVowel::OHorn.id()),
+    Some(BaseVowel::U.id()),
+    None,
+    None,
+    Some(BaseVowel::UHorn.id()),
+    Some(BaseVowel::Y.id()),
     None,
     None,
     None,
@@ -245,17 +245,17 @@ fn replace_shape_id_lut(base: BaseVowel, shape: Shape) -> usize {
     match ID_BY_ROOT_SHAPE[index] {
         Some(vowel_id) => {
             let new = VARIANTS_BY_ID[vowel_id as usize];
-            (base.priority_id() as usize) + (new as u16 as usize)
+            (base.id() as usize) + (new as u16 as usize)
         }
-        None => base.priority_id() as usize,
+        None => base.id() as usize,
     }
 }
 
 #[inline(always)]
 fn replace_shape_mask(base: BaseVowel, shape: Shape) -> usize {
     match valid_mask_transmute(base.root(), shape) {
-        Some(new) => (base.priority_id() as usize) + (new as u16 as usize),
-        None => base.priority_id() as usize,
+        Some(new) => (base.id() as usize) + (new as u16 as usize),
+        None => base.id() as usize,
     }
 }
 
@@ -263,8 +263,8 @@ fn replace_shape_mask(base: BaseVowel, shape: Shape) -> usize {
 fn replace_shape_direct(base: BaseVowel, shape: Shape) -> usize {
     let index = ((base.root() as usize) << SHAPE_WIDTH) | shape as usize;
     match VARIANTS_BY_ROOT_SHAPE[index] {
-        Some(new) => (base.priority_id() as usize) + (new as u16 as usize),
-        None => base.priority_id() as usize,
+        Some(new) => (base.id() as usize) + (new as u16 as usize),
+        None => base.id() as usize,
     }
 }
 
@@ -365,8 +365,8 @@ fn bench_replace_shape(c: &mut Criterion) {
         let expected = base.replace_shape(shape);
         let id_lut_result = replace_shape_id_lut(base, shape);
         let direct_result = replace_shape_direct(base, shape);
-        let expected_id = expected.map_or(base.priority_id() as usize, |v| {
-            (base.priority_id() as usize) + (v as u16 as usize)
+        let expected_id = expected.map_or(base.id() as usize, |v| {
+            (base.id() as usize) + (v as u16 as usize)
         });
         assert_eq!(
             id_lut_result, expected_id,

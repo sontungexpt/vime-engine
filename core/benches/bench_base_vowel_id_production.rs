@@ -39,7 +39,7 @@ const ALL_VOWELS: [BaseVowel; 12] = [
 
 #[inline(always)]
 fn production(base: BaseVowel) -> usize {
-    base.priority_id() as usize
+    base.id() as usize
 }
 
 /// The 12-arm `match` version: one comparison per arm against a `#[repr(u8)]`
@@ -203,10 +203,10 @@ fn assert_candidates_agree() {
         for shape in SHAPES {
             match BaseVowel::from_parts(root, shape) {
                 Some(vowel) => {
-                    let id = vowel.priority_id() as usize;
+                    let id = vowel.id() as usize;
                     assert_eq!(production(vowel), id, "LUT for {vowel:?}");
                     assert_eq!(match_id(vowel), id, "match for {vowel:?}");
-                    assert_eq!(BaseVowel::from_priority_id(id), Some(vowel), "id round-trip");
+                    assert_eq!(BaseVowel::from_id(id), Some(vowel), "id round-trip");
                 }
                 None => assert!(
                     ALL_VOWELS
@@ -222,7 +222,7 @@ fn assert_candidates_agree() {
 fn bench_all_12(c: &mut Criterion) {
     assert_candidates_agree();
     for &base in &ALL_VOWELS {
-        assert_eq!(production(base), base.priority_id() as usize);
+        assert_eq!(production(base), base.id() as usize);
         assert_eq!(production(base), match_id(base));
     }
 
@@ -297,7 +297,7 @@ fn bench_u8_accumulator(c: &mut Criterion) {
     fn sum_u8(values: &[BaseVowel]) -> u8 {
         let mut sum = 0u8;
         for &base in black_box(values) {
-            sum = sum.wrapping_add(black_box(base.priority_id()));
+            sum = sum.wrapping_add(black_box(base.id()));
         }
         black_box(sum)
     }

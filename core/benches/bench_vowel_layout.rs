@@ -194,7 +194,7 @@ fn input() -> Input {
             .map(|i| ALL_SHAPES[i % ALL_SHAPES.len()])
             .collect(),
         bases: (0..LARGE_LEN)
-            .map(|i| BaseVowel::from_priority_id(i % BaseVowel::COUNT).expect("in range"))
+            .map(|i| BaseVowel::from_id(i % BaseVowel::COUNT).expect("in range"))
             .collect(),
     }
 }
@@ -217,7 +217,7 @@ const NEW_VARIANTS_BY_ROOT_SHAPE: [Option<BaseVowel>; 24] = {
     let mut table = [None; 24];
     let mut id = 0;
     while id < BaseVowel::COUNT {
-        if let Some(base) = BaseVowel::from_priority_id(id) {
+        if let Some(base) = BaseVowel::from_id(id) {
             table[base.root() as usize * 4 + base.shape() as usize] = Some(base);
         }
         id += 1;
@@ -261,7 +261,7 @@ fn new_from_parts_copy(root: RootVowel, shape: Shape) -> usize {
 
 #[inline(always)]
 fn new_id(base: BaseVowel) -> usize {
-    base.priority_id() as usize
+    base.id() as usize
 }
 
 #[inline(always)]
@@ -281,7 +281,7 @@ fn old_from_root(root: RootVowel) -> usize {
 
 #[inline(always)]
 fn new_from_id(vowel_id: usize) -> usize {
-    BaseVowel::from_priority_id(vowel_id).map_or(0, |base| base as usize)
+    BaseVowel::from_id(vowel_id).map_or(0, |base| base as usize)
 }
 
 #[inline(always)]
@@ -302,7 +302,7 @@ const ID_LUT_24: [u8; 24] = {
     let mut table = [0u8; 24];
     let mut id = 0;
     while id < BaseVowel::COUNT {
-        table[BaseVowel::from_priority_id(id).expect("in range") as usize] = id as u8;
+        table[BaseVowel::from_id(id).expect("in range") as usize] = id as u8;
         id += 1;
     }
     table
@@ -313,7 +313,7 @@ const ID_LUT_32: [u8; 32] = {
     let mut table = [0u8; 32];
     let mut id = 0;
     while id < BaseVowel::COUNT {
-        table[BaseVowel::from_priority_id(id).expect("in range") as usize] = id as u8;
+        table[BaseVowel::from_id(id).expect("in range") as usize] = id as u8;
         id += 1;
     }
     table
@@ -415,7 +415,7 @@ fn assert_layouts_agree() {
             );
             if let (Some(new), Some(old)) = (new, old) {
                 assert_eq!(
-                    new.priority_id(),
+                    new.id(),
                     old.id(),
                     "id disagrees for from_parts({root:?}, {shape:?}): new={new:?} old={old:?} old_raw={}",
                     old as u16
@@ -424,22 +424,22 @@ fn assert_layouts_agree() {
         }
 
         assert_eq!(
-            BaseVowel::from_root(root).priority_id(),
+            BaseVowel::from_root(root).id(),
             OldBase::from_root(root).id(),
             "from_root id disagrees for {root:?}"
         );
     }
 
     for id in 0..BaseVowel::COUNT {
-        let new = BaseVowel::from_priority_id(id).expect("in range");
+        let new = BaseVowel::from_id(id).expect("in range");
         let old = OldBase::from_id(id).expect("in range");
-        assert_eq!(new.priority_id() as usize, id, "new from_id({id})");
+        assert_eq!(new.id() as usize, id, "new from_id({id})");
         assert_eq!(old.id() as usize, id, "old from_id({id})");
     }
 
     // The width claim the new `Vowel` base field depends on.
     let widest_new = (0..BaseVowel::COUNT)
-        .map(|id| BaseVowel::from_priority_id(id).expect("in range") as u16)
+        .map(|id| BaseVowel::from_id(id).expect("in range") as u16)
         .max()
         .expect("non-empty");
     let widest_old = (0..OldBase::COUNT)
@@ -632,7 +632,7 @@ fn id_rev64(base: BaseVowel) -> usize {
 /// One load, for reference.
 #[inline(always)]
 fn id_match(base: BaseVowel) -> usize {
-    base.priority_id() as usize
+    base.id() as usize
 }
 
 /// New `replace_shape`: rewrites the two shape bits in place, so the root is
@@ -747,7 +747,7 @@ fn bench_id_paired(c: &mut Criterion) {
     // packed order is not the priority order. Each group must agree internally
     // or the timing is comparing different work.
     for id in 0..BaseVowel::COUNT {
-        let base = BaseVowel::from_priority_id(id).expect("in range");
+        let base = BaseVowel::from_id(id).expect("in range");
 
         for (name, f) in [
             ("lut24 byte table", new_id_lut24 as fn(BaseVowel) -> usize),
@@ -755,7 +755,7 @@ fn bench_id_paired(c: &mut Criterion) {
         ] {
             assert_eq!(
                 f(base),
-                base.priority_id() as usize,
+                base.id() as usize,
                 "{name} disagrees with priority_id for {base:?}"
             );
         }
@@ -819,7 +819,7 @@ fn bench_shapes_paired(c: &mut Criterion) {
     let old_bases: Vec<OldBase> = input
         .bases
         .iter()
-        .map(|base| OldBase::from_id(base.priority_id() as usize).expect("in range"))
+        .map(|base| OldBase::from_id(base.id() as usize).expect("in range"))
         .collect();
     let rounds = 21;
 

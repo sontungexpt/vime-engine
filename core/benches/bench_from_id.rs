@@ -57,7 +57,7 @@ fn main() {
 
     // Sanity: both variants must agree on every input.
     for &id in &workload {
-        assert_eq!(BaseVowel::from_priority_id(id), match_from_id(id), "id {id}");
+        assert_eq!(BaseVowel::from_id(id), match_from_id(id), "id {id}");
     }
 
     let rounds = 40;
@@ -66,7 +66,7 @@ fn main() {
     let lut_time = time(
         || {
             for &id in &workload {
-                black_box(BaseVowel::from_priority_id(black_box(id)));
+                black_box(BaseVowel::from_id(black_box(id)));
             }
         },
         rounds,

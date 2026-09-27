@@ -273,10 +273,6 @@ fn root_ids_are_dense_and_from_root_builds_plain_vowels() {
         assert!(base.is_plain());
         assert!(!base.is_shaped());
         assert_eq!(base, base.remove_shape(), "{root:?} from_root is not plain");
-        assert_eq!(
-            BaseVowel::from_priority_id(base.priority_id() as usize),
-            Some(base)
-        );
     }
 }
 
@@ -304,34 +300,107 @@ fn every_root_is_represented_by_at_least_one_base_vowel() {
     assert_eq!(total, BaseVowel::COUNT, "every base vowel must have a root");
 }
 
+/// Pins the exact `id()` values, which the rest of this file only derives
+/// positionally from `BASES`.
+///
+/// There used to be two ids: a build-dependent `id()` (a `popcnt`/`match` pair
+/// selected by `cfg`) and a stable `priority_id()`, with `Ord` tracking the
+/// latter. All three are now one function — `Ord` is `self.id().cmp(&other.id())`
+/// — so there is no second source left to drift. The values still need pinning,
+/// because the id order is a published contract that everything else keys off:
+///
+/// * it is **not** the packed-value order (`encode` is `(root << 2) | shape`,
+///   so `UHorn` is 7 on the wire but 6 here),
+/// * it is **not** the enum declaration order,
+/// * `from_id` is a hand-written table that must be its exact inverse, and
+/// * `tone_placement`'s `v > best` fallback picks its representative through
+///   `Ord`, so `Ord` has to mean this order and not the packed one.
+///
+/// Pinning it literally means a future edit to `id`, `from_id`, `Ord`, or the
+/// layout comment fails here rather than silently renumbering every lookup
+/// table.
 #[test]
-fn base_vowel_ids_are_valid_and_ordered() {
-    for (expected_id, &base) in BASES.iter().enumerate() {
-        assert_eq!(
-            base.priority_id() as usize,
-            expected_id,
-            "{base:?} has unexpected priority ID"
-        );
-        assert_eq!(
-            BaseVowel::from_priority_id(expected_id),
-            Some(base),
-            "BaseVowel::from_priority_id({expected_id}) is inconsistent"
-        );
+fn base_vowel_id_table_is_pinned() {
+    // (vowel, id) in tone-placement priority order.
+    const EXPECTED: &[(BaseVowel, u8)] = &[
+        (BaseVowel::Y, 0),
+        (BaseVowel::U, 1),
+        (BaseVowel::I, 2),
+        (BaseVowel::E, 3),
+        (BaseVowel::O, 4),
+        (BaseVowel::A, 5),
+        (BaseVowel::UHorn, 6),
+        (BaseVowel::ACircumflex, 7),
+        (BaseVowel::OCircumflex, 8),
+        (BaseVowel::ABreve, 9),
+        (BaseVowel::ECircumflex, 10),
+        (BaseVowel::OHorn, 11),
+    ];
 
-        let id = base.id() as usize;
-        assert!(id < BaseVowel::COUNT, "{base:?} has out-of-range ID {id}");
+    assert_eq!(
+        EXPECTED.len(),
+        BASE_COUNT,
+        "every base vowel must be listed"
+    );
+
+    for &(vowel, want) in EXPECTED {
         assert_eq!(
-            BaseVowel::from_id(id),
-            Some(base),
-            "from_id must invert id for {base:?}"
+            vowel.id(),
+            want,
+            "{vowel:?} has id {} but this test pins {want}",
+            vowel.id()
+        );
+        assert_eq!(
+            BaseVowel::from_id(want as usize),
+            Some(vowel),
+            "from_id({want}) must return {vowel:?}"
         );
     }
 
+    // The id is not the packed value: closed vowels encode low but rank high.
+    assert_ne!(
+        BaseVowel::UHorn.id(),
+        BaseVowel::UHorn as u8,
+        "id must not be the packed discriminant"
+    );
+    assert!(
+        (BaseVowel::UHorn as u8) < (BaseVowel::ECircumflex as u8),
+        "packed order differs from id order: UHorn encodes below ECircumflex \
+         but ranks above it"
+    );
+
+    // `id` must be a bijection onto 0..COUNT: the table above is only a real
+    // contract if every id is claimed exactly once.
+    let mut seen = [false; BASE_COUNT];
+    for &vowel in BASES {
+        let id = vowel.id() as usize;
+        assert!(id < BASE_COUNT, "{vowel:?} has out-of-range id {id}");
+        assert!(!seen[id], "id {id} is claimed by more than one vowel");
+        seen[id] = true;
+    }
+    assert!(
+        seen.iter().all(|&s| s),
+        "some id in 0..{BASE_COUNT} is unused"
+    );
+
+    // Out of range on both ends.
     assert!(BaseVowel::from_id(BASE_COUNT).is_none());
     assert!(BaseVowel::from_id(usize::MAX).is_none());
-    assert!(BaseVowel::from_priority_id(BASE_COUNT).is_none());
-    assert!(BaseVowel::from_priority_id(usize::MAX).is_none());
 
+    // `Ord` must agree with `id` for every pair, not just adjacent ones in
+    // `BASES`: `tone_placement` compares vowels pairwise, so a disagreement
+    // anywhere would change which vowel its fallback picks.
+    for (i, &a) in EXPECTED.iter().enumerate() {
+        for (j, &b) in EXPECTED.iter().enumerate() {
+            if i < j {
+                assert!(a.0 < b.0, "{:?} must sort before {:?}", a.0, b.0);
+            } else if i > j {
+                assert!(b.0 < a.0, "{:?} must sort before {:?}", b.0, a.0);
+            } else {
+                assert_eq!(a.0, b.0);
+            }
+        }
+    }
     assert!(BaseVowel::OHorn > BaseVowel::Y);
     assert!(BaseVowel::A > BaseVowel::Y);
 }
@@ -346,9 +415,9 @@ fn root_shape_table_matches_the_allowed_vowels() {
         );
 
         if let Some(base) = expected {
-            let id = base.priority_id() as usize;
+            let id = base.id() as usize;
             assert_eq!(
-                BaseVowel::from_priority_id(id),
+                BaseVowel::from_id(id),
                 Some(base),
                 "id round-trip for {root:?} + {shape:?}"
             );
@@ -477,12 +546,12 @@ fn shaped_vowels_have_higher_priority_than_unshaped_vowels() {
     for &base in BASES {
         if base.shape() == Shape::None {
             assert!(
-                base.priority_id() <= BaseVowel::A.priority_id(),
+                base.id() <= BaseVowel::A.id(),
                 "{base:?} is unshaped but has a shaped-vowel priority ID"
             );
         } else {
             assert!(
-                base.priority_id() > BaseVowel::A.priority_id(),
+                base.id() > BaseVowel::A.id(),
                 "{base:?} is shaped but has an unshaped-vowel priority ID"
             );
         }
@@ -1047,7 +1116,7 @@ fn ordering_follows_priority_not_packed_value() {
         "packed order now matches priority order, so this test proves nothing"
     );
 
-    // Ord must follow the priority order regardless.
+    // Ord must follow the id order regardless.
     for pair in BASES.windows(2) {
         assert!(
             pair[0] < pair[1],
@@ -1056,10 +1125,33 @@ fn ordering_follows_priority_not_packed_value() {
             pair[1]
         );
         assert!(
-            pair[0].priority_id() < pair[1].priority_id(),
-            "{:?} must have the lower priority ID",
+            pair[0].id() < pair[1].id(),
+            "{:?} must have the lower ID",
             pair[0]
         );
+    }
+
+    // Windows only covers neighbours, and transitivity is exactly the
+    // assumption a regression would break. `tone_placement` compares arbitrary
+    // pairs, so check every combination.
+    for (i, &a) in BASES.iter().enumerate() {
+        for (j, &b) in BASES.iter().enumerate() {
+            if i < j {
+                assert!(
+                    a < b,
+                    "{a:?} must sort before {b:?} (ids {} vs {})",
+                    a.id(),
+                    b.id()
+                );
+            } else if i > j {
+                assert!(
+                    b < a,
+                    "{b:?} must sort before {a:?} (ids {} vs {})",
+                    b.id(),
+                    a.id()
+                );
+            }
+        }
     }
 
     // The whole table, sorted, must equal declaration order.

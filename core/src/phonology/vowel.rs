@@ -208,73 +208,13 @@ impl BaseVowel {
 
     // ─────────────── ID / Priority ───────────────
 
-    /// Returns this vowel's ID, using the cheapest implementation the build
-    /// target allows.
-    ///
-    /// - With `popcnt` enabled (what `-C target-cpu=native` gives on x86-64):
-    ///   counts the `DECLARED_MASK` bits below the packed value, which LLVM
-    ///   folds into `bzhi` + `popcnt` - two register-only instructions, no
-    ///   load. Measured ~9% faster than matching.
-    /// - Without it: `count_ones` degrades to a ~16-instruction SWAR sequence
-    ///   and loses ~2.7x to a single table load, so this defers to
-    ///   [`Self::priority_id`], which the compiler already turns into a
-    ///   23-byte lookup.
-    ///
-    /// The two orders are not the same - closed vowels encode low but rank
-    /// high, so `UHorn` encodes to 7 yet has priority ID 6 - which means **this
-    /// returns a different value depending on how the crate was compiled**.
-    /// Anything that needs one stable value must call `priority_id`; that
-    /// covers `Ord`, `encode_vowel` and the const guard. Measurements for both
-    /// branches are in `core/benches/BASELINES.md`.
-    #[inline(always)]
-    pub const fn id(self) -> u8 {
-        // Y             0
-        // U             1
-        // UHorn         2
-        // I             3
-        // E             4
-        // ECircumflex   5
-        // O             6
-        // OCircumflex   7
-        // OHorn         8
-        // A             9
-        // ACircumflex   10
-        // ABreve        11
-        let value = self as u32;
-        (Self::DECLARED_MASK & ((1u32 << value) - 1)).count_ones() as u8
-    }
-
-    /// Returns the base vowel with the given ID, or `None` when `id` is
-    /// outside `0..Self::COUNT`.
-    ///
-    /// The ID order matches [`Self::id`] and therefore depends on whether the
-    /// crate was compiled with `popcnt` enabled.
-    #[inline(always)]
-    pub const fn from_id(id: usize) -> Option<Self> {
-        match id {
-            0 => Some(Self::Y),
-            1 => Some(Self::U),
-            2 => Some(Self::UHorn),
-            3 => Some(Self::I),
-            4 => Some(Self::E),
-            5 => Some(Self::ECircumflex),
-            6 => Some(Self::O),
-            7 => Some(Self::OCircumflex),
-            8 => Some(Self::OHorn),
-            9 => Some(Self::A),
-            10 => Some(Self::ACircumflex),
-            11 => Some(Self::ABreve),
-            _ => None,
-        }
-    }
-
     /// Returns the base vowel with the given tone-placement ID, or `None` when
     /// the ID is outside `0..Self::COUNT`.
     ///
     /// The inverse of [`Self::id`], verified for every declared ID by the const
     /// check below.
     #[inline(always)]
-    pub const fn from_priority_id(vowel_id: usize) -> Option<Self> {
+    pub const fn from_id(vowel_id: usize) -> Option<Self> {
         match vowel_id {
             0 => Some(Self::Y),
             1 => Some(Self::U),
@@ -298,7 +238,7 @@ impl BaseVowel {
     /// packed value: closed vowels score lowest, so the ID order differs from
     /// the layout order.
     #[inline(always)]
-    pub const fn priority_id(self) -> u8 {
+    pub const fn id(self) -> u8 {
         match self {
             Self::Y => 0,
             Self::U => 1,
@@ -390,7 +330,7 @@ impl BaseVowel {
 impl Ord for BaseVowel {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.priority_id().cmp(&other.priority_id())
+        self.id().cmp(&other.id())
     }
 }
 
@@ -585,47 +525,6 @@ impl Vowel {
     }
 }
 
-#[cfg(target_feature = "popcnt")]
-#[inline(always)]
-/// Encodes a base vowel, tone, and case as a precomposed Vietnamese character.
-///
-/// This table is indexed by the target's stable vowel ID, then tone and case.
-pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char {
-    #[rustfmt::skip]
-    const ENCODED: [char; 144] = [
-        // ID 0: Y
-        'y', 'Y', 'ý', 'Ý', 'ỳ', 'Ỳ', 'ỷ', 'Ỷ', 'ỹ', 'Ỹ', 'ỵ', 'Ỵ',
-        // ID 1: U
-        'u', 'U', 'ú', 'Ú', 'ù', 'Ù', 'ủ', 'Ủ', 'ũ', 'Ũ', 'ụ', 'Ụ',
-        // ID 2: UHorn
-        'ư', 'Ư', 'ứ', 'Ứ', 'ừ', 'Ừ', 'ử', 'Ử', 'ữ', 'Ữ', 'ự', 'Ự',
-        // ID 3: I
-        'i', 'I', 'í', 'Í', 'ì', 'Ì', 'ỉ', 'Ỉ', 'ĩ', 'Ĩ', 'ị', 'Ị',
-        // ID 4: E
-        'e', 'E', 'é', 'É', 'è', 'È', 'ẻ', 'Ẻ', 'ẽ', 'Ẽ', 'ẹ', 'Ẹ',
-        // ID 5: ECircumflex
-        'ê', 'Ê', 'ế', 'Ế', 'ề', 'Ề', 'ể', 'Ể', 'ễ', 'Ễ', 'ệ', 'Ệ',
-        // ID 6: O
-        'o', 'O', 'ó', 'Ó', 'ò', 'Ò', 'ỏ', 'Ỏ', 'õ', 'Õ', 'ọ', 'Ọ',
-        // ID 7: OCircumflex
-        'ô', 'Ô', 'ố', 'Ố', 'ồ', 'Ồ', 'ổ', 'Ổ', 'ỗ', 'Ỗ', 'ộ', 'Ộ',
-        // ID 8: OHorn
-        'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ',
-        // ID 9: A
-        'a', 'A', 'á', 'Á', 'à', 'À', 'ả', 'Ả', 'ã', 'Ã', 'ạ', 'Ạ',
-        // ID 10: ACircumflex
-        'â', 'Â', 'ấ', 'Ấ', 'ầ', 'Ầ', 'ẩ', 'Ẩ', 'ẫ', 'Ẫ', 'ậ', 'Ậ',
-        // ID 11: ABreve
-        'ă', 'Ă', 'ắ', 'Ắ', 'ằ', 'Ằ', 'ẳ', 'Ẳ', 'ẵ', 'Ẵ', 'ặ', 'Ặ',
-    ];
-
-    let idx = ((base.id() as usize * 6 + tone as usize) << 1) | uppercase as usize;
-
-    ENCODED[idx]
-}
-
-#[cfg(not(target_feature = "popcnt"))]
-#[inline(always)]
 /// Encodes a base vowel, tone, and case as a precomposed Vietnamese character.
 ///
 /// This table is indexed by tone-placement priority, then tone and case.
@@ -658,7 +557,7 @@ pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char 
         'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ',
     ];
 
-    let idx = ((base.priority_id() as usize * 6 + tone as usize) << 1) | uppercase as usize;
+    let idx = ((base.id() as usize * 6 + tone as usize) << 1) | uppercase as usize;
 
     ENCODED[idx]
 }

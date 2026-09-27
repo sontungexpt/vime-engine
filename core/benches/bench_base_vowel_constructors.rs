@@ -166,7 +166,7 @@ fn from_id_lookup(root: RootVowel, shape: Shape) -> Result<BaseVowel, ()> {
     if id == INVALID_ID {
         Err(())
     } else {
-        BaseVowel::from_priority_id(id as usize).ok_or(())
+        BaseVowel::from_id(id as usize).ok_or(())
     }
 }
 

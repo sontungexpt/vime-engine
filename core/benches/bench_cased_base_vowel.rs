@@ -71,7 +71,7 @@ impl IdCasedBaseVowel {
 
     #[inline(always)]
     const fn new(value: BaseVowel, is_upper: bool) -> Self {
-        Self(value.priority_id() as u8 | ((is_upper as u8) << 4))
+        Self(value.id() as u8 | ((is_upper as u8) << 4))
     }
 
     #[inline(always)]
@@ -97,7 +97,7 @@ impl IdCasedBaseVowel {
 
     #[inline(always)]
     const fn set_value(&mut self, value: BaseVowel) {
-        self.0 = (self.0 & Self::CASE_MASK) | value.priority_id() as u8;
+        self.0 = (self.0 & Self::CASE_MASK) | value.id() as u8;
     }
 
     #[inline(always)]
