@@ -1,47 +1,6 @@
-use super::{BaseVowel, Vowel};
+use crate::phonology::BaseVowel;
 
-/// A read-only view over a vowel nucleus.
-pub trait NucleusView {
-    fn len(&self) -> usize;
-    /// Returns the vowel at `index`.
-    ///
-    /// # Safety
-    ///
-    /// `index` must be `< len()`. All call sites are private helpers of
-    /// [`TonePlacement::vowel_index`], which dispatches only after matching on
-    /// the length (`2`, `3`, or a ≥4 fallback), so they always pass an
-    /// in-bounds index. `get_unchecked` also keeps a `debug_assert!`, catching
-    /// any future misuse in debug/test builds.
-    fn at(&self, index: usize) -> BaseVowel;
-}
-
-impl NucleusView for [BaseVowel] {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        // SAFETY: call sites are the `vowel_index` length-matched helpers
-        // (2 / 3 / ≥4), so `index` is always `< self.len()`. `BaseVowel` is
-        // `Copy`, so a by-value read is sound.
-        unsafe { *self.get_unchecked(index) }
-    }
-}
-
-impl NucleusView for [Vowel] {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        // SAFETY: callers use indices bounded by this slice's length.
-        unsafe { self.get_unchecked(index).base() }
-    }
-}
+use super::view::NucleusView;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TonePlacement {
@@ -66,8 +25,7 @@ impl TonePlacement {
     where
         V: NucleusView + ?Sized,
     {
-        let len = vowels.len();
-        match len {
+        match vowels.len() {
             0 => None,
             1 => Some(0),
             2 => Some(match self {
@@ -85,13 +43,15 @@ impl TonePlacement {
     where
         V: NucleusView + ?Sized,
     {
-        let v0 = vowels.at(0);
-        let v1 = vowels.at(1);
+        let v1 = unsafe { vowels.at(1) };
 
         // Rule 1: Diacritic/shaped vowel always takes the tone (e.g., "thuế" -> ê, "cuối" -> ô).
         if v1.is_shaped() {
             return 1;
         }
+
+        let v0 = unsafe { vowels.at(0) };
+
         if v0.is_shaped() {
             return 0;
         }
@@ -110,13 +70,13 @@ impl TonePlacement {
     where
         V: NucleusView + ?Sized,
     {
-        let v0 = vowels.at(0);
-        let v1 = vowels.at(1);
-
         // Rule 1: Diacritic/shaped vowel always takes the tone ("thuế" -> ê, "cuối" -> ô).
+        let v1 = unsafe { vowels.at(1) };
         if v1.is_shaped() {
             return 1;
         }
+
+        let v0 = unsafe { vowels.at(0) };
         if v0.is_shaped() {
             return 0;
         }
@@ -136,11 +96,11 @@ impl TonePlacement {
         V: NucleusView + ?Sized,
     {
         // Rightmost shaped vowel wins (e.g., "uôi" -> index 1 'ô')
-        if vowels.at(2).is_shaped() {
+        if unsafe { vowels.at(2).is_shaped() } {
             2
-        } else if vowels.at(1).is_shaped() {
+        } else if unsafe { vowels.at(1).is_shaped() } {
             1
-        } else if vowels.at(0).is_shaped() {
+        } else if unsafe { vowels.at(0).is_shaped() } {
             0
         } else {
             // Unshaped triphthong (e.g., "oai", "uye") -> center vowel
@@ -155,11 +115,11 @@ impl TonePlacement {
     where
         V: NucleusView + ?Sized,
     {
-        let mut best = vowels.at(0);
+        let mut best = unsafe { vowels.at(0) };
         let mut at = 0;
 
         for index in 1..vowels.len() {
-            let v = vowels.at(index);
+            let v = unsafe { vowels.at(index) };
 
             if v > best {
                 best = v;

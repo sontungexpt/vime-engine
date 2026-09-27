@@ -1,4 +1,9 @@
-use super::vowel::BaseVowel;
+//! The Vietnamese nucleus rule table: whether a sequence of base vowels is a
+//! known syllable nucleus, and if so whether it is complete.
+
+use crate::phonology::BaseVowel;
+
+use super::view::NucleusView;
 
 pub const NUCLEUS_MAX_LEN: usize = 3;
 
@@ -15,13 +20,13 @@ pub enum NucleusState {
     InComplete,
 }
 
-macro_rules! nucleus_rules {
+macro_rules! states {
     // ============================================================
     // Public entry point
     // ============================================================
 
     ($vowels:ident; $($rules:tt)*) => {
-        nucleus_rules! {
+        states! {
             @collect
             $vowels
             []
@@ -42,7 +47,7 @@ macro_rules! nucleus_rules {
         [] => $state:ident,
         $($rest:tt)*
     ) => {
-        nucleus_rules! {
+        states! {
             @collect
             $vowels
             [$($two)*]
@@ -63,7 +68,7 @@ macro_rules! nucleus_rules {
         [$a:ident] => $state:ident,
         $($rest:tt)*
     ) => {
-        nucleus_rules! {
+        states! {
             @collect
             $vowels
             [$($two)*]
@@ -84,10 +89,13 @@ macro_rules! nucleus_rules {
         [$a:ident, $b:ident] => $state:ident,
         $($rest:tt)*
     ) => {
-        nucleus_rules! {
+        states! {
             @collect
             $vowels
-            [$($two)* [$a, $b] => $state,]
+            [
+                $($two)*
+                ($a, $b) => $state,
+            ]
             [$($three)*]
             $($rest)*
         }
@@ -105,11 +113,14 @@ macro_rules! nucleus_rules {
         [$a:ident, $b:ident, $c:ident] => $state:ident,
         $($rest:tt)*
     ) => {
-        nucleus_rules! {
+        states! {
             @collect
             $vowels
             [$($two)*]
-            [$($three)* [$a, $b, $c] => $state,]
+            [
+                $($three)*
+                ($a, $b, $c) => $state,
+            ]
             $($rest)*
         }
     };
@@ -124,23 +135,30 @@ macro_rules! nucleus_rules {
         [$($three:tt)*]
     ) => {
         match $vowels.len() {
-            // [ ] => InComplete
+            // Empty nucleus.
             0 => InComplete,
 
-            // [A], [E], [I], ... => Valid
+            // Every single base vowel is valid.
             //
-            // Single-vowel rules are intentionally kept in the rule table
-            // as documentation, but do not need individual match arms.
+            // The individual [A], [E], ... rules are retained in the
+            // source table for documentation, so no runtime match is
+            // generated for arity 1.
             1 => Valid,
 
-            // Two-vowel rules are collected from the rule table above.
-            2 => match $vowels {
+            // Two-vowel nucleus.
+            2 => match unsafe { ($vowels.at(0), $vowels.at(1)) } {
                 $($two)*
                 _ => Dead,
             },
 
-            // Three-vowel rules are collected from the rule table above.
-            3 => match $vowels {
+            // Three-vowel nucleus.
+            3 => match unsafe {
+                (
+                    $vowels.at(0),
+                    $vowels.at(1),
+                    $vowels.at(2),
+                )
+            } {
                 $($three)*
                 _ => Dead,
             },
@@ -157,12 +175,22 @@ impl NucleusState {
         matches!(self, Self::Dead)
     }
 
+    /// Looks up the state of a vowel nucleus.
+    ///
+    /// This is the canonical entry point and matches the caller's slice
+    /// directly, with no copy. Callers holding `Vowel`s (which pack the base
+    /// vowel together with tone and case) should use [`Self::check_view`].
     #[inline(always)]
-    pub fn check(vowels: &[BaseVowel]) -> Self {
+    pub fn check<V>(vowels: &V) -> Self
+    where
+        V: NucleusView + ?Sized,
+    {
         use BaseVowel::*;
         use NucleusState::*;
 
-        nucleus_rules! {
+        // The table below is flat; the macro buckets it by arity, so this
+        // expands to `match vowels.len()` with one inner match per length.
+        states! {
             vowels;
 
             [] => InComplete,

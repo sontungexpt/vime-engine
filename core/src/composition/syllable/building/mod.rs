@@ -56,7 +56,6 @@ impl Nucleus {
     fn bases(&self, dst: &mut [BaseVowel]) -> usize {
         let count = self.len().min(dst.len());
         for (src, dst) in self.iter().take(count).zip(&mut dst[..count]) {
-            eprintln!("nucleus vowel raw = {:#06x}", src.bits());
             *dst = src.base();
         }
         count
@@ -70,8 +69,8 @@ impl NucleusView for Nucleus {
     }
 
     #[inline(always)]
-    fn at(&self, index: usize) -> BaseVowel {
-        self[index].base()
+    unsafe fn at(&self, index: usize) -> BaseVowel {
+        self.get_unchecked(index).base()
     }
 }
 
@@ -237,7 +236,7 @@ impl BuildingSyllable {
             return true;
         }
 
-        let state = self.check_nucleus();
+        let state = NucleusState::check(&self.nucleus);
 
         if state.is_dead() {
             rollback(&mut self.nucleus, undo_data);
@@ -270,14 +269,6 @@ impl BuildingSyllable {
                 false
             }
         }
-    }
-
-    /// Validates the vowel nucleus against the rule table.
-    #[inline(always)]
-    fn check_nucleus(&self) -> NucleusState {
-        let mut buf = [BaseVowel::A; NUCLEUS_MAX_LEN];
-        let count = self.nucleus.bases(&mut buf);
-        NucleusState::check(&buf[..count])
     }
 
     // ─────────────────────────── Normalization ───────────────────────────
