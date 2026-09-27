@@ -97,16 +97,16 @@ impl BuildingSyllable {
             return true;
         }
 
-        if self.onset.len() >= Onset::MAX_LEN {
-            return false;
+        if self.onset.len() < Onset::MAX_LEN {
+            return self.try_update_onset(
+                |onset| onset.push(key),
+                |onset, _| {
+                    onset.pop();
+                },
+            );
         }
 
-        self.try_update_onset(
-            |onset| onset.push(key),
-            |onset, _| {
-                onset.pop();
-            },
-        )
+        false
     }
 
     /// Adds a decoded vowel to the nucleus (max 3 vowels); returns `false`
@@ -146,7 +146,10 @@ impl BuildingSyllable {
 
         // When a vowel follows `g i`, move `i` into the onset: `G + I + V` ->
         // `Gi + V`.
-        if len == 1 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
+        let should_form_gi =
+            len == 1 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I;
+
+        if should_form_gi {
             let i = self.nucleus.pop().expect("nucleus contains i");
 
             self.onset.push(if i.is_upper() { 'I' } else { 'i' });
@@ -175,14 +178,14 @@ impl BuildingSyllable {
     /// Adds a literal character to the coda, returning `false` if it is invalid.
     #[inline]
     fn push_coda(&mut self, key: char) -> bool {
-        if self.coda.len() >= Coda::MAX_LEN {
-            return false;
+        if self.coda.len() < Coda::MAX_LEN {
+            return self.try_update_coda(
+                |coda| coda.push(key),
+                |coda, _| {
+                    coda.pop();
+                },
+            );
         }
-        self.try_update_coda(
-            |coda| coda.push(key),
-            |coda, _| {
-                coda.pop();
-            },
-        )
+        false
     }
 }
