@@ -9,7 +9,7 @@
 //! Khi kiểm tra quy tắc chính tả, validator chỉ thực hiện các phép toán bitwise (`&`, `|`)
 //! giúp CPU thực thi không rẽ nhánh (branchless execution) và hoàn toàn tương thích `const fn`.
 
-use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
+use crate::phonology::{BaseVowel, Coda, Onset, Tone};
 
 /// Bitmask mã hóa các thuộc tính ÂM VỊ HỌC (phonotactic attributes) của vần.
 ///
@@ -209,19 +209,6 @@ pub const fn nucleus_flags(vowels: &[BaseVowel]) -> PhonotacticFlags {
     let mut i = 0;
     while i < len {
         bits |= vowels[i].phonotactic_flags().bits();
-        i += 1;
-    }
-    PhonotacticFlags(bits)
-}
-
-/// Like [`nucleus_flags`], but reads base vowels from packed [`Vowel`] values.
-#[inline(always)]
-pub const fn cased_nucleus_flags(vowels: &[Vowel]) -> PhonotacticFlags {
-    let mut bits = 0u16;
-    let len = if vowels.len() > 3 { 3 } else { vowels.len() };
-    let mut i = 0;
-    while i < len {
-        bits |= vowels[i].base().phonotactic_flags().bits();
         i += 1;
     }
     PhonotacticFlags(bits)

@@ -4,8 +4,8 @@
 //! `nucleus_rules!` macro into `match vowels.len() { 2 => match vowels { .. },
 //! 3 => match vowels { .. } }`.
 //!
-//! The pre-macro version is kept verbatim in `mod old` below so the two
-//! stay comparable; this bench does not change or "fix" either one, it only
+//! The pre-macro version is kept verbatim in `mod old` below so the two stay
+//! comparable; this bench does not change or "fix" either one, it only
 //! measures them. A correctness pass compares the two on every 1..=3 vowel
 //! sequence before timing starts, so a behavior drift between them is
 //! reported loudly here instead of silently skewing the numbers.
@@ -340,7 +340,7 @@ fn main() {
         n_old / exhaustive.len() as f64
     );
     println!(
-        "  new (macro match):  {:8.2} ns/pass   ({:6.2} ns/probe)   ({:.3}x old)",
+        "  new (macro match):   {:8.2} ns/pass   ({:6.2} ns/probe)   ({:.3}x old)",
         n_new,
         n_new / exhaustive.len() as f64,
         n_new / n_old
@@ -371,7 +371,7 @@ fn main() {
         m_old / realistic.len() as f64
     );
     println!(
-        "  new (macro match):  {:8.2} ns/pass   ({:6.2} ns/probe)   ({:.3}x old)",
+        "  new (macro match):   {:8.2} ns/pass   ({:6.2} ns/probe)   ({:.3}x old)",
         m_new,
         m_new / realistic.len() as f64,
         m_new / m_old
