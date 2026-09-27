@@ -9,7 +9,12 @@ use crate::{
     phonology::TonePlacement,
 };
 
-/// Incremental syllable parser driven by a [`RuleEngine`].
+/// Incremental syllable parser driven by a [`Keymap`].
+///
+/// Owns the raw keystroke buffer and mirrors it as a parsed
+/// [`SyllableBuilder`] syllable plus a cursor for each of the two. The raw
+/// buffer is what an empty/`Forward` result is judged on; the syllable is what
+/// gets rendered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Composition<KM: Keymap> {
     raw: Vec<char>,
@@ -97,10 +102,11 @@ impl<KM: Keymap> Composition<KM> {
 
     // ------------------------------------------------------------- mutation
 
-    /// Inserts `input` into the syllable at `index`.
+    /// Inserts `input` at the raw cursor and mirrors it into the syllable.
     ///
-    /// Not implemented yet: anything at or past the end of the syllable simply
-    /// falls through to [`Self::append`].
+    /// A transform key (`a` + `w` → `ă`) is consumed by the syllable without
+    /// becoming a new character, so only [`InputEffect::StructurallyChanged`]
+    /// advances the syllable cursor.
     pub fn insert(&mut self, input: char) {
         self.raw.insert(self.raw_cursor.get(), input);
         self.raw_cursor.move_right(self.raw.len());

@@ -22,9 +22,7 @@ fn extend_panics_on_overflow() {
     let mut v = InlineVec::<u8, 2>::default();
     v.extend([1, 2]);
 
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| v.extend([3]))).is_err()
-    );
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| v.extend([3]))).is_err());
     assert_eq!(&v[..], &[1, 2], "failed extend must not mutate");
 }
 
@@ -39,10 +37,10 @@ fn extend_from_slice_copies() {
 #[test]
 fn extend_from_slice_panics_on_overflow() {
     let mut v = InlineVec::<u8, 1>::default();
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| v.extend_from_slice(&[1, 2])))
-            .is_err()
-    );
+    assert!(std::panic::catch_unwind(
+        std::panic::AssertUnwindSafe(|| v.extend_from_slice(&[1, 2]))
+    )
+    .is_err());
     assert_eq!(&v[..], &[], "failed extend must not mutate");
 }
 

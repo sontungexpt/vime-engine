@@ -911,7 +911,7 @@ mod tests {
                 v[index] = shape_off(old);
                 return Some(v);
             }
-            let new_vowel = BaseVowel::from_parts(old.root(), shape).ok()?;
+            let new_vowel = BaseVowel::from_parts(old.root(), shape)?;
             let mut v = vowels.to_vec();
             v[index] = new_vowel;
             if vowels.len() < 2 {
@@ -965,7 +965,7 @@ mod tests {
         }
 
         for index in (0..vowels.len()).rev() {
-            if BaseVowel::from_parts(vowels[index].root(), shape).is_err() {
+            if BaseVowel::from_parts(vowels[index].root(), shape).is_none() {
                 continue;
             }
             if uo {
@@ -1155,7 +1155,7 @@ mod tests {
         assert_eq!(state_count(), STATES.len());
         assert_eq!(transition_count(), TRANSITIONS.len());
         for (i, vowel) in VOWELS.iter().enumerate() {
-            assert_eq!(vowel.id(), i, "id order");
+            assert_eq!(vowel.id() as usize, i, "id order");
             let state = STATES[i];
             assert_eq!(state.mask & COMPLETE_BIT, COMPLETE_BIT, "single vowel {i}");
         }

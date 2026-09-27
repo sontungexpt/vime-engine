@@ -25,8 +25,8 @@ impl TryFrom<VimeKeyEvent> for KeyEvent {
             VimeKey::Escape => Key::Escape,
             VimeKey::Tab => Key::Tab,
             VimeKey::Space => Key::Space,
-        #[allow(unreachable_patterns)]
-        _ => return Err(KeyEventConversionError::InvalidKey(event.key as u32)),
+            #[allow(unreachable_patterns)]
+            _ => return Err(KeyEventConversionError::InvalidKey(event.key as u32)),
         };
 
         Ok(KeyEvent {

@@ -10,8 +10,8 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use vime_engine::phonology::NucleusState;
 use vime_engine::phonology::BaseVowel;
+use vime_engine::phonology::NucleusState;
 
 /// One probe row: a slice view over a fixed 3-vowel buffer.
 #[derive(Clone, Copy)]
@@ -145,7 +145,20 @@ const SENTINEL: usize = 0xF;
 /// a length-1 key never does), and the max key is `0xFFF = 4095`.
 fn build_lut() -> Box<[NucleusState; 4096]> {
     use BaseVowel::*;
-    let vs = [Y, U, I, E, O, A, UHorn, ACircumflex, OCircumflex, ABreve, ECircumflex, OHorn];
+    let vs = [
+        Y,
+        U,
+        I,
+        E,
+        O,
+        A,
+        UHorn,
+        ACircumflex,
+        OCircumflex,
+        ABreve,
+        ECircumflex,
+        OHorn,
+    ];
 
     let mut table = Box::new([NucleusState::Dead; 4096]);
     for (i, &a) in vs.iter().enumerate() {
@@ -164,8 +177,16 @@ fn build_lut() -> Box<[NucleusState; 4096]> {
 #[inline(always)]
 fn lut_key(s: &Seq) -> usize {
     let a = s.buf[0].id() as usize;
-    let b = if s.len > 1 { s.buf[1].id() as usize } else { SENTINEL };
-    let c = if s.len > 2 { s.buf[2].id() as usize } else { SENTINEL };
+    let b = if s.len > 1 {
+        s.buf[1].id() as usize
+    } else {
+        SENTINEL
+    };
+    let c = if s.len > 2 {
+        s.buf[2].id() as usize
+    } else {
+        SENTINEL
+    };
     a | (b << 4) | (c << 8)
 }
 
@@ -284,13 +305,11 @@ fn probe_v2(workload: &[Seq]) -> u32 {
 fn probe_v3(workload: &[Seq], lut: &[NucleusState; 4096]) -> u32 {
     let mut acc = 0u32;
     for s in workload {
-        acc = acc
-            .wrapping_mul(31)
-            .wrapping_add(match lut[lut_key(s)] {
-                NucleusState::Dead => 1,
-                NucleusState::Valid => 2,
-                NucleusState::InComplete => 3,
-            });
+        acc = acc.wrapping_mul(31).wrapping_add(match lut[lut_key(s)] {
+            NucleusState::Dead => 1,
+            NucleusState::Valid => 2,
+            NucleusState::InComplete => 3,
+        });
     }
     black_box(acc)
 }
@@ -309,7 +328,13 @@ fn main() {
         let v2 = from_packed(pack_key(s.slice()));
         let v3 = lut[lut_key(s)];
         assert_eq!(v1, v2, "packed mismatch for {:?}", s.slice());
-        assert_eq!(v1, v3, "lut mismatch for {:?} (index {})", s.slice(), lut_key(s));
+        assert_eq!(
+            v1,
+            v3,
+            "lut mismatch for {:?} (index {})",
+            s.slice(),
+            lut_key(s)
+        );
         match v1 {
             NucleusState::Valid => valid += 1,
             NucleusState::InComplete => incomplete += 1,

@@ -1,7 +1,9 @@
 //! Vowel codec and classification tests.
 //!
-//! The public vowel codec covers:
+//! The public vowel surface covers:
 //!
+//! - 6 [`RootVowel`]s
+//! - 4 [`Shape`]s
 //! - 12 [`BaseVowel`]s
 //! - 6 [`Tone`]s
 //! - 2 cases
@@ -9,18 +11,42 @@
 //!
 //! The tests verify:
 //!
-//! - BaseVowel ID ordering and round-trip
-//! - Tone ID round-trip and bounds
+//! - `Default`/`is_some` semantics for the marker enums
+//! - BaseVowel ID ordering, round-trip and packed bit layout
+//! - the `(root, shape)` -> ID table, including every invalid combination
 //! - exhaustive encode/decode bijection
 //! - exact lowercase/uppercase surface forms
 //! - one exhaustive scan over the Unicode scalar range checking decoder
 //!   coverage, round-trips and `is_vowel` consistency
 //! - rejection of non-vowels
+//! - `Vowel` field layout, accessors, mutating setters, copying `with_*`
+//!   builders, `remove_tone` / `remove_shape` and their `without_*` copies
+//! - `Eq` / `Hash` / `Ord` behavior of the packed values
+//! - const-evaluability of the codec
 //! - shape replacement and `is_plain` / `is_shaped` consistency
+//!
+//! Iteration helpers below walk the tables in canonical order (`root`/`base`
+//! by priority ID, then `tone` by ID, then lowercase before uppercase) so no
+//! test has to repeat the nested loops.
+
+use std::collections::HashSet;
 
 use vime_engine::phonology::{
-    decode_vowel, encode_vowel, is_vowel, BaseVowel, ExtendedBaseVowel, Shape, Tone,
+    decode_vowel, encode_vowel, is_vowel, BaseVowel, RootVowel, Shape, Tone, Vowel,
 };
+
+/// Root letters in declaration order.
+const ROOTS: &[RootVowel] = &[
+    RootVowel::A,
+    RootVowel::E,
+    RootVowel::I,
+    RootVowel::O,
+    RootVowel::U,
+    RootVowel::Y,
+];
+
+/// Diacritic shapes in declaration order.
+const SHAPES: &[Shape] = &[Shape::None, Shape::Circumflex, Shape::Breve, Shape::Horn];
 
 const BASES: &[BaseVowel] = &[
     BaseVowel::Y,
@@ -45,14 +71,58 @@ const TONES: &[Tone] = &[
     Tone::Tilde,
     Tone::Dot,
 ];
+
+/// Letter cases, lowercase first: case is the low bit of the packed value.
+const CASES: [bool; 2] = [false, true];
+
 const BASE_COUNT: usize = BASES.len();
 const TONE_COUNT: usize = TONES.len();
-const VOWEL_COUNT: usize = BASE_COUNT * TONE_COUNT * 2;
+const VOWEL_COUNT: usize = BASE_COUNT * TONE_COUNT * CASES.len();
+
+/// Every `(root, shape)` pair with the [`BaseVowel`] Vietnamese allows.
+///
+/// Rows follow [`ROOTS`] then [`SHAPES`] (the declaration order of both enums,
+/// which is the order the lookup table is indexed by). `None` marks a
+/// combination that does not exist.
+#[rustfmt::skip]
+const EXPECTED_PARTS: [(RootVowel, Shape, Option<BaseVowel>); ROOTS.len() * SHAPES.len()] = [
+    // A
+    (RootVowel::A, Shape::None,       Some(BaseVowel::A)),
+    (RootVowel::A, Shape::Circumflex, Some(BaseVowel::ACircumflex)),
+    (RootVowel::A, Shape::Breve,      Some(BaseVowel::ABreve)),
+    (RootVowel::A, Shape::Horn,       None),
+    // E
+    (RootVowel::E, Shape::None,       Some(BaseVowel::E)),
+    (RootVowel::E, Shape::Circumflex, Some(BaseVowel::ECircumflex)),
+    (RootVowel::E, Shape::Breve,      None),
+    (RootVowel::E, Shape::Horn,       None),
+    // I
+    (RootVowel::I, Shape::None,       Some(BaseVowel::I)),
+    (RootVowel::I, Shape::Circumflex, None),
+    (RootVowel::I, Shape::Breve,      None),
+    (RootVowel::I, Shape::Horn,       None),
+    // O
+    (RootVowel::O, Shape::None,       Some(BaseVowel::O)),
+    (RootVowel::O, Shape::Circumflex, Some(BaseVowel::OCircumflex)),
+    (RootVowel::O, Shape::Breve,      None),
+    (RootVowel::O, Shape::Horn,       Some(BaseVowel::OHorn)),
+    // U
+    (RootVowel::U, Shape::None,       Some(BaseVowel::U)),
+    (RootVowel::U, Shape::Circumflex, None),
+    (RootVowel::U, Shape::Breve,      None),
+    (RootVowel::U, Shape::Horn,       Some(BaseVowel::UHorn)),
+    // Y
+    (RootVowel::Y, Shape::None,       Some(BaseVowel::Y)),
+    (RootVowel::Y, Shape::Circumflex, None),
+    (RootVowel::Y, Shape::Breve,      None),
+    (RootVowel::Y, Shape::Horn,       None),
+];
 
 /// Expected lowercase surface forms.
 ///
 /// Rows are ordered by [`BaseVowel`] priority ID.
 /// Columns are ordered by [`Tone`] ID.
+#[rustfmt::skip]
 const ALL_LOWER: [[char; TONE_COUNT]; BASE_COUNT] = [
     // Y
     ['y', 'ý', 'ỳ', 'ỷ', 'ỹ', 'ỵ'],
@@ -80,226 +150,264 @@ const ALL_LOWER: [[char; TONE_COUNT]; BASE_COUNT] = [
     ['ơ', 'ớ', 'ờ', 'ở', 'ỡ', 'ợ'],
 ];
 
+/// Shaped spellings and the same spelling with the shape stripped.
+const STRIPPED: [(char, char); 12] = [
+    ('ấ', 'á'),
+    ('Ậ', 'Ạ'),
+    ('ừ', 'ù'),
+    ('Ử', 'Ủ'),
+    ('ợ', 'ọ'),
+    ('Ệ', 'Ẹ'),
+    ('ặ', 'ạ'),
+    ('ê', 'e'),
+    ('ô', 'o'),
+    ('ă', 'a'),
+    ('ư', 'u'),
+    ('ơ', 'o'),
+];
+
+/// Characters that must never decode as a Vietnamese vowel.
+const INVALID: [char; 31] = [
+    // ASCII consonants
+    'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'x',
+    'z', // Vietnamese stroke
+    'đ', 'Đ', // Digits / punctuation / whitespace
+    '0', '9', '!', '@', '#', ' ', '\n', '\t', // Non-Vietnamese Latin letter
+    'å',
+];
+
+// ───────────────────────────── Iteration helpers ──────────────────────────────
+
+/// Runs `f` for every `(base, shape)` pair.
+fn each_base_shape(mut f: impl FnMut(BaseVowel, Shape)) {
+    for &base in BASES {
+        for &shape in SHAPES {
+            f(base, shape);
+        }
+    }
+}
+
+/// Runs `f` for every `(root, shape)` pair.
+fn each_root_shape(mut f: impl FnMut(RootVowel, Shape)) {
+    for &root in ROOTS {
+        for &shape in SHAPES {
+            f(root, shape);
+        }
+    }
+}
+
+/// Runs `f` for every `(base, tone, upper)` triple.
+fn each_vowel(mut f: impl FnMut(BaseVowel, Tone, bool)) {
+    for &base in BASES {
+        for &tone in TONES {
+            for &upper in &CASES {
+                f(base, tone, upper);
+            }
+        }
+    }
+}
+
+/// Every [`Vowel`] in canonical `base` → `tone` → `case` order.
+fn all_vowels() -> Vec<Vowel> {
+    let mut vowels = Vec::with_capacity(VOWEL_COUNT);
+
+    each_vowel(|base, tone, upper| vowels.push(Vowel::new(base, tone, upper)));
+
+    vowels
+}
+
+// ───────────────────────────── Shape and Tone ─────────────────────────────
+
+#[test]
+fn shape_is_some_excludes_none() {
+    for (expected_id, &shape) in SHAPES.iter().enumerate() {
+        assert_eq!(
+            shape as u8, expected_id as u8,
+            "{shape:?} has unexpected ID"
+        );
+        assert_eq!(
+            shape.is_some(),
+            expected_id != 0,
+            "{shape:?} is_some mismatch"
+        );
+    }
+}
+
+#[test]
+fn tone_is_some_excludes_flat() {
+    for (expected_id, &tone) in TONES.iter().enumerate() {
+        assert_eq!(
+            tone.is_some(),
+            expected_id != 0,
+            "{tone:?} is_some mismatch"
+        );
+    }
+}
+
+#[test]
+fn marker_enums_default_to_the_unmarked_variant() {
+    assert_eq!(Shape::default(), Shape::None);
+    assert_eq!(Tone::default(), Tone::Flat);
+    assert!(!Shape::default().is_some());
+    assert!(!Tone::default().is_some());
+    assert_eq!(Shape::default() as u8, 0);
+    assert_eq!(Tone::default() as u8, 0);
+}
+
+// ─────────────────────────────── BaseVowel ───────────────────────────────
+
+#[test]
+fn root_ids_are_dense_and_from_root_builds_plain_vowels() {
+    assert_eq!(ROOTS.len(), 6);
+
+    for (expected_id, &root) in ROOTS.iter().enumerate() {
+        assert_eq!(root as u8, expected_id as u8, "{root:?} has unexpected ID");
+
+        let base = BaseVowel::from_root(root);
+
+        assert_eq!(base.root(), root, "from_root round-trip failed");
+        assert_eq!(
+            base.shape(),
+            Shape::None,
+            "{root:?} produced a shaped vowel"
+        );
+        assert!(base.is_plain());
+        assert!(!base.is_shaped());
+        assert_eq!(base, base.remove_shape(), "{root:?} from_root is not plain");
+        assert_eq!(BaseVowel::from_id(base.id() as usize), Some(base));
+    }
+}
+
+#[test]
+fn base_vowel_count_covers_every_variant() {
+    assert_eq!(BaseVowel::COUNT, 12);
+    assert_eq!(BaseVowel::COUNT, BASE_COUNT);
+    assert_eq!(
+        BaseVowel::COUNT,
+        EXPECTED_PARTS.iter().filter(|p| p.2.is_some()).count()
+    );
+}
+
+#[test]
+fn every_root_is_represented_by_at_least_one_base_vowel() {
+    let mut total = 0;
+
+    for &root in ROOTS {
+        let count = BASES.iter().filter(|base| base.root() == root).count();
+
+        assert!(count > 0, "{root:?} has no base vowel");
+        total += count;
+    }
+
+    assert_eq!(total, BaseVowel::COUNT, "every base vowel must have a root");
+}
+
 #[test]
 fn base_vowel_ids_are_valid_and_ordered() {
     for (expected_id, &base) in BASES.iter().enumerate() {
         assert_eq!(
-            base.id(),
+            base.id() as usize,
             expected_id,
             "{base:?} has unexpected priority ID"
         );
 
         assert_eq!(
             BaseVowel::from_id(expected_id),
-            Ok(base),
+            Some(base),
             "BaseVowel::from_id({expected_id}) is inconsistent"
         );
     }
 
-    assert!(BaseVowel::from_id(BASE_COUNT).is_err());
-    assert!(BaseVowel::from_id(usize::MAX).is_err());
+    assert!(BaseVowel::from_id(BASE_COUNT).is_none());
+    assert!(BaseVowel::from_id(usize::MAX).is_none());
 
     assert!(BaseVowel::OHorn > BaseVowel::Y);
     assert!(BaseVowel::A > BaseVowel::Y);
 }
 
 #[test]
-fn tone_ids_are_valid_and_ordered() {
-    for (expected_id, &tone) in TONES.iter().enumerate() {
-        assert_eq!(
-            Tone::from_id(expected_id),
-            tone,
-            "Tone::from_id({expected_id}) is inconsistent"
-        );
-
-        assert_eq!(tone as usize, expected_id, "{tone:?} has unexpected ID");
+fn from_id_unchecked_agrees_with_from_id() {
+    for (vowel_id, &base) in BASES.iter().enumerate() {
+        assert_eq!(unsafe { BaseVowel::from_id_unchecked(vowel_id) }, base);
     }
-
-    assert!(Tone::from_id(TONE_COUNT) == Tone::Flat);
-    assert!(Tone::from_id(usize::MAX) == Tone::Flat);
 }
 
 #[test]
-fn encode_decode_is_bijective() {
-    let mut seen = [None; VOWEL_COUNT];
-    let mut count = 0;
+fn base_vowel_derived_order_follows_priority_id() {
+    for pair in BASES.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "{:?} must sort before {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
 
-    for &base in BASES {
-        for &tone in TONES {
-            for &case in &[false, true] {
-                let ch = encode_vowel(base, tone, case);
+    let mut shuffled = BASES.to_vec();
+    shuffled.reverse();
+    shuffled.sort();
 
+    assert_eq!(shuffled, BASES);
+}
+
+#[test]
+fn root_shape_table_matches_the_allowed_vowels() {
+    for &(root, shape, expected) in &EXPECTED_PARTS {
+        assert_eq!(
+            BaseVowel::from_parts(root, shape),
+            expected,
+            "from_parts mismatch for {root:?} + {shape:?}"
+        );
+
+        match (BaseVowel::id_from_parts(root, shape), expected) {
+            (Some(id), Some(base)) => {
                 assert_eq!(
-                    decode_vowel(ch),
-                    Some((ExtendedBaseVowel::with_case(base, case), tone)),
-                    "decode mismatch for {base:?} {tone:?} {case:?}"
+                    id,
+                    base.id(),
+                    "id_from_parts mismatch for {root:?} + {shape:?}"
                 );
-
-                assert!(
-                    !seen[..count].contains(&Some(ch)),
-                    "duplicate encoded character {ch:?}"
-                );
-
-                seen[count] = Some(ch);
-                count += 1;
+                assert_eq!(BaseVowel::from_id(id as usize), Some(base));
+                assert_eq!(base.root(), root);
+                assert_eq!(base.shape(), shape);
+            }
+            (None, None) => {}
+            (got, want) => {
+                panic!("id_from_parts({root:?}, {shape:?}) = {got:?}, want {want:?}");
             }
         }
     }
-
-    assert_eq!(count, VOWEL_COUNT);
-    assert!(seen.iter().all(Option::is_some));
 }
 
 #[test]
-fn expected_surface_forms_match_codec() {
-    for (base_id, row) in ALL_LOWER.iter().enumerate() {
-        let base = BASES[base_id];
+fn every_root_shape_pair_is_covered_exactly_once() {
+    each_root_shape(|root, shape| {
+        let listed = EXPECTED_PARTS
+            .iter()
+            .filter(|(r, s, _)| *r == root && *s == shape)
+            .count();
 
-        for (tone_id, &lower) in row.iter().enumerate() {
-            let tone = TONES[tone_id];
-
-            assert_eq!(
-                encode_vowel(base, tone, false),
-                lower,
-                "unexpected lowercase encoding for {base:?} {tone:?}"
-            );
-
-            assert_eq!(
-                decode_vowel(lower),
-                Some((ExtendedBaseVowel::with_case(base, false), tone)),
-                "unexpected lowercase decoding for {lower:?}"
-            );
-
-            let upper = lower.to_uppercase().next().unwrap();
-
-            assert_eq!(
-                encode_vowel(base, tone, true),
-                upper,
-                "unexpected uppercase encoding for {base:?} {tone:?}"
-            );
-
-            assert_eq!(
-                decode_vowel(upper),
-                Some((ExtendedBaseVowel::with_case(base, true), tone)),
-                "unexpected uppercase decoding for {upper:?}"
-            );
-        }
-    }
+        assert_eq!(listed, 1, "table must list {root:?} + {shape:?} once");
+    });
 }
 
 #[test]
-fn decoder_coverage_round_trips_and_matches_is_vowel() {
-    let mut count = 0;
-
-    for cp in 0..=0x10FFFF {
-        let Some(ch) = char::from_u32(cp) else {
-            continue;
-        };
-
-        let Some((cased, tone)) = decode_vowel(ch) else {
-            assert!(
-                !is_vowel(ch),
-                "is_vowel/decode_vowel mismatch at U+{cp:04X} {ch:?}"
-            );
-            continue;
-        };
-
-        assert!(
-            is_vowel(ch),
-            "is_vowel/decode_vowel mismatch at U+{cp:04X} {ch:?}"
-        );
-
-        assert_eq!(
-            encode_vowel(cased.get(), tone, cased.is_upper()),
-            ch,
-            "decode/encode round-trip failed for U+{cp:04X} {ch:?}"
-        );
-
-        count += 1;
-    }
-
-    assert_eq!(
-        count, VOWEL_COUNT,
-        "decoder must recognize exactly {VOWEL_COUNT} characters"
-    );
-}
-
-#[test]
-fn rejects_non_vowels() {
-    const INVALID: [char; 31] = [
-        // ASCII consonants
-        'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w',
-        'x', 'z', // Vietnamese stroke
-        'đ', 'Đ', // Digits / punctuation / whitespace
-        '0', '9', '!', '@', '#', ' ', '\n', '\t', // Non-Vietnamese Latin letter
-        'å',
-    ];
-
-    for ch in INVALID {
-        assert_eq!(
-            decode_vowel(ch),
-            None,
-            "{ch:?} must not decode as a Vietnamese vowel"
-        );
-
-        assert!(!is_vowel(ch), "{ch:?} must not be classified as a vowel");
-    }
-}
-
-#[test]
-fn ascii_vowels_decode_as_flat() {
-    for (base, ch) in [
-        (BaseVowel::A, 'a'),
-        (BaseVowel::E, 'e'),
-        (BaseVowel::I, 'i'),
-        (BaseVowel::O, 'o'),
-        (BaseVowel::U, 'u'),
-        (BaseVowel::Y, 'y'),
-    ] {
-        assert_eq!(
-            decode_vowel(ch),
-            Some((ExtendedBaseVowel::with_case(base, false), Tone::Flat)),
-            "unexpected decoding for {ch:?}"
-        );
-
-        assert!(is_vowel(ch));
-
-        assert_eq!(encode_vowel(base, Tone::Flat, false), ch);
-    }
-
-    for (base, ch) in [
-        (BaseVowel::A, 'A'),
-        (BaseVowel::E, 'E'),
-        (BaseVowel::I, 'I'),
-        (BaseVowel::O, 'O'),
-        (BaseVowel::U, 'U'),
-        (BaseVowel::Y, 'Y'),
-    ] {
-        assert_eq!(
-            decode_vowel(ch),
-            Some((ExtendedBaseVowel::with_case(base, true), Tone::Flat)),
-            "unexpected decoding for {ch:?}"
-        );
-
-        assert!(is_vowel(ch));
-
-        assert_eq!(encode_vowel(base, Tone::Flat, true), ch);
-    }
-}
-
-#[test]
-fn replace_shape_matches_from_parts() {
-    const SHAPES: &[Shape] = &[Shape::None, Shape::Circumflex, Shape::Breve, Shape::Horn];
+fn base_vowel_uses_the_documented_bit_layout() {
+    let mut bits = HashSet::new();
 
     for &base in BASES {
-        for &shape in SHAPES {
-            assert_eq!(
-                base.replace_shape(shape),
-                BaseVowel::from_parts(base.root(), shape),
-                "shape replacement mismatch for {base:?} + {shape:?}"
-            );
-        }
+        let raw = base as u16;
+
+        assert!(
+            bits.insert(raw),
+            "{base:?} reuses the packed bits of another variant"
+        );
+        assert_eq!(raw & 0b11, base.shape() as u16, "shape bits mismatch");
+        assert_eq!((raw >> 2) & 0b111, base.root() as u16, "root bits mismatch");
+        assert_eq!(raw >> 5, base.id() as u16, "ID bits mismatch");
+        assert_eq!(raw >> 9, 0, "reserved bits must stay zero for {base:?}");
     }
+
+    assert_eq!(bits.len(), BaseVowel::COUNT);
 }
 
 #[test]
@@ -313,6 +421,67 @@ fn shape_queries_match_shape_extraction() {
         assert_eq!(base.is_plain(), !shaped, "is_plain mismatch for {base:?}");
 
         assert_eq!(base.is_shaped(), shaped, "is_shaped mismatch for {base:?}");
+    }
+}
+
+#[test]
+fn has_shape_matches_only_its_own_shape() {
+    each_base_shape(|base, shape| {
+        assert_eq!(
+            base.has_shape(shape),
+            base.shape() == shape,
+            "has_shape mismatch for {base:?} + {shape:?}"
+        );
+    });
+}
+
+#[test]
+fn replace_shape_matches_from_parts() {
+    each_base_shape(|base, shape| {
+        assert_eq!(
+            base.replace_shape(shape),
+            BaseVowel::from_parts(base.root(), shape),
+            "shape replacement mismatch for {base:?} + {shape:?}"
+        );
+    });
+
+    assert_eq!(
+        BaseVowel::A.replace_shape(Shape::Circumflex),
+        Some(BaseVowel::ACircumflex)
+    );
+    assert_eq!(BaseVowel::A.replace_shape(Shape::Horn), None);
+    assert_eq!(
+        BaseVowel::OCircumflex.replace_shape(Shape::Horn),
+        Some(BaseVowel::OHorn)
+    );
+    assert_eq!(BaseVowel::I.replace_shape(Shape::Horn), None);
+}
+
+#[test]
+fn remove_shape_returns_the_plain_vowel_with_the_same_root() {
+    for &base in BASES {
+        let plain = base.remove_shape();
+
+        assert_eq!(plain, BaseVowel::from_root(base.root()), "{base:?}");
+        assert!(plain.is_plain());
+        assert_eq!(plain.root(), base.root());
+        assert_eq!(plain.shape(), Shape::None);
+        assert_eq!(
+            plain.remove_shape(),
+            plain,
+            "remove_shape must be idempotent"
+        );
+    }
+
+    for (shaped, plain) in [
+        (BaseVowel::UHorn, BaseVowel::U),
+        (BaseVowel::ACircumflex, BaseVowel::A),
+        (BaseVowel::OCircumflex, BaseVowel::O),
+        (BaseVowel::ABreve, BaseVowel::A),
+        (BaseVowel::ECircumflex, BaseVowel::E),
+        (BaseVowel::OHorn, BaseVowel::O),
+    ] {
+        assert_eq!(shaped.remove_shape(), plain);
     }
 }
 
@@ -333,58 +502,366 @@ fn shaped_vowels_have_higher_priority_than_unshaped_vowels() {
     }
 }
 
-#[test]
-fn cased_base_vowel_round_trips_every_base_and_case() {
-    for &base in BASES {
-        let lower = ExtendedBaseVowel::lower(base);
-        let upper = ExtendedBaseVowel::upper(base);
+// ───────────────────────────────── Vowel ──────────────────────────────────
 
-        assert_eq!(lower.get(), base, "lower value mismatch for {base:?}");
+#[test]
+fn tone_ids_are_valid_and_ordered() {
+    for (expected_id, &tone) in TONES.iter().enumerate() {
+        assert_eq!(
+            Tone::from_id(expected_id),
+            tone,
+            "Tone::from_id({expected_id}) is inconsistent"
+        );
+
+        assert_eq!(tone as usize, expected_id, "{tone:?} has unexpected ID");
+    }
+
+    assert!(Tone::from_id(TONE_COUNT) == Tone::Flat);
+    assert!(Tone::from_id(usize::MAX) == Tone::Flat);
+}
+
+#[test]
+fn vowel_round_trips_every_base_and_case() {
+    each_vowel(|base, tone, _| {
+        let lower = Vowel::lower(base, tone);
+        let upper = Vowel::upper(base, tone);
+
+        assert_eq!(lower.base(), base, "lower value mismatch for {base:?}");
         assert!(!lower.is_upper(), "lower case flag set for {base:?}");
-        assert_eq!(upper.get(), base, "upper value mismatch for {base:?}");
+        assert_eq!(upper.base(), base, "upper value mismatch for {base:?}");
         assert!(upper.is_upper(), "upper case flag missing for {base:?}");
 
-        assert_eq!(ExtendedBaseVowel::with_case(base, false), lower);
-        assert_eq!(ExtendedBaseVowel::with_case(base, true), upper);
-    }
+        assert_eq!(Vowel::new(base, tone, false), lower);
+        assert_eq!(Vowel::new(base, tone, true), upper);
+    });
 }
 
 #[test]
-fn cased_base_vowel_setters_preserve_the_other_field() {
-    for &base in BASES {
-        for initial_case in [false, true] {
-            let mut cased = ExtendedBaseVowel::with_case(base, initial_case);
+fn vowel_accessors_decompose_the_packed_value() {
+    each_vowel(|base, tone, upper| {
+        let vowel = Vowel::new(base, tone, upper);
 
-            cased.set_case(!initial_case);
-            assert_eq!(cased.get(), base, "set_case changed {base:?}");
-            assert_eq!(cased.is_upper(), !initial_case);
+        assert_eq!(vowel.base(), base, "base mismatch for {vowel:?}");
+        assert_eq!(vowel.tone(), tone, "tone mismatch for {vowel:?}");
+        assert_eq!(vowel.root(), base.root(), "root mismatch for {vowel:?}");
+        assert_eq!(vowel.is_upper(), upper, "case mismatch for {vowel:?}");
+        assert_eq!(
+            vowel,
+            Vowel::new(vowel.base(), vowel.tone(), vowel.is_upper())
+        );
+    });
+}
 
-            for &replacement in BASES {
-                cased.set(replacement);
+#[test]
+fn vowel_uses_the_documented_bit_layout() {
+    each_vowel(|base, tone, upper| {
+        let bits = Vowel::new(base, tone, upper).bits();
 
-                assert_eq!(cased.get(), replacement, "set_value failed");
-                assert_eq!(cased.is_upper(), !initial_case, "set_value changed case");
-            }
+        assert_eq!(bits >> 4, base as u16, "base field mismatch");
+        assert_eq!((bits >> 1) & 0b0111, tone as u16, "tone field mismatch");
+        assert_eq!(bits & 1, upper as u16, "case field mismatch");
+        assert_eq!(bits >> 13, 0, "reserved bits must stay zero for {base:?}");
+    });
+}
+
+#[test]
+fn vowel_uses_two_bytes() {
+    assert_eq!(std::mem::size_of::<Vowel>(), std::mem::size_of::<u16>());
+}
+
+#[test]
+fn vowel_equality_and_hash_distinguish_every_variant() {
+    let mut seen = HashSet::with_capacity(VOWEL_COUNT);
+
+    each_vowel(|base, tone, upper| {
+        let vowel = Vowel::new(base, tone, upper);
+
+        assert!(
+            seen.insert(vowel.bits()),
+            "duplicate packed value for {vowel:?}"
+        );
+        assert!(seen.contains(&vowel.bits()));
+    });
+
+    assert_eq!(seen.len(), VOWEL_COUNT);
+}
+
+#[test]
+fn vowel_order_follows_base_then_tone_then_case() {
+    let ordered = all_vowels();
+
+    for pair in ordered.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "{:?} must sort before {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+
+    let mut shuffled = ordered.clone();
+    shuffled.reverse();
+    shuffled.sort();
+
+    assert_eq!(shuffled, ordered);
+}
+
+#[test]
+fn vowel_setters_preserve_the_other_field() {
+    each_vowel(|base, tone, initial_case| {
+        let mut cased = Vowel::new(base, tone, initial_case);
+        let flipped = !initial_case;
+
+        cased.set_upper(flipped);
+        assert_eq!(cased.base(), base, "set_upper changed {base:?}");
+        assert_eq!(cased.is_upper(), flipped);
+        assert_eq!(cased, Vowel::new(base, tone, flipped));
+
+        for &replacement in BASES {
+            cased.set_base(replacement);
+
+            assert_eq!(cased.base(), replacement, "set_base failed");
+            assert_eq!(cased.is_upper(), flipped, "set_base changed case");
         }
-    }
+
+        for &replacement in TONES {
+            cased.set_tone(replacement);
+
+            assert_eq!(cased.tone(), replacement, "set_tone failed");
+            assert_eq!(cased.is_upper(), flipped, "set_tone changed case");
+        }
+    });
 }
 
 #[test]
-fn cased_base_vowel_character_methods_match_encoder() {
-    for &base in BASES {
+fn set_tone_keeps_base_and_case_for_every_tone() {
+    each_vowel(|base, initial_tone, upper| {
         for &tone in TONES {
-            for is_upper in [false, true] {
-                let cased = ExtendedBaseVowel::with_case(base, is_upper);
+            let mut vowel = Vowel::new(base, initial_tone, upper);
+
+            vowel.set_tone(tone);
+
+            assert_eq!(vowel, Vowel::new(base, tone, upper), "set_tone failed");
+            assert_eq!(vowel.base(), base, "set_tone changed base");
+            assert_eq!(vowel.tone(), tone, "set_tone did not apply");
+            assert_eq!(vowel.is_upper(), upper, "set_tone changed case");
+        }
+    });
+}
+
+#[test]
+fn with_methods_return_modified_copies() {
+    each_vowel(|base, tone, upper| {
+        let vowel = Vowel::new(base, tone, upper);
+
+        for &replacement in BASES {
+            assert_eq!(
+                vowel.with_base(replacement),
+                Vowel::new(replacement, tone, upper),
+                "with_base mismatch"
+            );
+        }
+
+        for &replacement in TONES {
+            assert_eq!(
+                vowel.with_tone(replacement),
+                Vowel::new(base, replacement, upper),
+                "with_tone mismatch"
+            );
+        }
+
+        for flag in CASES {
+            assert_eq!(
+                vowel.with_upper(flag),
+                Vowel::new(base, tone, flag),
+                "with_upper mismatch"
+            );
+        }
+
+        assert_eq!(
+            vowel,
+            Vowel::new(base, tone, upper),
+            "with_* mutated the original"
+        );
+    });
+}
+
+#[test]
+fn remove_tone_clears_the_tone_in_place() {
+    each_vowel(|base, tone, upper| {
+        let mut vowel = Vowel::new(base, tone, upper);
+        let removed = vowel.remove_tone();
+
+        assert_eq!(
+            removed.tone(),
+            Tone::Flat,
+            "remove_tone did not clear the tone"
+        );
+        assert_eq!(removed.base(), base, "remove_tone changed base");
+        assert_eq!(removed.is_upper(), upper, "remove_tone changed case");
+        assert_eq!(*removed, Vowel::new(base, Tone::Flat, upper));
+        assert_eq!(
+            vowel,
+            Vowel::new(base, Tone::Flat, upper),
+            "remove_tone must mutate in place"
+        );
+    });
+}
+
+#[test]
+fn without_tone_leaves_the_original_untouched() {
+    each_vowel(|base, tone, upper| {
+        let vowel = Vowel::new(base, tone, upper);
+
+        assert_eq!(vowel.without_tone(), vowel.with_tone(Tone::Flat));
+        assert_eq!(vowel.without_tone(), Vowel::new(base, Tone::Flat, upper));
+        assert_eq!(
+            vowel,
+            Vowel::new(base, tone, upper),
+            "without_tone mutated the original"
+        );
+    });
+
+    assert_eq!(
+        Vowel::new(BaseVowel::UHorn, Tone::Hook, true)
+            .without_tone()
+            .to_char(),
+        'Ư'
+    );
+    assert_eq!(
+        Vowel::new(BaseVowel::A, Tone::Tilde, false)
+            .without_tone()
+            .to_char(),
+        'a'
+    );
+}
+
+#[test]
+fn remove_shape_strips_the_shape_and_keeps_tone_and_case() {
+    each_vowel(|base, tone, upper| {
+        let mut vowel = Vowel::new(base, tone, upper);
+        let expected = Vowel::new(base.remove_shape(), tone, upper);
+        let removed = vowel.remove_shape();
+
+        assert_eq!(
+            removed.base().shape(),
+            Shape::None,
+            "{base:?} kept its shape"
+        );
+        assert_eq!(removed.tone(), tone, "remove_shape changed tone");
+        assert_eq!(removed.is_upper(), upper, "remove_shape changed case");
+        assert_eq!(*removed, expected);
+        assert_eq!(vowel, expected, "remove_shape must mutate in place");
+        assert_eq!(Vowel::new(base, tone, upper).without_shape(), expected);
+    });
+}
+
+#[test]
+fn remove_shape_on_decoded_characters_matches_the_stripped_spelling() {
+    for (shaped, plain) in STRIPPED {
+        let vowel = Vowel::from_char(shaped).expect("shaped character must decode");
+
+        assert_eq!(
+            vowel.without_shape().to_char(),
+            plain,
+            "stripping {shaped:?} failed"
+        );
+        assert!(
+            vowel.base().is_shaped(),
+            "{shaped:?} should decode to a shaped vowel"
+        );
+    }
+
+    for plain in [
+        'a', 'A', 'e', 'E', 'i', 'I', 'o', 'O', 'u', 'U', 'y', 'Y', 'ỵ',
+    ] {
+        let vowel = Vowel::from_char(plain).expect("plain character must decode");
+
+        assert!(
+            vowel.base().is_plain(),
+            "{plain:?} should decode to a plain vowel"
+        );
+        assert_eq!(
+            vowel.without_shape(),
+            vowel,
+            "stripping {plain:?} changed the value"
+        );
+    }
+}
+
+// ─────────────────────────────── Character codec ───────────────────────────
+
+#[test]
+fn encode_decode_is_bijective() {
+    let mut seen = HashSet::with_capacity(VOWEL_COUNT);
+    let mut count = 0;
+
+    each_vowel(|base, tone, upper| {
+        let vowel = Vowel::new(base, tone, upper);
+        let ch = vowel.to_char();
+
+        assert_eq!(
+            Vowel::from_char(ch),
+            Some(vowel),
+            "decode mismatch for {base:?} {tone:?} {upper:?}"
+        );
+        assert!(seen.insert(ch), "duplicate encoded character {ch:?}");
+
+        count += 1;
+    });
+
+    assert_eq!(count, VOWEL_COUNT);
+    assert_eq!(seen.len(), VOWEL_COUNT);
+
+    each_vowel(|base, tone, upper| {
+        let ch = Vowel::new(base, tone, upper).to_char();
+
+        assert!(
+            seen.contains(&ch),
+            "encoder skipped {base:?} {tone:?} {upper:?}"
+        );
+    });
+}
+
+#[test]
+fn free_functions_agree_with_the_vowel_methods() {
+    each_vowel(|base, tone, upper| {
+        let vowel = Vowel::new(base, tone, upper);
+        let ch = encode_vowel(base, tone, upper);
+
+        assert_eq!(ch, vowel.to_char());
+        assert_eq!(decode_vowel(ch), Some(vowel));
+        assert_eq!(decode_vowel(ch), Vowel::from_char(ch));
+        assert!(is_vowel(ch));
+    });
+
+    assert_eq!(decode_vowel('b'), None);
+    assert_eq!(decode_vowel('1'), None);
+    assert_eq!(decode_vowel(' '), None);
+    assert!(!is_vowel('b'));
+}
+
+#[test]
+fn expected_surface_forms_match_codec() {
+    for (base_id, row) in ALL_LOWER.iter().enumerate() {
+        let base = BASES[base_id];
+
+        for (tone_id, &lower) in row.iter().enumerate() {
+            let tone = TONES[tone_id];
+            let upper = lower.to_uppercase().next().unwrap();
+
+            for (ch, is_upper) in [(lower, false), (upper, true)] {
+                let vowel = Vowel::new(base, tone, is_upper);
 
                 assert_eq!(
-                    cased.to_char(),
-                    encode_vowel(base, Tone::Flat, is_upper),
-                    "flat character mismatch for {base:?}, upper={is_upper}"
+                    vowel.to_char(),
+                    ch,
+                    "unexpected encoding for {base:?} {tone:?} upper={is_upper}"
                 );
                 assert_eq!(
-                    cased.to_char_tone(tone),
-                    encode_vowel(base, tone, is_upper),
-                    "toned character mismatch for {base:?} {tone:?}, upper={is_upper}"
+                    Vowel::from_char(ch),
+                    Some(vowel),
+                    "unexpected decoding for {ch:?}"
                 );
             }
         }
@@ -392,34 +869,133 @@ fn cased_base_vowel_character_methods_match_encoder() {
 }
 
 #[test]
-fn cased_base_vowel_decoded_value_stays_in_bounds() {
-    // `get()` / `is_upper()` must invert `new` for every value the codec can
+fn decoder_coverage_round_trips_and_matches_is_vowel() {
+    let mut count = 0;
+
+    for cp in 0..=0x10FFFF {
+        let Some(ch) = char::from_u32(cp) else {
+            continue;
+        };
+
+        let Some(decoded) = Vowel::from_char(ch) else {
+            assert!(
+                !is_vowel(ch),
+                "is_vowel/decode_vowel mismatch at U+{cp:04X} {ch:?}"
+            );
+            continue;
+        };
+
+        assert!(
+            is_vowel(ch),
+            "is_vowel/decode_vowel mismatch at U+{cp:04X} {ch:?}"
+        );
+
+        assert_eq!(
+            Vowel::new(decoded.base(), decoded.tone(), decoded.is_upper()).to_char(),
+            ch,
+            "decode/encode round-trip failed for U+{cp:04X} {ch:?}"
+        );
+
+        count += 1;
+    }
+
+    assert_eq!(
+        count, VOWEL_COUNT,
+        "decoder must recognize exactly {VOWEL_COUNT} characters"
+    );
+}
+
+#[test]
+fn rejects_non_vowels() {
+    for ch in INVALID {
+        assert_eq!(
+            Vowel::from_char(ch),
+            None,
+            "{ch:?} must not decode as a Vietnamese vowel"
+        );
+
+        assert!(!is_vowel(ch), "{ch:?} must not be classified as a vowel");
+    }
+}
+
+#[test]
+fn ascii_vowels_decode_as_flat() {
+    for (base, lower, upper) in [
+        (BaseVowel::A, 'a', 'A'),
+        (BaseVowel::E, 'e', 'E'),
+        (BaseVowel::I, 'i', 'I'),
+        (BaseVowel::O, 'o', 'O'),
+        (BaseVowel::U, 'u', 'U'),
+        (BaseVowel::Y, 'y', 'Y'),
+    ] {
+        for (ch, is_upper) in [(lower, false), (upper, true)] {
+            assert_eq!(
+                Vowel::from_char(ch),
+                Some(Vowel::new(base, Tone::Flat, is_upper)),
+                "unexpected decoding for {ch:?}"
+            );
+
+            assert!(is_vowel(ch));
+
+            assert_eq!(Vowel::new(base, Tone::Flat, is_upper).to_char(), ch);
+        }
+    }
+}
+
+#[test]
+fn vowel_character_methods_match_encoder() {
+    each_vowel(|base, tone, is_upper| {
+        let cased = Vowel::new(base, Tone::Flat, is_upper);
+
+        assert_eq!(
+            Vowel::new(cased.base(), cased.tone(), cased.is_upper()).to_char(),
+            Vowel::new(base, Tone::Flat, is_upper).to_char(),
+            "flat character mismatch for {base:?}, upper={is_upper}"
+        );
+        assert_eq!(
+            Vowel::new(cased.base(), tone, cased.is_upper()).to_char(),
+            Vowel::new(base, tone, is_upper).to_char(),
+            "toned character mismatch for {base:?} {tone:?}, upper={is_upper}"
+        );
+    });
+}
+
+#[test]
+fn vowel_decoded_value_stays_in_bounds() {
+    // `base()` / `is_upper()` must invert `new` for every value the codec can
     // produce: the packed form always decomposes back into a valid
     // BaseVowel × case pair, never a value outside `BaseVowel`'s range.
-    for &base in BASES {
-        for &tone in TONES {
-            for case in [false, true] {
-                let ch = encode_vowel(base, tone, case);
-                let (cased, decoded_tone) =
-                    decode_vowel(ch).expect("codec must round-trip its own output");
+    each_vowel(|base, tone, case| {
+        let vowel = Vowel::new(base, tone, case);
+        let decoded =
+            Vowel::from_char(vowel.to_char()).expect("codec must round-trip its own output");
 
-                assert_eq!(decoded_tone, tone);
-                assert_eq!(cased.get(), base);
-                assert_eq!(cased.is_upper(), case);
-                assert_eq!(
-                    ExtendedBaseVowel::with_case(cased.get(), cased.is_upper()),
-                    cased,
-                    "decomposition must reconstruct the exact packed value for {ch:?}"
-                );
-            }
-        }
-    }
+        assert_eq!(decoded.tone(), tone);
+        assert_eq!(decoded.base(), base);
+        assert_eq!(decoded.is_upper(), case);
+        assert_eq!(decoded.root(), base.root());
+        assert_eq!(decoded.bits(), vowel.bits());
+    });
 }
 
+const CONST_VOWEL: Vowel = Vowel::new(BaseVowel::ACircumflex, Tone::Dot, true);
+const CONST_CHAR: char = CONST_VOWEL.to_char();
+const CONST_ROOT: RootVowel = CONST_VOWEL.root();
+
 #[test]
-fn cased_base_vowel_uses_two_bytes() {
+fn codec_is_usable_in_const_context() {
+    assert_eq!(CONST_CHAR, 'Ậ');
+    assert_eq!(CONST_ROOT, RootVowel::A);
+    assert_eq!(CONST_VOWEL.base(), BaseVowel::ACircumflex);
+    assert_eq!(CONST_VOWEL.tone(), Tone::Dot);
+    assert!(CONST_VOWEL.is_upper());
+    assert_eq!(Vowel::from_char(CONST_CHAR), Some(CONST_VOWEL));
+    assert_eq!(decode_vowel(CONST_CHAR), Some(CONST_VOWEL));
+    assert!(is_vowel(CONST_CHAR));
+    assert_eq!(Vowel::lower(BaseVowel::E, Tone::Acute).to_char(), 'é');
     assert_eq!(
-        std::mem::size_of::<ExtendedBaseVowel>(),
-        std::mem::size_of::<u16>()
+        BaseVowel::UHorn.replace_shape(Shape::None),
+        Some(BaseVowel::U)
     );
+    assert!(!is_vowel('q'));
 }

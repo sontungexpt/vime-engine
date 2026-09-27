@@ -203,7 +203,12 @@ const CASES: &[RemoveCase] = &[
         &['g', 'i', 'o', 'a'],
         0,
         InvalidNucleus,
-        ExpectedSyllable::onset_vowel(Onset::Gi, &['g', 'i'], &[(V::O, C::Lower), (V::A, C::Lower)], Tone::Flat)
+        ExpectedSyllable::onset_vowel(
+            Onset::Gi,
+            &['g', 'i'],
+            &[(V::O, C::Lower), (V::A, C::Lower)],
+            Tone::Flat
+        )
     ),
     // Same rejection when the nucleus is already full: `gioai` minus `g` has
     // nowhere to put the `i`, and must not overflow the vowel buffer.
@@ -222,7 +227,12 @@ const CASES: &[RemoveCase] = &[
         &['g', 'i', 'o', 'i'],
         0,
         InvalidNucleus,
-        ExpectedSyllable::onset_vowel(Onset::Gi, &['g', 'i'], &[(V::O, C::Lower), (V::I, C::Lower)], Tone::Flat)
+        ExpectedSyllable::onset_vowel(
+            Onset::Gi,
+            &['g', 'i'],
+            &[(V::O, C::Lower), (V::I, C::Lower)],
+            Tone::Flat
+        )
     ),
     // ─────────────────────────────── Vowel region ───────────────────────────────
     // `oai` minus the middle vowel → `oi`.
@@ -237,7 +247,14 @@ const CASES: &[RemoveCase] = &[
         &['t', 'a', 'n'],
         1,
         InvalidNucleus,
-        ExpectedSyllable::full(Onset::T, &['t'], &[(V::A, C::Lower)], Tone::Flat, Coda::N, &['n'])
+        ExpectedSyllable::full(
+            Onset::T,
+            &['t'],
+            &[(V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
     ),
     err_case!(
         &['t', 'h', 'a', 'n'],
@@ -297,7 +314,12 @@ const CASES: &[RemoveCase] = &[
         &['o', 'a', 'n', 'g'],
         3,
         StructurallyChanged,
-        ExpectedSyllable::vowel_coda(&[(V::O, C::Lower), (V::A, C::Lower)], Tone::Flat, Coda::N, &['n'])
+        ExpectedSyllable::vowel_coda(
+            &[(V::O, C::Lower), (V::A, C::Lower)],
+            Tone::Flat,
+            Coda::N,
+            &['n']
+        )
     ),
     // Removing the head of a cluster leaves `h` / `g`, which a coda cannot be.
     err_case!(
@@ -380,7 +402,10 @@ fn remove_sequence() {
         builder.push(&telex, ch).unwrap();
     }
 
-    assert_eq!(builder.remove(3, TonePlacement::Modern), Ok(InputEffect::StructurallyChanged));
+    assert_eq!(
+        builder.remove(3, TonePlacement::Modern),
+        Ok(InputEffect::StructurallyChanged)
+    );
     check_syllable_eq(
         &builder,
         &ExpectedSyllable::onset_vowel(Onset::Gi, &['g', 'i'], &[(V::A, C::Lower)], Tone::Flat),
@@ -388,7 +413,10 @@ fn remove_sequence() {
     )
     .unwrap();
 
-    assert_eq!(builder.remove(0, TonePlacement::Modern), Ok(InputEffect::StructurallyChanged));
+    assert_eq!(
+        builder.remove(0, TonePlacement::Modern),
+        Ok(InputEffect::StructurallyChanged)
+    );
     check_syllable_eq(
         &builder,
         &ExpectedSyllable::vowel(&[(V::I, C::Lower), (V::A, C::Lower)], Tone::Flat),

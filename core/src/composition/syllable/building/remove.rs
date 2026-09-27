@@ -90,7 +90,7 @@ impl BuildingSyllable {
             return false;
         }
         if !self.try_update_nucleus(
-            |nucleus| nucleus.insert(0, ExtendedBaseVowel::with_case(BaseVowel::I, i == 'I')),
+            |nucleus| nucleus.insert(0, Vowel::new(BaseVowel::I, Tone::Flat, i == 'I')),
             |nucleus, _| {
                 nucleus.remove(0);
             },
@@ -117,7 +117,7 @@ impl BuildingSyllable {
         }
 
         // Never exist because if we has at least one vowel i always becomes onset
-        // if len == 2 && self.onset_kind == Onset::G && self.nucleus[0].get() == BaseVowel::I {
+        // if len == 2 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
         // }
 
         let tone_pos = if self.tone.is_some() {

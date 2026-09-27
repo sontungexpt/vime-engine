@@ -17,7 +17,7 @@ impl TokenState {
         }
     }
 
-    /// Returns `true` if the status is [`CharStatus::Rejected`].
+    /// Returns `true` if the status is [`TokenState::Rejected`].
     #[inline(always)]
     pub const fn is_rejected(self) -> bool {
         matches!(self, TokenState::Rejected(_))

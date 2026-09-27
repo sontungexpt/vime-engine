@@ -12,6 +12,4 @@ pub use nucleus::{NucleusState, NUCLEUS_MAX_LEN};
 pub use onset::{Onset, OnsetParseError};
 pub use phonotactics::{DefaultPhonotacticValidator, PhonotacticValidator, ValidationError};
 pub use tone_placement::{NucleusView, TonePlacement};
-pub use vowel::{
-    decode_vowel, encode_vowel, is_vowel, BaseVowel, ExtendedBaseVowel, RootVowel, Shape, Tone,
-};
+pub use vowel::{decode_vowel, encode_vowel, is_vowel, BaseVowel, RootVowel, Shape, Tone, Vowel};

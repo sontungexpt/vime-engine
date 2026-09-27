@@ -3,88 +3,344 @@
 use super::prelude::*;
 
 pub const CASES: &[Case] = &[
-    case!(['A'], ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Flat)),
-    case!(['E'], ExpectedSyllable::vowel(&[(V::E, C::Upper)], Tone::Flat)),
-    case!(['I'], ExpectedSyllable::vowel(&[(V::I, C::Upper)], Tone::Flat)),
-    case!(['O'], ExpectedSyllable::vowel(&[(V::O, C::Upper)], Tone::Flat)),
-    case!(['U'], ExpectedSyllable::vowel(&[(V::U, C::Upper)], Tone::Flat)),
-    case!(['Y'], ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Flat)),
-    case!(['B', 'A'], ExpectedSyllable::onset_vowel(Onset::B, &['B'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['C', 'H', 'A'], ExpectedSyllable::onset_vowel(Onset::Ch, &['C', 'H'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['D', 'D', 'A'], ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['Q', 'U', 'A'], ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['Q', 'U', 'Y'], ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::Y, C::Upper)], Tone::Flat)),
+    case!(
+        ['A'],
+        ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['E'],
+        ExpectedSyllable::vowel(&[(V::E, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['I'],
+        ExpectedSyllable::vowel(&[(V::I, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['O'],
+        ExpectedSyllable::vowel(&[(V::O, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['U'],
+        ExpectedSyllable::vowel(&[(V::U, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['Y'],
+        ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['B', 'A'],
+        ExpectedSyllable::onset_vowel(Onset::B, &['B'], &[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['C', 'H', 'A'],
+        ExpectedSyllable::onset_vowel(Onset::Ch, &['C', 'H'], &[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['D', 'D', 'A'],
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['Q', 'U', 'A'],
+        ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['Q', 'U', 'Y'],
+        ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::Y, C::Upper)], Tone::Flat)
+    ),
     case!(['Q'], ExpectedSyllable::consonant(Onset::None, &['Q'])),
-    case!(['Q', 'U'], ExpectedSyllable::consonant(Onset::Qu, &['Q', 'U'])),
-    case!(['B', 'A', 'N'], ExpectedSyllable::full(Onset::B, &['B'], &[(V::A, C::Upper)], Tone::Flat, Coda::N, &['N'])),
-    case!(['C', 'H', 'U', 'Y'], ExpectedSyllable::onset_vowel(Onset::Ch, &['C', 'H'], &[(V::U, C::Upper), (V::Y, C::Upper)], Tone::Flat)),
-    case!(['A', 'W'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Flat)),
-    case!(['A', 'A'], ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Flat)),
-    case!(['E', 'E'], ExpectedSyllable::vowel(&[(V::ECircumflex, C::Upper)], Tone::Flat)),
-    case!(['O', 'O'], ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Flat)),
-    case!(['O', 'W'], ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Flat)),
-    case!(['U', 'W'], ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Flat)),
-    case!(['A', 'W', 'S'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Acute)),
-    case!(['A', 'A', 'S'], ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Acute)),
-    case!(['U', 'W', 'S'], ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Acute)),
-    case!(['O', 'W', 'S'], ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Acute)),
-    case!(['A', 'W', 'R'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Hook)),
-    case!(['A', 'A', 'X'], ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Tilde)),
-    case!(['O', 'W', 'R'], ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Hook)),
-    case!(['O', 'W', 'X'], ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Tilde)),
-    case!(['U', 'W', 'F'], ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Grave)),
-    case!(['U', 'W', 'J'], ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Dot)),
-    case!(['A', 'S'], ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Acute)),
-    case!(['A', 'F'], ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Grave)),
-    case!(['A', 'R'], ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Hook)),
-    case!(['A', 'X'], ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Tilde)),
-    case!(['A', 'J'], ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Dot)),
-    case!(['E', 'F'], ExpectedSyllable::vowel(&[(V::E, C::Upper)], Tone::Grave)),
-    case!(['U', 'S'], ExpectedSyllable::vowel(&[(V::U, C::Upper)], Tone::Acute)),
-    case!(['E', 'R'], ExpectedSyllable::vowel(&[(V::E, C::Upper)], Tone::Hook)),
-    case!(['O', 'O', 'F'], ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Grave)),
-    case!(['O', 'O', 'X'], ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Tilde)),
-    case!(['Y', 'F'], ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Grave)),
-    case!(['Y', 'S'], ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Acute)),
-    case!(['Ắ'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Acute)),
-    case!(['Ằ'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Grave)),
-    case!(['Ấ'], ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Acute)),
-    case!(['Ệ'], ExpectedSyllable::vowel(&[(V::ECircumflex, C::Upper)], Tone::Dot)),
+    case!(
+        ['Q', 'U'],
+        ExpectedSyllable::consonant(Onset::Qu, &['Q', 'U'])
+    ),
+    case!(
+        ['B', 'A', 'N'],
+        ExpectedSyllable::full(
+            Onset::B,
+            &['B'],
+            &[(V::A, C::Upper)],
+            Tone::Flat,
+            Coda::N,
+            &['N']
+        )
+    ),
+    case!(
+        ['C', 'H', 'U', 'Y'],
+        ExpectedSyllable::onset_vowel(
+            Onset::Ch,
+            &['C', 'H'],
+            &[(V::U, C::Upper), (V::Y, C::Upper)],
+            Tone::Flat
+        )
+    ),
+    case!(
+        ['A', 'W'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['A', 'A'],
+        ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['E', 'E'],
+        ExpectedSyllable::vowel(&[(V::ECircumflex, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['O', 'O'],
+        ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['O', 'W'],
+        ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['U', 'W'],
+        ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['A', 'W', 'S'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['A', 'A', 'S'],
+        ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['U', 'W', 'S'],
+        ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['O', 'W', 'S'],
+        ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['A', 'W', 'R'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Hook)
+    ),
+    case!(
+        ['A', 'A', 'X'],
+        ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Tilde)
+    ),
+    case!(
+        ['O', 'W', 'R'],
+        ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Hook)
+    ),
+    case!(
+        ['O', 'W', 'X'],
+        ExpectedSyllable::vowel(&[(V::OHorn, C::Upper)], Tone::Tilde)
+    ),
+    case!(
+        ['U', 'W', 'F'],
+        ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['U', 'W', 'J'],
+        ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Dot)
+    ),
+    case!(
+        ['A', 'S'],
+        ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['A', 'F'],
+        ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['A', 'R'],
+        ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Hook)
+    ),
+    case!(
+        ['A', 'X'],
+        ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Tilde)
+    ),
+    case!(
+        ['A', 'J'],
+        ExpectedSyllable::vowel(&[(V::A, C::Upper)], Tone::Dot)
+    ),
+    case!(
+        ['E', 'F'],
+        ExpectedSyllable::vowel(&[(V::E, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['U', 'S'],
+        ExpectedSyllable::vowel(&[(V::U, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['E', 'R'],
+        ExpectedSyllable::vowel(&[(V::E, C::Upper)], Tone::Hook)
+    ),
+    case!(
+        ['O', 'O', 'F'],
+        ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['O', 'O', 'X'],
+        ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Tilde)
+    ),
+    case!(
+        ['Y', 'F'],
+        ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['Y', 'S'],
+        ExpectedSyllable::vowel(&[(V::Y, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['Ắ'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['Ằ'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['Ấ'],
+        ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['Ệ'],
+        ExpectedSyllable::vowel(&[(V::ECircumflex, C::Upper)], Tone::Dot)
+    ),
     case!(['Đ'], ExpectedSyllable::consonant(Onset::DStroke, &['Đ'])),
-    case!(['Ầ'], ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Grave)),
-    case!(['Ị'], ExpectedSyllable::vowel(&[(V::I, C::Upper)], Tone::Dot)),
-    case!(['Ử'], ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Hook)),
-    case!(['Ỗ'], ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Tilde)),
-    case!(['Ắ', 'f'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Grave)),
-    case!(['Ấ', 'f'], ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Grave)),
-    case!(['Ạ', 'w'], ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Dot)),
-    case!(['D', 'D', 'I'], ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::I, C::Upper)], Tone::Flat)),
-    case!(['B', 'A', 'Y'], ExpectedSyllable::onset_vowel(Onset::B, &['B'], &[(V::A, C::Upper), (V::Y, C::Upper)], Tone::Flat)),
-    case!(['T', 'R', 'A'], ExpectedSyllable::onset_vowel(Onset::Tr, &['T', 'R'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['N', 'H', 'A'], ExpectedSyllable::onset_vowel(Onset::Nh, &['N', 'H'], &[(V::A, C::Upper)], Tone::Flat)),
-    case!(['Y', 'E', 'E', 'U'], ExpectedSyllable::vowel(&[(V::Y, C::Upper), (V::ECircumflex, C::Upper), (V::U, C::Upper)], Tone::Flat)),
+    case!(
+        ['Ầ'],
+        ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['Ị'],
+        ExpectedSyllable::vowel(&[(V::I, C::Upper)], Tone::Dot)
+    ),
+    case!(
+        ['Ử'],
+        ExpectedSyllable::vowel(&[(V::UHorn, C::Upper)], Tone::Hook)
+    ),
+    case!(
+        ['Ỗ'],
+        ExpectedSyllable::vowel(&[(V::OCircumflex, C::Upper)], Tone::Tilde)
+    ),
+    case!(
+        ['Ắ', 'f'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['Ấ', 'f'],
+        ExpectedSyllable::vowel(&[(V::ACircumflex, C::Upper)], Tone::Grave)
+    ),
+    case!(
+        ['Ạ', 'w'],
+        ExpectedSyllable::vowel(&[(V::ABreve, C::Upper)], Tone::Dot)
+    ),
+    case!(
+        ['D', 'D', 'I'],
+        ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::I, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['B', 'A', 'Y'],
+        ExpectedSyllable::onset_vowel(
+            Onset::B,
+            &['B'],
+            &[(V::A, C::Upper), (V::Y, C::Upper)],
+            Tone::Flat
+        )
+    ),
+    case!(
+        ['T', 'R', 'A'],
+        ExpectedSyllable::onset_vowel(Onset::Tr, &['T', 'R'], &[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['N', 'H', 'A'],
+        ExpectedSyllable::onset_vowel(Onset::Nh, &['N', 'H'], &[(V::A, C::Upper)], Tone::Flat)
+    ),
+    case!(
+        ['Y', 'E', 'E', 'U'],
+        ExpectedSyllable::vowel(
+            &[
+                (V::Y, C::Upper),
+                (V::ECircumflex, C::Upper),
+                (V::U, C::Upper)
+            ],
+            Tone::Flat
+        )
+    ),
     case!(
         ['N', 'G', 'U', 'O', 'W', 'I', 'F'],
-        ExpectedSyllable::onset_vowel(Onset::Ng, &['N', 'G'], &[(V::UHorn, C::Upper), (V::OHorn, C::Upper), (V::I, C::Upper)], Tone::Grave)
+        ExpectedSyllable::onset_vowel(
+            Onset::Ng,
+            &['N', 'G'],
+            &[(V::UHorn, C::Upper), (V::OHorn, C::Upper), (V::I, C::Upper)],
+            Tone::Grave
+        )
     ),
     case!(
         ['T', 'R', 'U', 'O', 'W', 'N', 'G'],
-        ExpectedSyllable::full(Onset::Tr, &['T', 'R'], &[(V::UHorn, C::Upper), (V::OHorn, C::Upper)], Tone::Flat, Coda::Ng, &['N', 'G'])
+        ExpectedSyllable::full(
+            Onset::Tr,
+            &['T', 'R'],
+            &[(V::UHorn, C::Upper), (V::OHorn, C::Upper)],
+            Tone::Flat,
+            Coda::Ng,
+            &['N', 'G']
+        )
     ),
     case!(
         ['V', 'I', 'E', 'E', 'T', 'S'],
-        ExpectedSyllable::full(Onset::V, &['V'], &[(V::I, C::Upper), (V::ECircumflex, C::Upper)], Tone::Acute, Coda::T, &['T'])
+        ExpectedSyllable::full(
+            Onset::V,
+            &['V'],
+            &[(V::I, C::Upper), (V::ECircumflex, C::Upper)],
+            Tone::Acute,
+            Coda::T,
+            &['T']
+        )
     ),
     case!(
         ['D', 'D', 'U', 'O', 'W', 'C', 'J'],
-        ExpectedSyllable::full(Onset::DStroke, &['Đ'], &[(V::UHorn, C::Upper), (V::OHorn, C::Upper)], Tone::Dot, Coda::C, &['C'])
+        ExpectedSyllable::full(
+            Onset::DStroke,
+            &['Đ'],
+            &[(V::UHorn, C::Upper), (V::OHorn, C::Upper)],
+            Tone::Dot,
+            Coda::C,
+            &['C']
+        )
     ),
-    case!(['Q', 'U', 'A', 'S'], ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::A, C::Upper)], Tone::Acute)),
-    case!(['K', 'H', 'O', 'O', 'I'], ExpectedSyllable::onset_vowel(Onset::Kh, &['K', 'H'], &[(V::OCircumflex, C::Upper), (V::I, C::Upper)], Tone::Flat)),
-    case!(['M', 'A', 'A', 'Y'], ExpectedSyllable::onset_vowel(Onset::M, &['M'], &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)], Tone::Flat)),
-    case!(['C', 'A', 'A', 'Y'], ExpectedSyllable::onset_vowel(Onset::C, &['C'], &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)], Tone::Flat)),
+    case!(
+        ['Q', 'U', 'A', 'S'],
+        ExpectedSyllable::onset_vowel(Onset::Qu, &['Q', 'U'], &[(V::A, C::Upper)], Tone::Acute)
+    ),
+    case!(
+        ['K', 'H', 'O', 'O', 'I'],
+        ExpectedSyllable::onset_vowel(
+            Onset::Kh,
+            &['K', 'H'],
+            &[(V::OCircumflex, C::Upper), (V::I, C::Upper)],
+            Tone::Flat
+        )
+    ),
+    case!(
+        ['M', 'A', 'A', 'Y'],
+        ExpectedSyllable::onset_vowel(
+            Onset::M,
+            &['M'],
+            &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)],
+            Tone::Flat
+        )
+    ),
+    case!(
+        ['C', 'A', 'A', 'Y'],
+        ExpectedSyllable::onset_vowel(
+            Onset::C,
+            &['C'],
+            &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)],
+            Tone::Flat
+        )
+    ),
     case!(
         ['D', 'D', 'A', 'A', 'S', 'Y'],
-        ExpectedSyllable::onset_vowel(Onset::DStroke, &['Đ'], &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)], Tone::Acute)
+        ExpectedSyllable::onset_vowel(
+            Onset::DStroke,
+            &['Đ'],
+            &[(V::ACircumflex, C::Upper), (V::Y, C::Upper)],
+            Tone::Acute
+        )
     ),
 ];

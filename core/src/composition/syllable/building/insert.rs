@@ -8,7 +8,7 @@ use super::*;
 use crate::{
     composition::syllable::InputEffect,
     keymap::Keymap,
-    phonology::{decode_vowel, BaseVowel, ExtendedBaseVowel, Onset, Tone, NUCLEUS_MAX_LEN},
+    phonology::{BaseVowel, Onset, Tone, Vowel, NUCLEUS_MAX_LEN},
 };
 
 impl BuildingSyllable {
@@ -51,8 +51,8 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidOnset);
             }
 
-            if let Some(decoded) = decode_vowel(key) {
-                if self.insert_vowel(0, decoded) {
+            if let Some(vowel) = Vowel::from_char(key) {
+                if self.insert_vowel(0, vowel) {
                     return Ok(InputEffect::StructurallyChanged);
                 }
                 return Err(SyllableBuildError::InvalidNucleus);
@@ -71,7 +71,7 @@ impl BuildingSyllable {
                 return Ok(InputEffect::Transformed);
             }
 
-            if let Some(decoded) = decode_vowel(key) {
+            if let Some(decoded) = Vowel::from_char(key) {
                 if self.insert_vowel(vowel_index, decoded) {
                     return Ok(InputEffect::StructurallyChanged);
                 }
@@ -120,7 +120,7 @@ impl BuildingSyllable {
                 && self.nucleus.is_empty()
             {
                 self.nucleus
-                    .push(ExtendedBaseVowel::with_case(BaseVowel::I, key == 'I'));
+                    .push(Vowel::new(BaseVowel::I, Tone::Flat, key == 'I'));
                 self.nucleus_state = NucleusState::InComplete;
 
                 return true;
@@ -142,11 +142,7 @@ impl BuildingSyllable {
     /// Inserts a literal vowel into the nucleus; transforms are already handled
     /// by `insert()`.
     #[inline]
-    fn insert_vowel(
-        &mut self,
-        vowel_index: usize,
-        (vowel, tone): (ExtendedBaseVowel, Tone),
-    ) -> bool {
+    fn insert_vowel(&mut self, vowel_index: usize, vowel: Vowel) -> bool {
         let len = self.nucleus.len();
         debug_assert!(vowel_index <= len);
 
@@ -156,7 +152,7 @@ impl BuildingSyllable {
 
         // Like push
         if vowel_index == len {
-            return self.push_vowel((vowel, tone));
+            return self.push_vowel(vowel);
         }
 
         // From here the nucleus always has at least one vowel:
@@ -170,7 +166,7 @@ impl BuildingSyllable {
 
         // Pre-toned vowels clash with an existing non-flat tone (`á` + `ắ`
         // renders `áắ`), while `á` + `a` is valid.
-        let new_tone = match (self.tone, tone) {
+        let new_tone = match (self.tone, vowel.tone()) {
             // No tone yet -> adopt the incoming tone.
             (Tone::Flat, incoming) => incoming,
 
@@ -181,12 +177,13 @@ impl BuildingSyllable {
             (_, _) => return false,
         };
 
+        // let toneless_vowel = vowel.without_tone();
         // Special case push i at the start of nucleus
         // A vowel after `G + I` moves `I` into the onset, forming `Gi + V`.
         if vowel_index == 0
             // We already know that the vowels is not empty so i must be belong to onset
             && self.onset_kind == Onset::G
-            && vowel.get() == BaseVowel::I
+            && vowel.base() == BaseVowel::I
         {
             self.onset.push(if vowel.is_upper() { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
@@ -195,7 +192,7 @@ impl BuildingSyllable {
         }
 
         if !self.try_update_nucleus(
-            |nucleus| nucleus.insert(vowel_index, vowel),
+            |nucleus| nucleus.insert(vowel_index, vowel.without_tone()),
             |nucleus, _| _ = nucleus.remove(vowel_index),
         ) {
             return false;

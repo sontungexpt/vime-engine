@@ -8,7 +8,7 @@ use super::*;
 use crate::{
     composition::syllable::InputEffect,
     keymap::Keymap,
-    phonology::{decode_vowel, BaseVowel, ExtendedBaseVowel, Onset, Tone, NUCLEUS_MAX_LEN},
+    phonology::{BaseVowel, Onset, Tone, Vowel, NUCLEUS_MAX_LEN},
 };
 
 impl BuildingSyllable {
@@ -39,10 +39,10 @@ impl BuildingSyllable {
             }
 
             // The input may start the vowel nucleus.
-            let Some(decoded) = decode_vowel(key) else {
+            let Some(vowel) = Vowel::from_char(key) else {
                 return Err(SyllableBuildError::InvalidOnset);
             };
-            if !self.push_vowel(decoded) {
+            if !self.push_vowel(vowel) {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
             return Ok(InputEffect::StructurallyChanged);
@@ -58,7 +58,7 @@ impl BuildingSyllable {
 
         if self.coda.is_empty() {
             // Vowel literal...
-            let Some(decoded) = decode_vowel(key) else {
+            let Some(vowel) = Vowel::from_char(key) else {
                 // ...otherwise fall back to a coda.
                 if self.push_coda(key) {
                     // Fold a leftover `uơ` / `ưo` prefix into `ươ` once a coda lands.
@@ -68,7 +68,7 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidCoda);
             };
             // The nucleus may still reject the decoded vowel.
-            if !self.push_vowel(decoded) {
+            if !self.push_vowel(vowel) {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
             self.normalize_uo_horn();
@@ -114,16 +114,18 @@ impl BuildingSyllable {
     /// `pub(super)`: `insert` delegates to the append path when the insert
     /// lands behind the end of the nucleus.
     #[inline]
-    pub(super) fn push_vowel(&mut self, (vowel, tone): (ExtendedBaseVowel, Tone)) -> bool {
+    pub(super) fn push_vowel(&mut self, vowel: Vowel) -> bool {
+        let tone = vowel.tone();
         let len = self.nucleus.len();
 
         if len >= NUCLEUS_MAX_LEN {
             return false;
         }
 
+        let toneless_vowel = vowel.without_tone();
         // First vowel; adopt its tone directly.
         if len == 0 {
-            self.nucleus.push(vowel);
+            self.nucleus.push(toneless_vowel);
             self.tone = tone;
             return true;
         }
@@ -144,21 +146,21 @@ impl BuildingSyllable {
         // A vowel after `g i` moves the `i` into the onset, forming `gi` + V.
         //
         // `G + I + V` -> `Gi + V`.
-        if len == 1 && self.onset_kind == Onset::G && self.nucleus[0].get() == BaseVowel::I {
+        if len == 1 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
             let i = self.nucleus.pop().expect("nucleus contains i");
 
             self.onset.push(if i.is_upper() { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
 
             // Only one vowel for now adopt its directly
-            self.nucleus.push(vowel);
+            self.nucleus.push(toneless_vowel);
             self.tone = new_tone;
 
             return true;
         }
 
         if !self.try_update_nucleus(
-            |nucleus| nucleus.push(vowel),
+            |nucleus| nucleus.push(toneless_vowel),
             |nucleus, _| {
                 nucleus.pop();
             },

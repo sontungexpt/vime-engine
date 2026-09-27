@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{Engine, key_event};
+use common::{key_event, Engine};
 use vime::{VimeAction, VimeInputMethod, VimeKey, VimeTonePlacement};
 
 #[test]

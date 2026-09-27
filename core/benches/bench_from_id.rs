@@ -13,21 +13,21 @@ use vime_engine::phonology::BaseVowel;
 
 /// The match variant under test, transcribed verbatim from the proposal.
 #[inline(always)]
-pub const fn match_from_id(id: usize) -> Result<BaseVowel, ()> {
+pub const fn match_from_id(id: usize) -> Option<BaseVowel> {
     match id {
-        0 => Ok(BaseVowel::Y),
-        1 => Ok(BaseVowel::U),
-        2 => Ok(BaseVowel::I),
-        3 => Ok(BaseVowel::E),
-        4 => Ok(BaseVowel::O),
-        5 => Ok(BaseVowel::A),
-        6 => Ok(BaseVowel::UHorn),
-        7 => Ok(BaseVowel::ACircumflex),
-        8 => Ok(BaseVowel::OCircumflex),
-        9 => Ok(BaseVowel::ABreve),
-        10 => Ok(BaseVowel::ECircumflex),
-        11 => Ok(BaseVowel::OHorn),
-        _ => Err(()),
+        0 => Some(BaseVowel::Y),
+        1 => Some(BaseVowel::U),
+        2 => Some(BaseVowel::I),
+        3 => Some(BaseVowel::E),
+        4 => Some(BaseVowel::O),
+        5 => Some(BaseVowel::A),
+        6 => Some(BaseVowel::UHorn),
+        7 => Some(BaseVowel::ACircumflex),
+        8 => Some(BaseVowel::OCircumflex),
+        9 => Some(BaseVowel::ABreve),
+        10 => Some(BaseVowel::ECircumflex),
+        11 => Some(BaseVowel::OHorn),
+        _ => None,
     }
 }
 
@@ -66,7 +66,7 @@ fn main() {
     let lut_time = time(
         || {
             for &id in &workload {
-                black_box(BaseVowel::from_id(black_box(id)).ok());
+                black_box(BaseVowel::from_id(black_box(id)));
             }
         },
         rounds,
@@ -76,7 +76,7 @@ fn main() {
     let match_time = time(
         || {
             for &id in &workload {
-                black_box(match_from_id(black_box(id)).ok());
+                black_box(match_from_id(black_box(id)));
             }
         },
         rounds,

@@ -1,4 +1,4 @@
-use super::{BaseVowel, ExtendedBaseVowel};
+use super::{BaseVowel, Vowel};
 
 /// A read-only view over a vowel nucleus.
 pub trait NucleusView {
@@ -30,7 +30,7 @@ impl NucleusView for [BaseVowel] {
     }
 }
 
-impl NucleusView for [ExtendedBaseVowel] {
+impl NucleusView for [Vowel] {
     #[inline(always)]
     fn len(&self) -> usize {
         self.len()
@@ -38,10 +38,8 @@ impl NucleusView for [ExtendedBaseVowel] {
 
     #[inline(always)]
     fn at(&self, index: usize) -> BaseVowel {
-        // SAFETY: callers only reach this via the `len`-matched helpers, so
-        // `index < self.len()`. `get()` then masks the case bit back to a valid
-        // `BaseVowel` discriminant.
-        unsafe { self.get_unchecked(index).get() }
+        // SAFETY: callers use indices bounded by this slice's length.
+        unsafe { self.get_unchecked(index).base() }
     }
 }
 

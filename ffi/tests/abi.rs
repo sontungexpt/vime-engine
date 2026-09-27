@@ -6,9 +6,7 @@
 
 use std::mem::{align_of, offset_of, size_of};
 
-use vime::{
-    VimeAction, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput, VimeTonePlacement,
-};
+use vime::{VimeAction, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput, VimeTonePlacement};
 
 #[test]
 fn scalar_enum_widths() {
