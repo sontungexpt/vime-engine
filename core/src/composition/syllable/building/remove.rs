@@ -65,7 +65,11 @@ impl BuildingSyllable {
     /// Removes one character from the onset, restoring it if the result is invalid.
     #[inline]
     fn remove_onset(&mut self, onset_index: usize) -> bool {
-        debug_assert!(onset_index < self.onset.len());
+        debug_assert!(
+            onset_index < self.onset.len(),
+            "onset index out of bounds: index={onset_index}, len={}",
+            self.onset.len()
+        );
 
         self.try_update_onset(
             |onset| onset.remove(onset_index),
@@ -75,7 +79,10 @@ impl BuildingSyllable {
 
     #[inline]
     fn remove_gi_onset(&mut self, onset_index: usize) -> bool {
-        debug_assert!(onset_index < 2);
+        debug_assert!(
+            onset_index < 2,
+            "Gi onset must have exactly 2 characters, got index {onset_index}"
+        );
 
         // Remove i
         if onset_index == 1 {
@@ -85,10 +92,12 @@ impl BuildingSyllable {
         }
 
         // remove G -> i becomes vowels
-        let i = self.onset[1];
+
         if self.nucleus.len() >= NUCLEUS_MAX_LEN {
             return false;
         }
+
+        let i = self.onset[1];
         if !self.try_update_nucleus(
             |nucleus| nucleus.insert(0, Vowel::new(BaseVowel::I, Tone::Flat, i == 'I')),
             |nucleus, _| {
@@ -109,7 +118,11 @@ impl BuildingSyllable {
     #[inline]
     fn remove_vowel(&mut self, vowel_index: usize, tone_placement: TonePlacement) -> bool {
         let len = self.nucleus.len();
-        debug_assert!(vowel_index < len);
+
+        debug_assert!(
+            vowel_index < len,
+            "vowel index out of bounds: index={vowel_index}, len={len}"
+        );
 
         // Nucleus can not be empty when coda is existed
         if len == 1 && !self.coda.is_empty() {
@@ -146,7 +159,11 @@ impl BuildingSyllable {
     /// Removes one char from the coda, restoring it if the result is invalid.
     #[inline]
     fn remove_coda(&mut self, index: usize) -> bool {
-        debug_assert!(index < self.coda.len());
+        debug_assert!(
+            index < self.coda.len(),
+            "coda index out of bounds: index={index}, len={}",
+            self.coda.len()
+        );
 
         self.try_update_coda(
             |coda| coda.remove(index),
