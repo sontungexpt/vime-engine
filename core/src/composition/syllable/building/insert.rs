@@ -32,7 +32,10 @@ impl BuildingSyllable {
             return self.push(keymap, key);
         }
 
-        assert!(index < total_len, "insertion index out of bounds");
+        assert!(
+            index < total_len,
+            "insertion index out of bounds: index={index}, len={total_len}"
+        );
 
         // ─────────────────────────── Onset ───────────────────────────
 
@@ -108,15 +111,20 @@ impl BuildingSyllable {
 
     /// Inserts a literal char into the onset (no vowel fallback).
     #[inline(always)]
-    fn insert_onset(&mut self, index: usize, key: char) -> bool {
+    fn insert_onset(&mut self, onset_index: usize, key: char) -> bool {
+        debug_assert!(
+            onset_index <= self.onset.len(),
+            "onset insertion index out of bounds: index={onset_index}, len={}",
+            self.onset.len()
+        );
+
         // Keep `i` in the nucleus after `g` so a following vowel can resolve
         // the prefix as `gi` + V. Set the cached nucleus state directly because
         // this path bypasses `try_update_nucleus`.
         if is_i_ignore_case(key) {
             // `i` follows the one-character G onset, before any nucleus vowel.
-            let should_move_i_to_nucleus = self.onset_kind == Onset::G
-                && index == 1
-                && self.nucleus.is_empty();
+            let should_move_i_to_nucleus =
+                self.onset_kind == Onset::G && onset_index == 1 && self.nucleus.is_empty();
 
             if should_move_i_to_nucleus {
                 self.nucleus
@@ -132,8 +140,8 @@ impl BuildingSyllable {
 
         if self.onset.len() < Onset::MAX_LEN {
             return self.try_update_onset(
-                |onset| onset.insert(index, key),
-                |onset, _| _ = onset.remove(index),
+                |onset| onset.insert(onset_index, key),
+                |onset, _| _ = onset.remove(onset_index),
             );
         }
 
@@ -204,7 +212,11 @@ impl BuildingSyllable {
     /// Inserts a literal char into the coda.
     #[inline(always)]
     fn insert_coda(&mut self, coda_index: usize, input: char) -> bool {
-        debug_assert!(coda_index <= self.coda.len());
+        debug_assert!(
+            coda_index <= self.coda.len(),
+            "coda insertion index out of bounds: index={coda_index}, len={}",
+            self.coda.len()
+        );
 
         if self.coda.len() < Coda::MAX_LEN {
             return self.try_update_coda(

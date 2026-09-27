@@ -20,7 +20,10 @@ impl BuildingSyllable {
         let vowels_len = self.nucleus.len();
         let total_len = onset_len + vowels_len + self.coda.len();
 
-        debug_assert!(index < total_len);
+        debug_assert!(
+            index < total_len,
+            "insertion index out of bounds: index={index}, len={total_len}"
+        );
 
         // ─────────────────────────── Onset ───────────────────────────
 
