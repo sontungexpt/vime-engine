@@ -273,7 +273,10 @@ fn root_ids_are_dense_and_from_root_builds_plain_vowels() {
         assert!(base.is_plain());
         assert!(!base.is_shaped());
         assert_eq!(base, base.remove_shape(), "{root:?} from_root is not plain");
-        assert_eq!(BaseVowel::from_priority_id(base.priority_id() as usize), Some(base));
+        assert_eq!(
+            BaseVowel::from_priority_id(base.priority_id() as usize),
+            Some(base)
+        );
     }
 }
 
@@ -309,14 +312,23 @@ fn base_vowel_ids_are_valid_and_ordered() {
             expected_id,
             "{base:?} has unexpected priority ID"
         );
-
         assert_eq!(
             BaseVowel::from_priority_id(expected_id),
             Some(base),
-            "BaseVowel::from_id({expected_id}) is inconsistent"
+            "BaseVowel::from_priority_id({expected_id}) is inconsistent"
+        );
+
+        let id = base.id() as usize;
+        assert!(id < BaseVowel::COUNT, "{base:?} has out-of-range ID {id}");
+        assert_eq!(
+            BaseVowel::from_id(id),
+            Some(base),
+            "from_id must invert id for {base:?}"
         );
     }
 
+    assert!(BaseVowel::from_id(BASE_COUNT).is_none());
+    assert!(BaseVowel::from_id(usize::MAX).is_none());
     assert!(BaseVowel::from_priority_id(BASE_COUNT).is_none());
     assert!(BaseVowel::from_priority_id(usize::MAX).is_none());
 
@@ -852,31 +864,26 @@ fn expected_surface_forms_match_codec() {
 fn decoder_coverage_round_trips_and_matches_is_vowel() {
     let mut count = 0;
 
-    for cp in 0..=0x10FFFF {
-        let Some(ch) = char::from_u32(cp) else {
-            continue;
-        };
+    // Walk every Unicode scalar value. Surrogates are not scalar values, so
+    // split around that gap and avoid a `char::from_u32` check on each step.
+    for cp in (0..=0xD7FF).chain(0xE000..=0x10FFFF) {
+        let ch = char::from_u32(cp).expect("Unicode scalar value");
+        let decoded = Vowel::from_char(ch);
 
-        let Some(decoded) = Vowel::from_char(ch) else {
-            assert!(
-                !is_vowel(ch),
-                "is_vowel/decode_vowel mismatch at U+{cp:04X} {ch:?}"
-            );
-            continue;
-        };
-
-        assert!(
+        assert_eq!(
             is_vowel(ch),
+            decoded.is_some(),
             "is_vowel/decode_vowel mismatch at U+{cp:04X} {ch:?}"
         );
 
-        assert_eq!(
-            Vowel::new(decoded.base(), decoded.tone(), decoded.is_upper()).to_char(),
-            ch,
-            "decode/encode round-trip failed for U+{cp:04X} {ch:?}"
-        );
-
-        count += 1;
+        if let Some(decoded) = decoded {
+            assert_eq!(
+                Vowel::new(decoded.base(), decoded.tone(), decoded.is_upper()).to_char(),
+                ch,
+                "decode/encode round-trip failed for U+{cp:04X} {ch:?}"
+            );
+            count += 1;
+        }
     }
 
     assert_eq!(
@@ -919,6 +926,46 @@ fn ascii_vowels_decode_as_flat() {
 
             assert_eq!(Vowel::new(base, Tone::Flat, is_upper).to_char(), ch);
         }
+    }
+}
+
+#[test]
+fn vowel_classifier_covers_range_boundaries() {
+    let cases = [
+        ('@', false),
+        ('A', true),
+        ('Z', false),
+        ('[', false),
+        ('`', false),
+        ('a', true),
+        ('z', false),
+        ('{', false),
+        ('\u{00C0}', true), // À, Latin-1 lower boundary
+        ('\u{00FD}', true), // ý
+        ('\u{00FE}', false),
+        ('\u{0101}', false),
+        ('\u{0102}', true), // ă, Latin Extended lower boundary
+        ('\u{01B0}', true), // ư, Latin Extended upper boundary
+        ('\u{01B1}', false),
+        ('\u{1E9F}', false),
+        ('\u{1EA0}', true), // Vietnamese block lower boundary
+        ('\u{1EF9}', true), // Vietnamese block upper boundary
+        ('\u{1EFA}', false),
+    ];
+
+    for (ch, expected) in cases {
+        assert_eq!(
+            is_vowel(ch),
+            expected,
+            "classifier mismatch for U+{:04X}",
+            ch as u32
+        );
+        assert_eq!(
+            decode_vowel(ch).is_some(),
+            expected,
+            "decoder mismatch for U+{:04X}",
+            ch as u32
+        );
     }
 }
 
