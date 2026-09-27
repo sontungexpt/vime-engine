@@ -282,37 +282,43 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Normalization ───────────────────────────
 
-    #[inline]
-    fn normalize_i_placement(&mut self) {
-        let vowels_len = self.nucleus.len();
-        // G + I + V -> Gi + V
-        if self.onset_kind == Onset::G && vowels_len >= 2 && self.nucleus[0].base() == BaseVowel::I
-        {
-            let i = self.nucleus.remove(0);
+    // NOTE:
+    // Kept commented out intentionally as a reference for the previous
+    // `G + I + V <-> Gi + V` normalization strategy.
+    // Do not remove unless this legacy logic is confirmed to be no longer
+    // useful for reference or future restoration.
+    //
+    // #[inline]
+    // fn normalize_i_placement(&mut self) {
+    //     let vowels_len = self.nucleus.len();
+    //     // G + I + V -> Gi + V
+    //     if self.onset_kind == Onset::G && vowels_len >= 2 && self.nucleus[0].base() == BaseVowel::I
+    //     {
+    //         let i = self.nucleus.remove(0);
 
-            self.onset.push(if i.is_upper() { 'I' } else { 'i' });
-            self.onset_kind = Onset::Gi;
-            return;
-        }
+    //         self.onset.push(if i.is_upper() { 'I' } else { 'i' });
+    //         self.onset_kind = Onset::Gi;
+    //         return;
+    //     }
 
-        // Gi without a vowel -> G + I
-        if self.onset_kind == Onset::Gi && vowels_len == 0 {
-            let i = self.onset.pop().expect("onset must contain i");
-            self.onset_kind = Onset::G;
-            self.nucleus
-                .push(Vowel::new(BaseVowel::I, Tone::Flat, i == 'I'));
+    //     // Gi without a vowel -> G + I
+    //     if self.onset_kind == Onset::Gi && vowels_len == 0 {
+    //         let i = self.onset.pop().expect("onset must contain i");
+    //         self.onset_kind = Onset::G;
+    //         self.nucleus
+    //             .push(Vowel::new(BaseVowel::I, Tone::Flat, i == 'I'));
 
-            return;
-        }
+    //         return;
+    //     }
 
-        // A lone `i` left in the onset drops back into the nucleus (I + V).
-        if self.onset.len() == 1 && is_i_ignore_case(self.onset[0]) {
-            let i = self.onset.pop().unwrap();
-            self.onset_kind = Onset::None;
-            self.nucleus
-                .insert(0, Vowel::new(BaseVowel::I, Tone::Flat, i == 'I'));
-        }
-    }
+    //     // A lone `i` left in the onset drops back into the nucleus (I + V).
+    //     if self.onset.len() == 1 && is_i_ignore_case(self.onset[0]) {
+    //         let i = self.onset.pop().unwrap();
+    //         self.onset_kind = Onset::None;
+    //         self.nucleus
+    //             .insert(0, Vowel::new(BaseVowel::I, Tone::Flat, i == 'I'));
+    //     }
+    // }
 
     /// Normalizes an unmarked `u o` prefix that arrived without a shape key.
     ///
