@@ -64,6 +64,10 @@ name = "bench_nucleus_state"
 harness = false
 
 [[bench]]
+name = "bench_nucleus_state_versions"
+harness = false
+
+[[bench]]
 name = "bench_onset"
 harness = false
 
