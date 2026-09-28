@@ -54,6 +54,38 @@ fn switching_method_clears_pending_buffer() {
     assert!(out.commit.is_none());
 }
 
+/// `vime_reset` no longer routes through `output()`, so the cache
+/// invalidation that `output()` used to do has to happen on its own path.
+/// Without it the next read serves the pre-reset word.
+#[test]
+fn reset_invalidates_the_cached_word() {
+    let mut engine = Engine::create().unwrap();
+    engine.type_text("viet");
+
+    // Prime the cache so a stale read would be observable.
+    let before = unsafe { vime::vime_parsed(engine.raw()) };
+    assert!(!before.is_null());
+    assert_eq!(
+        unsafe { std::ffi::CStr::from_ptr(before) }
+            .to_str()
+            .unwrap(),
+        "viet"
+    );
+
+    assert!(
+        unsafe { vime::vime_reset(engine.raw()) },
+        "reset must report success"
+    );
+
+    // The word must now be empty, not the cached "viet".
+    let after = unsafe { vime::vime_parsed(engine.raw()) };
+    assert!(!after.is_null(), "an empty word is still a word");
+    assert_eq!(
+        unsafe { std::ffi::CStr::from_ptr(after) }.to_str().unwrap(),
+        ""
+    );
+}
+
 #[test]
 fn switching_placement_renders_without_text_commit() {
     let mut engine = Engine::create_with(VimeInputMethod::Telex, VimeTonePlacement::Modern)

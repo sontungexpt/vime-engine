@@ -20,9 +20,7 @@ fn null_handle_is_safe_everywhere() {
     unsafe {
         vime::vime_destroy(ptr::null_mut());
 
-        let reset = vime::vime_reset(ptr::null_mut());
-        assert_eq!(reset.action, VimeAction::Forward);
-        assert!(reset.commit.is_null());
+        assert!(!vime::vime_reset(ptr::null_mut()));
 
         // The lazy word accessor must be NULL-safe too.
         assert!(vime::vime_parsed(ptr::null_mut()).is_null());

@@ -157,8 +157,18 @@ bool vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_pl
  */
 const char *vime_parsed(VimeEngineHandle *engine);
 
-/** Resets the engine buffer state. */
-VimeOutput vime_reset(VimeEngineHandle *engine);
+/**
+ * Clears the buffer.
+ *
+ * Returns true on success, false for a NULL handle (in which case the engine
+ * is untouched) — the same shape as vime_set_input_method and
+ * vime_set_tone_placement.
+ *
+ * There is no action to dispatch: reset consumes no key and commits no text,
+ * and on success the word is empty, so the frontend clears its preedit and
+ * repaints.
+ */
+bool vime_reset(VimeEngineHandle *engine);
 
 /* ========================================================================= */
 /* Event Processing & Utilities                                              */

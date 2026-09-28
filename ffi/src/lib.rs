@@ -96,17 +96,32 @@ pub unsafe extern "C" fn vime_destroy(engine: *mut VimeEngineHandle) {
     }
 }
 
-/// Clears the buffer, returning the action for the resulting empty word.
+/// Clears the buffer.
+///
+/// Returns true on success, false for a NULL handle (in which case the engine
+/// is untouched) — the same shape as [`vime_set_input_method`] and
+/// [`vime_set_tone_placement`].
+///
+/// There is no action to dispatch: reset consumes no key and commits no text,
+/// and on success the word is empty, so the frontend clears its preedit and
+/// repaints. Returning a [`VimeOutput`] would imply a choice among the
+/// actions, when the only reachable one is `VIME_ACTION_CHANGED`.
 ///
 /// # Safety
 ///
 /// `engine` must be NULL or a live pointer from [`vime_create`] /
 /// [`vime_create_with`] that has not been passed to [`vime_destroy`].
 #[no_mangle]
-pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> VimeOutput {
-    let engine = handle_or!(engine, VimeOutput::default());
-    let result = engine.engine.reset();
-    engine.output(result)
+pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> bool {
+    let Some(engine) = engine.as_mut() else {
+        return false;
+    };
+    engine.engine.reset();
+    // The word and any pending commit are now stale. `output()` normally does
+    // this as a side effect, but a reset no longer routes through it, and
+    // without it the next `vime_parsed` would serve the pre-reset text.
+    engine.invalidate();
+    true
 }
 
 /// Returns the word the engine currently has parsed, rendered on demand.

@@ -127,9 +127,22 @@ impl Engine {
     }
 
     /// Resets the buffer, returning the new (usually empty) word.
+    ///
+    /// `vime_reset` reports only success, exactly like the two setters, so the
+    /// word is read here on the way out. A reset always leaves the word empty,
+    /// but the frontend still has to see it, because that is what clears the
+    /// preedit.
     pub fn reset(&mut self) -> Outcome {
         // SAFETY: `self.0` is live.
-        let out = unsafe { vime::vime_reset(self.0) };
+        let ok = unsafe { vime::vime_reset(self.0) };
+        let out = if ok {
+            VimeOutput {
+                action: VimeAction::Changed,
+                commit: std::ptr::null(),
+            }
+        } else {
+            VimeOutput::empty(VimeAction::Forward)
+        };
         unsafe { read_output(self.0, out) }
     }
 

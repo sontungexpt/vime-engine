@@ -131,15 +131,26 @@ impl VimeEngineHandle {
         self.parsed.ptr()
     }
 
+    /// Marks the cached word stale and drops any pending commit.
+    ///
+    /// Any pointer handed out earlier describes state that has since moved on,
+    /// so the next read has to go back to the engine. Every entry point that
+    /// changes state calls this, whether or not it returns a `VimeOutput`:
+    /// `vime_reset` does not, which is why this is not folded into
+    /// [`Self::output`] alone.
+    #[inline]
+    pub(crate) fn invalidate(&mut self) {
+        self.parsed.invalidate();
+        self.committed.clear();
+    }
+
     /// Builds a `VimeOutput` view whose text lives in buffers owned by this
     /// handle. Any previously returned pointers become invalidated by this call.
     ///
     /// The parsed is *not* rendered here: read it with
     /// [`Self::parsed_ptr`] only when the frontend actually needs it.
     pub(crate) fn output(&mut self, result: Result) -> VimeOutput {
-        // Any text pointer handed out earlier is stale once the state moves on.
-        self.parsed.invalidate();
-        self.committed.clear();
+        self.invalidate();
 
         let action = match result {
             Result::Forward => return VimeOutput::empty(VimeAction::Forward),
