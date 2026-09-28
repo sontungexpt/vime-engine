@@ -1,6 +1,6 @@
 use crate::phonology::BaseVowel;
 
-use super::view::NucleusView;
+use super::slice::BaseVowelSlice;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TonePlacement {
@@ -23,7 +23,7 @@ impl TonePlacement {
     #[inline]
     pub fn vowel_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>
     where
-        V: NucleusView + ?Sized,
+        V: BaseVowelSlice + ?Sized,
     {
         match vowels.len() {
             0 => None,
@@ -41,7 +41,7 @@ impl TonePlacement {
     #[inline(always)]
     fn tone_index_2_modern<V>(vowels: &V) -> usize
     where
-        V: NucleusView + ?Sized,
+        V: BaseVowelSlice + ?Sized,
     {
         let v1 = unsafe { vowels.at(1) };
 
@@ -68,7 +68,7 @@ impl TonePlacement {
     #[inline(always)]
     fn tone_index_2_old<V>(vowels: &V, coda_is_empty: bool) -> usize
     where
-        V: NucleusView + ?Sized,
+        V: BaseVowelSlice + ?Sized,
     {
         // Rule 1: Diacritic/shaped vowel always takes the tone ("thuế" -> ê, "cuối" -> ô).
         let v1 = unsafe { vowels.at(1) };
@@ -93,7 +93,7 @@ impl TonePlacement {
     #[inline(always)]
     fn tone_index_3<V>(vowels: &V) -> usize
     where
-        V: NucleusView + ?Sized,
+        V: BaseVowelSlice + ?Sized,
     {
         // Rightmost shaped vowel wins (e.g., "uôi" -> index 1 'ô')
         if unsafe { vowels.at(2).is_shaped() } {
@@ -113,7 +113,7 @@ impl TonePlacement {
     #[inline]
     fn tone_index_fallback<V>(vowels: &V) -> Option<usize>
     where
-        V: NucleusView + ?Sized,
+        V: BaseVowelSlice + ?Sized,
     {
         let mut best = unsafe { vowels.at(0) };
         let mut at = 0;

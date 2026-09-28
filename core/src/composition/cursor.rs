@@ -9,7 +9,7 @@
 ///
 /// Ordering is by position.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Cursor(usize);
 
 impl Cursor {
@@ -118,5 +118,13 @@ impl Cursor {
     #[inline(always)]
     pub const fn is_at_end(self, len: usize) -> bool {
         self.0 >= len
+    }
+}
+
+// Explictly zero-initializes the cursor, so that `Cursor::default()` is equivalent to `Cursor::zero()`.
+impl Default for Cursor {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::zero()
     }
 }

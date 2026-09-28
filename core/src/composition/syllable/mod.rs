@@ -23,6 +23,32 @@ enum SyllableState {
     Dead(DeadSyllable),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyllableContext<KM: Keymap> {
+    keymap: KM,
+    tone_placement: TonePlacement,
+}
+
+impl<KM: Keymap> SyllableContext<KM> {
+    #[inline]
+    pub fn new(keymap: KM, tone_placement: TonePlacement) -> Self {
+        Self {
+            keymap,
+            tone_placement,
+        }
+    }
+
+    #[inline(always)]
+    pub fn keymap(&self) -> &KM {
+        &self.keymap
+    }
+
+    #[inline(always)]
+    pub const fn tone_placement(&self) -> TonePlacement {
+        self.tone_placement
+    }
+}
+
 /// Incremental Vietnamese syllable buffer with a two-phase lifecycle:
 /// parsing (building) first, falling back to a verbatim (dead) buffer once
 /// the input can no longer form a valid syllable.
@@ -119,7 +145,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
 
     /// The nucleus vowels, `None` once dead.
     #[inline(always)]
-    pub fn vowels(&self) -> Option<&[Vowel]> {
+    pub fn nucleus(&self) -> Option<&[Vowel]> {
         match &self.state {
             SyllableState::Building(builder) => Some(builder.nucleus()),
             SyllableState::Dead(_) => None,
@@ -168,6 +194,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     /// Appends `input` at the end. When the building phase rejects it, the
     /// accepted prefix is frozen into a dead buffer and the input appended
     /// verbatim.
+    #[allow(dead_code)]
     pub(crate) fn push(&mut self, input: char) -> InputEffect {
         let keymap = &self.keymap;
         match &mut self.state {
@@ -219,7 +246,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         match &mut self.state {
             SyllableState::Dead(builder) => {
                 builder.remove(index);
-                if builder.is_reparseable() {
+                if builder.is_all_accepted() {
                     let mut building = BuildingSyllable::default();
                     for ch in builder.iter_chars() {
                         if building.push(&self.keymap, ch).is_err() {

@@ -38,7 +38,7 @@ fn valid_pushes_stay_in_building_phase() {
     assert_eq!(chars(&s), "tan");
     assert_eq!(s.onset(), Some(&['t'][..]));
     assert_eq!(s.onset_kind(), Some(Onset::T));
-    assert!(s.vowels().is_some());
+    assert!(s.nucleus().is_some());
     assert!(s.coda().is_some());
 }
 
@@ -60,7 +60,7 @@ fn rejected_push_falls_back_to_dead() {
     // The parsed parts are gone once dead.
     assert_eq!(s.onset(), None);
     assert_eq!(s.onset_kind(), None);
-    assert_eq!(s.vowels(), None);
+    assert_eq!(s.nucleus(), None);
     assert_eq!(s.coda(), None);
     assert_eq!(s.coda_kind(), None);
 }
@@ -140,7 +140,7 @@ fn removing_rejected_chars_returns_to_building() {
     s.remove(1);
     assert!(s.is_building());
     assert_eq!(chars(&s), "a");
-    assert!(s.vowels().is_some());
+    assert!(s.nucleus().is_some());
 }
 
 /// Removing an accepted char instead leaves only rejected input behind, which

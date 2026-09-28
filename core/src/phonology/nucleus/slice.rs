@@ -7,10 +7,10 @@
 //! [`BaseVowel`]s, as [`Vowel`]s (which pack the base vowel together with tone
 //! and case), or in the syllable builder's inline `Nucleus` buffer.
 
-use crate::phonology::{nucleus::state::check_nucleus_state, BaseVowel, NucleusState, Vowel};
+use crate::phonology::{BaseVowel, Vowel};
 
 /// A sequence of base vowels that can be inspected positionally.
-pub trait NucleusView {
+pub trait BaseVowelSlice {
     /// Number of vowels in the nucleus.
     fn len(&self) -> usize;
 
@@ -24,18 +24,9 @@ pub trait NucleusView {
     /// method. Implementations may omit bounds checking based on this
     /// invariant.
     unsafe fn at(&self, index: usize) -> BaseVowel;
-
-    /// Returns the current validation state of the nucleus.
-    ///
-    /// Implementations with a cached state can override this method to return
-    /// the cached value directly without recomputing the nucleus state.
-    #[inline(always)]
-    fn state(&self) -> NucleusState {
-        check_nucleus_state(self)
-    }
 }
 
-impl NucleusView for [BaseVowel] {
+impl BaseVowelSlice for [BaseVowel] {
     #[inline(always)]
     fn len(&self) -> usize {
         self.len()
@@ -47,7 +38,7 @@ impl NucleusView for [BaseVowel] {
     }
 }
 
-impl NucleusView for [Vowel] {
+impl BaseVowelSlice for [Vowel] {
     #[inline(always)]
     fn len(&self) -> usize {
         self.len()
@@ -59,7 +50,7 @@ impl NucleusView for [Vowel] {
     }
 }
 
-impl<const N: usize> NucleusView for [BaseVowel; N] {
+impl<const N: usize> BaseVowelSlice for [BaseVowel; N] {
     #[inline(always)]
     fn len(&self) -> usize {
         N
@@ -71,7 +62,7 @@ impl<const N: usize> NucleusView for [BaseVowel; N] {
     }
 }
 
-impl<const N: usize> NucleusView for [Vowel; N] {
+impl<const N: usize> BaseVowelSlice for [Vowel; N] {
     #[inline(always)]
     fn len(&self) -> usize {
         N

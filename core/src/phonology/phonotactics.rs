@@ -9,7 +9,7 @@
 //! Khi kiểm tra quy tắc chính tả, validator chỉ thực hiện các phép toán bitwise (`&`, `|`)
 //! giúp CPU thực thi không rẽ nhánh (branchless execution) và hoàn toàn tương thích `const fn`.
 
-use crate::phonology::{BaseVowel, Coda, NucleusView, Onset, Tone};
+use crate::phonology::{BaseVowel, Coda, BaseVowelSlice, Onset, Tone};
 
 /// Bitmask mã hóa các thuộc tính ÂM VỊ HỌC (phonotactic attributes) của vần.
 ///
@@ -259,7 +259,7 @@ pub trait PhonotacticValidator {
         tone: Tone,
     ) -> Result<(), PhonotacticError>
     where
-        N: NucleusView + ?Sized;
+        N: BaseVowelSlice + ?Sized;
 }
 
 /// Triển khai mặc định của [`PhonotacticValidator`] theo quy tắc chính tả tiếng Việt chuẩn.
@@ -276,7 +276,7 @@ impl PhonotacticValidator for DefaultPhonotacticValidator {
         tone: Tone,
     ) -> Result<(), PhonotacticError>
     where
-        N: NucleusView + ?Sized,
+        N: BaseVowelSlice + ?Sized,
     {
         // Trích xuất cờ bitmask của nguyên âm đầu và cuối trong nucleus mà không gây ra bounds check overhead.
         let len = nucleus.len();

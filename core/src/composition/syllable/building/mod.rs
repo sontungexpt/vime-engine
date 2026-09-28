@@ -7,8 +7,8 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        BaseVowel, Coda, NucleusState, NucleusView, Onset, PhonotacticError, PhonotacticValidator,
-        RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
+        BaseVowel, Coda, NucleusState, NucleusStateOf, Onset, PhonotacticError,
+        PhonotacticValidator, RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
     },
     util::InlineVec,
 };

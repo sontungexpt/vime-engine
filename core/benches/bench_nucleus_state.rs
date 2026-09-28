@@ -11,7 +11,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use vime_engine::phonology::BaseVowel;
-use vime_engine::phonology::{NucleusState, NucleusView};
+use vime_engine::phonology::{nucleus_state, NucleusState};
 
 /// One probe row: a slice view over a fixed 3-vowel buffer.
 #[derive(Clone, Copy)]
@@ -162,11 +162,11 @@ fn build_lut() -> Box<[NucleusState; 4096]> {
 
     let mut table = Box::new([NucleusState::Dead; 4096]);
     for (i, &a) in vs.iter().enumerate() {
-        table[i | (SENTINEL << 4) | (SENTINEL << 8)] = NucleusView::state(&[a]);
+        table[i | (SENTINEL << 4) | (SENTINEL << 8)] = nucleus_state(&[a]);
         for (j, &b) in vs.iter().enumerate() {
-            table[i | (j << 4) | (SENTINEL << 8)] = NucleusView::state(&[a, b]);
+            table[i | (j << 4) | (SENTINEL << 8)] = nucleus_state(&[a, b]);
             for (k, &c) in vs.iter().enumerate() {
-                table[i | (j << 4) | (k << 8)] = NucleusView::state(&[a, b, c]);
+                table[i | (j << 4) | (k << 8)] = nucleus_state(&[a, b, c]);
             }
         }
     }
@@ -277,7 +277,7 @@ fn probe_v1(workload: &[Seq]) -> u32 {
     for s in workload {
         acc = acc
             .wrapping_mul(31)
-            .wrapping_add(match NucleusView::state(s.slice()) {
+            .wrapping_add(match nucleus_state(s.slice()) {
                 NucleusState::Dead => 1,
                 NucleusState::Valid => 2,
                 NucleusState::InComplete => 3,
@@ -324,7 +324,7 @@ fn main() {
     let mut valid = 0;
     let mut incomplete = 0;
     for s in &exhaustive {
-        let v1 = NucleusView::state(s.slice());
+        let v1 = nucleus_state(s.slice());
         let v2 = from_packed(pack_key(s.slice()));
         let v3 = lut[lut_key(s)];
         assert_eq!(v1, v2, "packed mismatch for {:?}", s.slice());

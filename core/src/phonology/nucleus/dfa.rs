@@ -1,5 +1,32 @@
 //! Compile-time generated sparse DFA for Vietnamese vowel nuclei.
 //!
+//! # Status: backup only, not compiled
+//!
+//! **Nothing in this file runs.** It is deliberately left out of the module
+//! tree in `nucleus/mod.rs`, so it is not compiled, not linted and not
+//! documented, and no crate item can reach it. It is retained as a backup of
+//! the generated machine in case the DFA approach is ever revived.
+//!
+//! The live nucleus rules are in `state.rs`, which implements validity as a
+//! hand-written table expanded by `state_match!` and exposes
+//! `check_nucleus_state`. If you are looking for the code the crate actually
+//! runs, that is the one — this file is a historical snapshot, not a
+//! second source of truth.
+//!
+//! Two things to know before attempting to revive it:
+//!
+//! - **It does not compile as it stands.** Adding `mod dfa;` fails on
+//!   `super::rules`, `super::vowel` and `crate::Shape`, none of which exist
+//!   any more — the generator targets a `rules`-module architecture that has
+//!   since been replaced.
+//! - **It duplicates names and behaviour.** It declares its own
+//!   `NucleusState` *struct*, which collides by name with the `NucleusState`
+//!   *enum* in `state.rs`, and reimplements validity as
+//!   `check_nucleus_validity`.
+//!
+//! Reviving it therefore means porting it forward, not just adding one `mod`
+//! line.
+//!
 //! The generator performs a bounded polynomial scan over the DSL tables at
 //! compile time, so relax the default `long_running_const_eval` deny lint.
 #![allow(long_running_const_eval)]

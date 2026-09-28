@@ -72,6 +72,22 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     pub const fn capacity() -> usize {
         N
     }
+    /// Returns a slice containing the live elements.
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[T] {
+        // SAFETY: only slots `0..len` are ever written, each initialized
+        // exactly once before `len` grows to cover it, and `len` never
+        // exceeds N. `MaybeUninit<T>` has the same layout/alignment as `T`.
+        unsafe { std::slice::from_raw_parts(self.buf.as_ptr().cast::<T>(), self.len) }
+    }
+
+    /// Returns a mutable slice containing the live elements.
+    #[inline(always)]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        // SAFETY: the `Deref` invariant also holds here: `len` never exceeds
+        // N and every covered slot is initialized.
+        unsafe { std::slice::from_raw_parts_mut(self.buf.as_mut_ptr().cast::<T>(), self.len) }
+    }
 
     /// Appends `value` at the end; panics when the array is full.
     #[inline(always)]
@@ -184,19 +200,14 @@ impl<T: Copy, const N: usize> Deref for InlineVec<T, N> {
 
     #[inline(always)]
     fn deref(&self) -> &[T] {
-        // SAFETY: only slots `0..len` are ever written, each initialized
-        // exactly once before `len` grows to cover it, and `len` never
-        // exceeds N. `MaybeUninit<T>` has the same layout/alignment as `T`.
-        unsafe { std::slice::from_raw_parts(self.buf.as_ptr().cast::<T>(), self.len) }
+        self.as_slice()
     }
 }
 
 impl<T: Copy, const N: usize> DerefMut for InlineVec<T, N> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [T] {
-        // SAFETY: the `Deref` invariant also holds here: `len` never exceeds
-        // N and every covered slot is initialized.
-        unsafe { std::slice::from_raw_parts_mut(self.buf.as_mut_ptr().cast::<T>(), self.len) }
+        self.as_mut_slice()
     }
 }
 

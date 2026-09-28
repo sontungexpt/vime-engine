@@ -3,9 +3,23 @@
 
 use crate::phonology::BaseVowel;
 
-use super::view::NucleusView;
+use super::slice::BaseVowelSlice;
 
 pub const NUCLEUS_MAX_LEN: usize = 3;
+
+pub trait NucleusStateOf {
+    fn state(&self) -> NucleusState;
+}
+
+impl<T> NucleusStateOf for T
+where
+    T: BaseVowelSlice + ?Sized,
+{
+    #[inline(always)]
+    fn state(&self) -> NucleusState {
+        nucleus_state(self)
+    }
+}
 
 /// Whether a vowel nucleus is a known Vietnamese sequence.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -190,11 +204,12 @@ macro_rules! state_match {
 ///
 /// This is the canonical entry point and matches the caller's slice
 /// directly, with no copy. Callers holding `Vowel`s (which pack the base
-/// vowel together with tone and case) should use [`Self::check_view`].
+/// vowel together with tone and case) rely on the `[Vowel]` impl of
+/// [`BaseVowelSlice`], which strips the packing here.
 #[inline(always)]
-pub fn check_nucleus_state<V>(vowels: &V) -> NucleusState
+pub fn nucleus_state<Slice>(vowels: &Slice) -> NucleusState
 where
-    V: NucleusView + ?Sized,
+    Slice: BaseVowelSlice + ?Sized,
 {
     use BaseVowel::*;
     use NucleusState::*;
