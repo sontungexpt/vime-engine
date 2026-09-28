@@ -17,6 +17,6 @@ mod state;
 mod tone_placement;
 mod view;
 
-pub use state::{NucleusState, NUCLEUS_MAX_LEN};
+pub use state::{check_nucleus_state, NucleusState, NUCLEUS_MAX_LEN};
 pub use tone_placement::TonePlacement;
 pub use view::NucleusView;
