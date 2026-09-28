@@ -44,12 +44,18 @@ fn set_tone_placement_re_renders_the_live_buffer() {
     assert_eq!(engine.parsed(), OLD_HOA);
 }
 
+/// Both built-in keymaps drive the same parser, so the only thing worth pinning
+/// here is that a VNI engine really is a VNI one: its tone keys differ from
+/// Telex, and `hoa1` renders only if they are wired up.
+///
+/// `Engine::new` takes the keymap directly, which is all that the removed
+/// `Engine::telex`/`vni` shorthands did.
 #[test]
-fn convenience_constructors_build_telex_and_vni() {
-    let mut telex = Engine::telex(Config::default());
+fn keymap_chooses_the_layout() {
+    let mut telex = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
     assert_eq!(type_str(&mut telex, "hoas"), MODERN_HOA);
 
-    let mut vni = Engine::vni(Config::default());
+    let mut vni = Engine::new(Config::default(), vime_engine::DefaultKeymap::vni());
     assert_eq!(type_str(&mut vni, "hoa1"), MODERN_HOA);
 }
 
