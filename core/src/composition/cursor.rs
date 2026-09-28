@@ -8,7 +8,7 @@ pub struct Cursor(usize);
 impl Cursor {
     /// Creates a new cursor starting at position `0`.
     #[inline(always)]
-    pub const fn new() -> Self {
+    pub const fn zero() -> Self {
         Self(0)
     }
 
@@ -22,6 +22,16 @@ impl Cursor {
     #[inline(always)]
     pub const fn set(&mut self, position: usize, len: usize) {
         self.0 = if position < len { position } else { len };
+    }
+
+    /// Sets the cursor position without any bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `position` is within `0..=len`.
+    #[inline(always)]
+    pub const unsafe fn set_unchecked(&mut self, position: usize) {
+        self.0 = position;
     }
 
     /// Resets the cursor to position `0`.
@@ -42,6 +52,16 @@ impl Cursor {
         if self.0 < len {
             self.0 += 1;
         }
+    }
+
+    /// Moves the cursor one position to the right without any bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `position` is within `0..=len`.
+    #[inline(always)]
+    pub const unsafe fn move_right_unchecked(&mut self) {
+        self.0 += 1;
     }
 
     /// Moves the cursor to the beginning (position 0).
