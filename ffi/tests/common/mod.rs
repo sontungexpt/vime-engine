@@ -170,6 +170,22 @@ impl Engine {
         self.0
     }
 
+    /// The word the engine currently holds, read through `vime_parsed`.
+    ///
+    /// Goes through the C entry point rather than the cached `Outcome`, so a
+    /// test can observe what a frontend would see -- including whether the
+    /// pointer is NULL, which is what distinguishes "no word" from "the empty
+    /// word". Returns `None` for a NULL pointer, `Some("")` for an empty word.
+    pub fn word(&mut self) -> Option<String> {
+        // SAFETY: `self.0` is live and owned by this struct.
+        let ptr = unsafe { vime::vime_parsed(self.0) };
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: non-null, NUL-terminated, owned by the handle.
+        Some(unsafe { CStr::from_ptr(ptr) }.to_str().unwrap().to_string())
+    }
+
     /// Switches the tone-placement scheme, returning the re-rendered word.
     ///
     /// As with `set_input_method`, the entry point reports only success.

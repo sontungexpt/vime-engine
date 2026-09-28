@@ -134,32 +134,23 @@ fn navigate_empty_buffer_forwards() {
 /// change. Both config setters are state changes of exactly that kind.
 #[test]
 fn config_changes_invalidate_the_cached_word() {
-    use std::ffi::CStr;
-
     let mut engine = Engine::create_with(VimeInputMethod::Telex, VimeTonePlacement::Modern)
         .expect("engine must be created");
     engine.type_text("hoas");
 
-    // SAFETY: the handle is live and owned by `engine`.
-    let read = |engine: &mut Engine| unsafe {
-        let ptr = vime::vime_parsed(engine.raw());
-        assert!(!ptr.is_null());
-        CStr::from_ptr(ptr).to_str().unwrap().to_string()
-    };
-
     // Cached under the modern scheme.
-    assert_eq!(read(&mut engine), "hoá");
+    assert_eq!(engine.word().expect("a word must be reported"), "hoá");
 
     // Switching placement re-renders the pending vowels; the cache must not
     // still answer with the modern rendering.
     engine.set_tone_placement(VimeTonePlacement::Old);
-    assert_eq!(read(&mut engine), "hóa");
+    assert_eq!(engine.word().expect("a word must be reported"), "hóa");
 
     // Switching the method clears the buffer; the cache must not still answer
     // with the pre-clear text.
     engine.type_text("too");
     engine.set_input_method(VimeInputMethod::Vni);
-    assert_eq!(read(&mut engine), "");
+    assert_eq!(engine.word().expect("a word must be reported"), "");
 }
 
 /// The word buffer is reused across renders rather than reallocated, so the
@@ -167,29 +158,20 @@ fn config_changes_invalidate_the_cached_word() {
 /// land in the same live buffer the frontend is still holding.
 #[test]
 fn reused_word_buffer_serves_the_current_text() {
-    use std::ffi::CStr;
-
     let mut engine = Engine::create().unwrap();
     let typed = engine.type_text("tiengs");
 
-    // SAFETY: the handle is live and owned by `engine`.
-    let read = |engine: &mut Engine| unsafe {
-        let ptr = vime::vime_parsed(engine.raw());
-        assert!(!ptr.is_null());
-        CStr::from_ptr(ptr).to_str().unwrap().to_string()
-    };
-
     // The buffer must agree with what typing last reported, and repeated reads
     // must not disturb it.
-    assert_eq!(read(&mut engine), typed);
-    assert_eq!(read(&mut engine), typed);
-    assert_eq!(read(&mut engine), typed);
+    assert_eq!(engine.word().expect("a word must be reported"), typed);
+    assert_eq!(engine.word().expect("a word must be reported"), typed);
+    assert_eq!(engine.word().expect("a word must be reported"), typed);
 
     // Each backspace must land new text in the same reused buffer.
     let mut previous = typed;
     for _ in 0..4 {
         engine.process(key_event(VimeKey::Backspace));
-        let now = read(&mut engine);
+        let now = engine.word().expect("a word must be reported");
         assert_ne!(now, previous, "backspace must change the word");
         previous = now;
     }
@@ -198,5 +180,5 @@ fn reused_word_buffer_serves_the_current_text() {
     for _ in 0..8 {
         engine.process(key_event(VimeKey::Backspace));
     }
-    assert_eq!(read(&mut engine), "");
+    assert_eq!(engine.word().expect("a word must be reported"), "");
 }

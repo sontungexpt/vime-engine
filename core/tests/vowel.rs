@@ -544,7 +544,9 @@ fn base_vowel_from_parts_returns_none_for_all_invalid_combinations() {
     use std::collections::HashSet;
     let mut valid = HashSet::new();
     for &(root, shape, expected) in &EXPECTED_PARTS {
-        if let Some(base) = expected { valid.insert((root, shape)); }
+        if expected.is_some() {
+            valid.insert((root, shape));
+        }
     }
     for &root in ROOTS {
         for &shape in SHAPES {
@@ -1040,8 +1042,8 @@ const CONST_DECODED: Option<Vowel> = decode_vowel('Ậ');
 fn codec_is_usable_in_const_context() {
     assert_eq!(CONST_CHAR, 'Ậ');
     assert_eq!(CONST_ROOT, RootVowel::A);
-    assert_eq!(CONST_VOWEL.base(), BaseVowel::ACircumflex);
-    assert_eq!(CONST_VOWEL.tone(), Tone::Dot);
+    assert_eq!(CONST_BASE, BaseVowel::ACircumflex);
+    assert_eq!(CONST_TONE, Tone::Dot);
     assert!(CONST_VOWEL.is_upper());
     assert_eq!(CONST_VOWEL.root(), RootVowel::A);
     assert_eq!(CONST_BITS, 347);
