@@ -25,8 +25,10 @@ struct CText {
 
 /// Engine settings, in the layout a C caller sees.
 ///
-/// Each field mirrors one field of the engine's own [`vime_engine::Config`],
-/// so a frontend sets its behaviour without a bespoke call per setting.
+/// The engine's own [`vime_engine::Config`] is currently empty: the only two
+/// settings that exist are the input method and the tone-placement scheme, and
+/// both already have their own entry points. This struct exists so that adding
+/// a third one does not mean a third ABI break.
 ///
 /// # Versioning
 ///
@@ -43,39 +45,20 @@ struct CText {
 pub struct VimeConfig {
     /// `size_of(VimeConfig)` as the caller knows it. Zero selects every default.
     pub struct_size: u32,
-
-    /// Mirrors [`vime_engine::Config::auto_restore_english`].
-    ///
-    /// Present from revision 2. A caller compiled before this field existed
-    /// reports `struct_size == 4` and does not write it, so this takes the
-    /// engine default rather than whatever the padding held.
-    pub auto_restore_english: bool,
 }
 
 /// The revision this library was built with.
 ///
-/// `u32` plus `bool` plus padding, so the struct is 8 bytes. A field added
-/// later is appended, and this constant becomes the size of the then-current
+/// A `u32` field alone, so the struct is 4 bytes with no tail padding. Future
+/// fields are appended, and this constant becomes the size of the then-current
 /// revision; the header's `VIME_CONFIG_INIT` computes the same value with
 /// `sizeof`, and `config_layout` in `tests/abi.rs` pins the two together.
 const VIME_CONFIG_SIZE: u32 = size_of::<VimeConfig>() as u32;
 
-/// The size of revision 1, when `auto_restore_english` did not exist.
-///
-/// A caller reporting this size is treated as not having written the field.
-const VIME_CONFIG_SIZE_REV1: u32 = 4;
-
 impl VimeConfig {
     /// The configuration a caller gets by passing NULL or a zeroed struct.
     pub const fn default_config() -> Self {
-        Self {
-            struct_size: 0,
-            // Matches `vime_engine::Config::default()`, which is `true`. Spelled
-            // out rather than read from there because that `Default` is not a
-            // `const fn`; `config_defaults_match_the_engine` in `tests/safety.rs`
-            // pins the two together so they cannot drift.
-            auto_restore_english: true,
-        }
+        Self { struct_size: 0 }
     }
 
     /// Reads the caller's fields, ignoring anything beyond `struct_size`.
@@ -105,32 +88,14 @@ impl VimeConfig {
         if config.struct_size == 0 {
             return Some(Self::default_config());
         }
-        if config.struct_size < VIME_CONFIG_SIZE_REV1 {
+        if config.struct_size < VIME_CONFIG_SIZE {
             return None;
         }
 
-        let mut out = Self::default_config();
-        out.struct_size = config.struct_size;
-
-        // `auto_restore_english` arrived in revision 2. A revision-1 caller
-        // reports size 4 and never wrote the byte, so reading it would pick up
-        // stack garbage. Below that size the field does not exist as far as
-        // this caller is concerned, and the engine default stands.
-        if config.struct_size >= VIME_CONFIG_SIZE {
-            out.auto_restore_english = config.auto_restore_english;
-        }
-
-        Some(out)
-    }
-
-    /// Converts to the engine's own configuration.
-    ///
-    /// One place decides what a C field means, so a frontend and the engine
-    /// cannot disagree about it.
-    pub fn to_engine_config(self) -> vime_engine::Config {
-        vime_engine::Config {
-            auto_restore_english: self.auto_restore_english,
-        }
+        // No fields beyond the size yet, so there is nothing to copy out. When
+        // one is added it is read here, and only when `struct_size` proves the
+        // caller has it.
+        Some(Self::default_config())
     }
 }
 

@@ -114,10 +114,10 @@ typedef struct VimeOutput {
 /**
  * Engine settings, in the layout a C caller sees.
  *
- * Each field mirrors one field of the engine's own configuration, so a
- * frontend sets its behaviour without a bespoke call per setting. The input
- * method and tone-placement scheme are not here: they are runtime choices
- * with their own entry points.
+ * The engine's own configuration is currently empty: the only two settings
+ * that exist are the input method and the tone-placement scheme, and both
+ * already have their own entry points. This struct exists so that adding a
+ * third one does not mean another ABI break.
  *
  * ## Versioning
  *
@@ -135,17 +135,6 @@ typedef struct VimeOutput {
 typedef struct VimeConfig {
     /* sizeof(VimeConfig) as the caller knows it; 0 selects every default. */
     uint32_t struct_size;
-
-    /* Restore English when the word is empty. Mirrors the engine's
-     * Config::auto_restore_english.
-     *
-     * Added in revision 2. A caller compiled against revision 1 reports
-     * struct_size == 4 and never wrote this byte; the library ignores it in
-     * that case rather than reading whatever the padding held, and uses the
-     * engine default. The default is true, which is not the C zero, so a
-     * caller that says nothing must not be answered with false. */
-    bool auto_restore_english;
-
     /* Fields are appended below in later revisions. Read one only after
      * checking that struct_size covers it. */
 } VimeConfig;

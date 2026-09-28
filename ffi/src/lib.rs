@@ -20,7 +20,7 @@ use std::ptr;
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{DefaultKeymap, Engine, KeyEvent};
+use vime_engine::{Config, DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;
 pub mod types;
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn vime_create_with_config(
     tone_placement: VimeTonePlacement,
 ) -> *mut VimeEngineHandle {
     // SAFETY: forwarded from this function's own contract.
-    let Some(config) = (unsafe { VimeConfig::read(config) }) else {
+    let Some(_config) = (unsafe { VimeConfig::read(config) }) else {
         return ptr::null_mut();
     };
     let (Some(keymap), Ok(tone_placement)) =
@@ -116,9 +116,10 @@ pub unsafe extern "C" fn vime_create_with_config(
         return ptr::null_mut();
     };
     let engine = Engine::with_context(
-        // `read` has already resolved absent fields to the engine default, so
-        // this is the one place a C field becomes a `Config` field.
-        config.to_engine_config(),
+        // `Config` is empty today, so there is nothing to carry across yet.
+        // When it gains a field this is where `_config` starts being used, and
+        // the struct is built from the fields `struct_size` proved present.
+        Config::default(),
         SyllableContext::new(keymap, tone_placement),
     );
     VimeEngineHandle::new(engine).into_raw()

@@ -102,10 +102,7 @@ fn config_accepted_in_every_valid_form() {
     unsafe { vime::vime_destroy(null) };
 
     // A zeroed struct: struct_size 0 means "every default".
-    let zeroed = VimeConfig {
-        struct_size: 0,
-        auto_restore_english: false,
-    };
+    let zeroed = VimeConfig { struct_size: 0 };
     // SAFETY: the struct is readable and 0 is an accepted size.
     let h = unsafe {
         vime::vime_create_with_config(&zeroed, VimeInputMethod::Telex, VimeTonePlacement::Modern)
@@ -117,7 +114,6 @@ fn config_accepted_in_every_valid_form() {
     // The current size, which is what VIME_CONFIG_INIT produces.
     let current = VimeConfig {
         struct_size: std::mem::size_of::<VimeConfig>() as u32,
-        auto_restore_english: false,
     };
     // SAFETY: the struct is readable and the size is the current one.
     let h = unsafe {
@@ -128,51 +124,6 @@ fn config_accepted_in_every_valid_form() {
     unsafe { vime::vime_destroy(h) };
 }
 
-/// Revision 1 predates `auto_restore_english`, so a caller reporting size 4
-/// never wrote that byte. It must be ignored rather than read as stack garbage,
-/// which for this field would silently invert the engine default.
-#[test]
-fn a_revision_1_config_does_not_supply_the_new_field() {
-    use vime::VimeConfig;
-
-    // Deliberately `false`, which is NOT the engine default. If the field were
-    // read from this struct the result would be the opposite of the default.
-    let rev1 = VimeConfig {
-        struct_size: 4,
-        auto_restore_english: false,
-    };
-    // SAFETY: the struct is readable and 4 is the revision-1 size.
-    let read = unsafe { VimeConfig::read(&rev1) }.expect("revision 1 must be accepted");
-    assert_eq!(
-        read.auto_restore_english,
-        vime_engine::Config::default().auto_restore_english,
-        "a revision-1 caller must get the engine default, not its unwritten byte"
-    );
-
-    // Revision 2 does supply the field, and its value must be honoured.
-    let rev2 = VimeConfig {
-        struct_size: std::mem::size_of::<VimeConfig>() as u32,
-        auto_restore_english: false,
-    };
-    // SAFETY: the struct is readable and the size is the current one.
-    let read = unsafe { VimeConfig::read(&rev2) }.expect("revision 2 must be accepted");
-    assert!(
-        !read.auto_restore_english,
-        "a revision-2 caller's value must be read, not overridden"
-    );
-}
-
-/// The C default and the engine default must agree, since a caller that says
-/// nothing gets the C struct's values and the engine has to be built from them.
-#[test]
-fn config_defaults_match_the_engine() {
-    assert_eq!(
-        vime::VimeConfig::default_config().to_engine_config(),
-        vime_engine::Config::default(),
-        "a caller passing no config must get the engine's own defaults"
-    );
-}
-
 /// A `struct_size` that is neither 0 nor a size this library knows describes a
 /// layout from a future revision. Reading past it would be reading uninitialised
 /// or foreign memory, so it is rejected.
@@ -180,10 +131,7 @@ fn config_defaults_match_the_engine() {
 fn config_rejects_a_size_it_does_not_recognise() {
     use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
 
-    let bogus = VimeConfig {
-        struct_size: 3,
-        auto_restore_english: false,
-    };
+    let bogus = VimeConfig { struct_size: 3 };
     // SAFETY: the struct is readable; 3 is the value under test.
     let h = unsafe {
         vime::vime_create_with_config(&bogus, VimeInputMethod::Telex, VimeTonePlacement::Modern)

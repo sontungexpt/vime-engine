@@ -24,10 +24,9 @@ fn scalar_enum_widths() {
 /// the struct must not grow silently between the header and the backend.
 #[test]
 fn config_layout() {
-    assert_eq!(size_of::<VimeConfig>(), 8, "VimeConfig must stay 8 bytes");
+    assert_eq!(size_of::<VimeConfig>(), 4, "VimeConfig must stay 4 bytes");
     assert_eq!(align_of::<VimeConfig>(), 4);
     assert_eq!(offset_of!(VimeConfig, struct_size), 0);
-    assert_eq!(offset_of!(VimeConfig, auto_restore_english), 4);
 }
 
 #[test]
