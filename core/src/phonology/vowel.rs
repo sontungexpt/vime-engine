@@ -112,6 +112,49 @@ pub enum BaseVowel {
     OHorn       = Self::encode(RootVowel::O, Shape::Horn),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum BaseVowelId {
+    Y = 0,
+    U = 1,
+    I = 2,
+    E = 3,
+    O = 4,
+    A = 5,
+    UHorn = 6,
+    ACircumflex = 7,
+    OCircumflex = 8,
+    ABreve = 9,
+    ECircumflex = 10,
+    OHorn = 11,
+}
+
+impl BaseVowelId {
+    pub const COUNT: usize = 12;
+
+    /// Converts a raw `u8` ID into `Self` without performing boundary checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that `id < Self::COUNT`. Passing an `id` greater
+    /// than or equal to `Self::COUNT` produces an invalid enum variant, causing Undefined Behavior.
+    #[inline(always)]
+    pub const unsafe fn from_u8_unchecked(id: u8) -> Self {
+        std::mem::transmute(id)
+    }
+
+    /// Safely converts a raw `u8` ID into `Self`. Returns `None` if `id` is out of bounds.
+    #[inline(always)]
+    pub const fn from_u8(id: u8) -> Option<Self> {
+        if id < Self::COUNT as u8 {
+            // Safety: Bounds check ensures `id` is a valid discriminant.
+            Some(unsafe { Self::from_u8_unchecked(id) })
+        } else {
+            None
+        }
+    }
+}
+
 impl BaseVowel {
     // ─────────────── Size and bit layout ───────────────
 
@@ -214,20 +257,20 @@ impl BaseVowel {
     /// The inverse of [`Self::id`], verified for every declared ID by the const
     /// check below.
     #[inline(always)]
-    pub const fn from_id(vowel_id: usize) -> Option<Self> {
+    pub const fn from_id(vowel_id: BaseVowelId) -> Option<Self> {
         match vowel_id {
-            0 => Some(Self::Y),
-            1 => Some(Self::U),
-            2 => Some(Self::I),
-            3 => Some(Self::E),
-            4 => Some(Self::O),
-            5 => Some(Self::A),
-            6 => Some(Self::UHorn),
-            7 => Some(Self::ACircumflex),
-            8 => Some(Self::OCircumflex),
-            9 => Some(Self::ABreve),
-            10 => Some(Self::ECircumflex),
-            11 => Some(Self::OHorn),
+            BaseVowelId::Y => Some(Self::Y),
+            BaseVowelId::U => Some(Self::U),
+            BaseVowelId::I => Some(Self::I),
+            BaseVowelId::E => Some(Self::E),
+            BaseVowelId::O => Some(Self::O),
+            BaseVowelId::A => Some(Self::A),
+            BaseVowelId::UHorn => Some(Self::UHorn),
+            BaseVowelId::ACircumflex => Some(Self::ACircumflex),
+            BaseVowelId::OCircumflex => Some(Self::OCircumflex),
+            BaseVowelId::ABreve => Some(Self::ABreve),
+            BaseVowelId::ECircumflex => Some(Self::ECircumflex),
+            BaseVowelId::OHorn => Some(Self::OHorn),
             _ => None,
         }
     }
@@ -238,20 +281,20 @@ impl BaseVowel {
     /// packed value: closed vowels score lowest, so the ID order differs from
     /// the layout order.
     #[inline(always)]
-    pub const fn id(self) -> u8 {
+    pub const fn id(self) -> BaseVowelId {
         match self {
-            Self::Y => 0,
-            Self::U => 1,
-            Self::I => 2,
-            Self::E => 3,
-            Self::O => 4,
-            Self::A => 5,
-            Self::UHorn => 6,
-            Self::ACircumflex => 7,
-            Self::OCircumflex => 8,
-            Self::ABreve => 9,
-            Self::ECircumflex => 10,
-            Self::OHorn => 11,
+            Self::Y => BaseVowelId::Y,
+            Self::U => BaseVowelId::U,
+            Self::I => BaseVowelId::I,
+            Self::E => BaseVowelId::E,
+            Self::O => BaseVowelId::O,
+            Self::A => BaseVowelId::A,
+            Self::UHorn => BaseVowelId::UHorn,
+            Self::ACircumflex => BaseVowelId::ACircumflex,
+            Self::OCircumflex => BaseVowelId::OCircumflex,
+            Self::ABreve => BaseVowelId::ABreve,
+            Self::ECircumflex => BaseVowelId::ECircumflex,
+            Self::OHorn => BaseVowelId::OHorn,
         }
     }
 
@@ -260,17 +303,17 @@ impl BaseVowel {
     /// Returns the [`RootVowel`] component.
     #[inline(always)]
     pub const fn root(self) -> RootVowel {
-        let root_id = (self as u8 >> Self::ROOT_OFFSET) & Self::ROOT_MASK;
+        let root = (self as u8 >> Self::ROOT_OFFSET) & Self::ROOT_MASK;
         // SAFETY: ROOT_MASK limits bits to 0..=5, matching valid RootVowel variants.
-        unsafe { std::mem::transmute::<u8, RootVowel>(root_id) }
+        unsafe { std::mem::transmute::<u8, RootVowel>(root) }
     }
 
     /// Returns the [`Shape`] component.
     #[inline(always)]
     pub const fn shape(self) -> Shape {
-        let shape_id = self as u8 & Self::SHAPE_MASK;
+        let shape = self as u8 & Self::SHAPE_MASK;
         // SAFETY: SHAPE_MASK limits bits to 0..=3, matching valid Shape variants.
-        unsafe { std::mem::transmute::<u8, Shape>(shape_id) }
+        unsafe { std::mem::transmute::<u8, Shape>(shape) }
     }
 
     /// Returns `true` when this vowel's shape is exactly `shape`.
@@ -515,7 +558,7 @@ impl Vowel {
     /// Encodes this vowel as its precomposed Vietnamese character.
     #[inline(always)]
     pub const fn to_char(self) -> char {
-        encode_vowel(self.base(), self.tone(), self.is_upper())
+        encode_vowel(self.base().id(), self.tone(), self.is_upper())
     }
 
     /// Decodes a precomposed Vietnamese vowel, or returns `None` if `ch` is not one.
@@ -528,7 +571,8 @@ impl Vowel {
 /// Encodes a base vowel, tone, and case as a precomposed Vietnamese character.
 ///
 /// This table is indexed by tone-placement priority, then tone and case.
-pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char {
+#[inline(always)]
+pub const fn encode_vowel(base_id: BaseVowelId, tone: Tone, uppercase: bool) -> char {
     #[rustfmt::skip]
     const ENCODED: [char; 144] = [
         // Priority 0: Y
@@ -557,9 +601,10 @@ pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char 
         'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ',
     ];
 
-    let idx = ((base.id() as usize * 6 + tone as usize) << 1) | uppercase as usize;
+    let idx = ((base_id as usize * 6 + tone as usize) << 1) | uppercase as usize;
 
-    ENCODED[idx]
+    // Safety: base_id (0..=11) * 12 + tone (0..=5) * 2 + uppercase (0..=1) <= 143
+    unsafe { *ENCODED.as_ptr().add(idx) }
 }
 
 /// Decodes a precomposed Vietnamese vowel into a packed [`Vowel`], or returns
@@ -787,7 +832,7 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
                 Vowel::lower(Y, Tilde),
             ];
             let offset = (code - 0x1EA0) as usize;
-            Some(DECODED_VIETNAMESE_BLOCK_LUT[offset])
+            Some(unsafe { *DECODED_VIETNAMESE_BLOCK_LUT.as_ptr().add(offset) })
         }
 
         _ => None,

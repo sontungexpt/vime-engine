@@ -209,6 +209,9 @@ impl BaseVowel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PhonotacticError {
+    /// The nucleus is not complete yet and may become valid with more input.
+    IncompleteNucleus,
+
     /// Phụ âm `k/gh/ngh` đứng trước nguyên âm không phải hàng trước (thiếu `i, e, ê, y`).
     MissingFrontVowel,
     /// Phụ âm `c/g/ng` đứng trước nguyên âm hàng trước (`i, e, ê, y`).

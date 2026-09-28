@@ -92,6 +92,10 @@ name = "bench_base_vowel_id"
 harness = false
 
 [[bench]]
+name = "bench_base_vowel_id_versions"
+harness = false
+
+[[bench]]
 name = "bench_base_vowel_id_production"
 harness = false
 

@@ -304,3 +304,96 @@ up a few percent there to remove a 170% cliff everywhere else.
 on `id()` so the tradeoff is not re-litigated from scratch. If the default
 target's SWAR cost ever matters, the table is the drop-in replacement and needs
 no semantic change at all.
+
+## The two versions of `BaseVowel::id()` — bench_base_vowel_id_versions
+
+A/B of the committed `id() -> u8` API against the working-tree
+`id() -> BaseVowelId` API. The HEAD bodies are copied verbatim into `mod head`
+so both versions are measured in one binary, and `mod head_copy` is a second
+byte-identical copy used as the noise control. **The bench changes no
+production code.**
+
+```sh
+cargo bench -p vime-engine --bench bench_base_vowel_id_versions
+```
+
+Recorded 2026-09-28, same machine and toolchain as the rest of this file.
+Min of 3 runs pinned with `taskset -c 2`; the source hash was verified identical
+before and after all three runs (`SOURCE_STABLE=YES`), which matters because
+`vowel.rs` was being edited during this work.
+
+### Noise floor, measured rather than assumed
+
+`head` vs `head_copy` is the same body compiled twice. Their gap is the floor
+that every other number has to clear:
+
+| Group | `head` | `head_copy` | spread |
+| --- | --- | --- | --- |
+| `all_12` | 8.58 ns | 8.69 ns | 1.3% |
+| `single_repeated` (Y/A/UHorn/ÊCircumflex/OHorn) | 122.7 / 124.0 / 124.4 / 124.6 / 125.5 ns | 122.3 / 123.7 / 123.9 / 123.7 / 125.3 ns | 0.2–0.7% |
+| `large_1m` | 559.75 µs | 575.21 µs | **2.8%** |
+
+So **~3% is the resolution of this file.** The run-to-run spread of a single
+benchmark on unchanged code is far larger: `large_1m/head` measured
+559.75 / 785.32 / 659.05 µs across the three runs — **40%** — because the
+governor is `powersave` and the desktop was busy. That is why this is min-of-3
+and why no conclusion below rests on a single run.
+
+### `id()` — the two versions are the same speed
+
+| Group | `head` | `current` | `current_lookup` | `loop_floor` |
+| --- | --- | --- | --- | --- |
+| `all_12` | 8.58 ns | 8.86 ns (+3.3%) | 8.82 ns | 8.62 ns |
+| `single_repeated` (5 vowels) | 122.7–125.5 ns | 122.4–133.5 ns | 121.3–147.3 ns | 83.9–90.3 ns |
+| `large_1m` | 559.75 µs | 559.21 µs (**−0.1%**) | 567.79 µs (+1.4%) | 613.98 µs |
+
+The `match` on a `#[repr(u8)]` discriminant is already a table load, so
+returning a `#[repr(u8)]` enum instead of a `u8` changes nothing that survives
+codegen — `current` lands within 0.1% of `head` in the group to quote, and
+`current_lookup` within 1.4%, both inside the 2.8% floor. Every candidate sits
+at or below `loop_floor`, so the call itself is free next to the harness. The
+new `id_lookup()` 23-entry table buys nothing over the `match` either, which
+re-confirms the earlier `match` vs `lut24` conclusion for this particular table.
+
+### `from_id` — the extra `u8` → enum step is not free, but it is small
+
+| Group | `head` | `current` | `current_unchecked` |
+| --- | --- | --- | --- |
+| `from_id_all_12` | tie | tie | tie |
+| `from_id_large_1m` | 703.29 µs | 715.97 µs (+1.8%) | 657.44 µs (−6.5%) |
+
+`current` is +1.8%, inside the 3% floor. `current_unchecked` skips the
+`BaseVowelId::from_u8` range check that the new signature forces on a caller
+holding a raw `u8`; at −6.5% it is the only delta in this file that clears the
+floor, and it is the reason `from_u8_unchecked` is worth keeping. It is ~2x the
+floor, so treat it as suggestive, not settled.
+
+### `encode_vowel` / `to_char` — the only production caller
+
+| Group | `head` | `current` | `current_lookup` |
+| --- | --- | --- | --- |
+| `encode_vowel_1m` | 1553.90 µs | 1538.00 µs (−1.0%) | 1874.30 µs (+20.6%) |
+| `to_char_1m` | 1420.50 µs | 1379.10 µs (−2.9%) | — |
+
+`current` ties `head` in both: the refactor costs nothing on the path users
+actually hit. The `current_lookup` +20.6% is **not conclusive** — per run it is
+2382.9 / 1874.3 / 1942.7 µs against `head`'s 1607.4 / 2192.8 / 1553.9 µs, so it
+loses twice and wins once, and identical code varies 41% across runs in this
+group. It needs a quiet machine with the governor pinned to resolve.
+
+### Conclusion
+
+1. **`u8` → `BaseVowelId` is free.** The strongest evidence is negative and it
+   is consistent: the `match` already compiled to a table load, and every
+   measurement of the new `id()` lands within the measured 3% noise floor.
+2. **The safety and the ergonomics are therefore free too** — the enum removes
+   the out-of-range `usize` that `from_id` used to take, at no measured cost.
+3. **`id_lookup()` should not ship as the default.** It matches the `match` in
+   `large_1m` and is the slower candidate in the one group where the table is
+   actually on the hot path. It is also a hand-maintained 23-entry table whose
+   failure mode is silent — the exact argument already recorded above for
+   deleting `ID_BY_ROOT_SHAPE`.
+4. **Keep `BaseVowelId::from_u8_unchecked`.** It is the only measurable win in
+   the refactor and it is exactly the operation a caller with a `BaseVowelId` in
+   hand no longer needs to perform.
+

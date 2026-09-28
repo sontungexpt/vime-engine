@@ -35,7 +35,7 @@
 use std::collections::HashSet;
 
 use vime_engine::phonology::{
-    decode_vowel, encode_vowel, is_vowel, BaseVowel, RootVowel, Shape, Tone, Vowel,
+    decode_vowel, encode_vowel, is_vowel, BaseVowel, BaseVowelId, RootVowel, Shape, Tone, Vowel,
 };
 
 /// Root letters in declaration order.
@@ -302,39 +302,22 @@ fn every_root_is_represented_by_at_least_one_base_vowel() {
 
 /// Pins the exact `id()` values, which the rest of this file only derives
 /// positionally from `BASES`.
-///
-/// There used to be two ids: a build-dependent `id()` (a `popcnt`/`match` pair
-/// selected by `cfg`) and a stable `priority_id()`, with `Ord` tracking the
-/// latter. All three are now one function — `Ord` is `self.id().cmp(&other.id())`
-/// — so there is no second source left to drift. The values still need pinning,
-/// because the id order is a published contract that everything else keys off:
-///
-/// * it is **not** the packed-value order (`encode` is `(root << 2) | shape`,
-///   so `UHorn` is 7 on the wire but 6 here),
-/// * it is **not** the enum declaration order,
-/// * `from_id` is a hand-written table that must be its exact inverse, and
-/// * `tone_placement`'s `v > best` fallback picks its representative through
-///   `Ord`, so `Ord` has to mean this order and not the packed one.
-///
-/// Pinning it literally means a future edit to `id`, `from_id`, `Ord`, or the
-/// layout comment fails here rather than silently renumbering every lookup
-/// table.
 #[test]
 fn base_vowel_id_table_is_pinned() {
     // (vowel, id) in tone-placement priority order.
-    const EXPECTED: &[(BaseVowel, u8)] = &[
-        (BaseVowel::Y, 0),
-        (BaseVowel::U, 1),
-        (BaseVowel::I, 2),
-        (BaseVowel::E, 3),
-        (BaseVowel::O, 4),
-        (BaseVowel::A, 5),
-        (BaseVowel::UHorn, 6),
-        (BaseVowel::ACircumflex, 7),
-        (BaseVowel::OCircumflex, 8),
-        (BaseVowel::ABreve, 9),
-        (BaseVowel::ECircumflex, 10),
-        (BaseVowel::OHorn, 11),
+    const EXPECTED: &[(BaseVowel, BaseVowelId)] = &[
+        (BaseVowel::Y, BaseVowelId::Y),
+        (BaseVowel::U, BaseVowelId::U),
+        (BaseVowel::I, BaseVowelId::I),
+        (BaseVowel::E, BaseVowelId::E),
+        (BaseVowel::O, BaseVowelId::O),
+        (BaseVowel::A, BaseVowelId::A),
+        (BaseVowel::UHorn, BaseVowelId::UHorn),
+        (BaseVowel::ACircumflex, BaseVowelId::ACircumflex),
+        (BaseVowel::OCircumflex, BaseVowelId::OCircumflex),
+        (BaseVowel::ABreve, BaseVowelId::ABreve),
+        (BaseVowel::ECircumflex, BaseVowelId::ECircumflex),
+        (BaseVowel::OHorn, BaseVowelId::OHorn),
     ];
 
     assert_eq!(
@@ -347,19 +330,19 @@ fn base_vowel_id_table_is_pinned() {
         assert_eq!(
             vowel.id(),
             want,
-            "{vowel:?} has id {} but this test pins {want}",
+            "{vowel:?} has id {:?} but this test pins {want:?}",
             vowel.id()
         );
         assert_eq!(
-            BaseVowel::from_id(want as usize),
+            BaseVowel::from_id(want),
             Some(vowel),
-            "from_id({want}) must return {vowel:?}"
+            "from_id({want:?}) must return {vowel:?}"
         );
     }
 
     // The id is not the packed value: closed vowels encode low but rank high.
     assert_ne!(
-        BaseVowel::UHorn.id(),
+        BaseVowel::UHorn.id() as u8,
         BaseVowel::UHorn as u8,
         "id must not be the packed discriminant"
     );
@@ -373,7 +356,7 @@ fn base_vowel_id_table_is_pinned() {
     // contract if every id is claimed exactly once.
     let mut seen = [false; BASE_COUNT];
     for &vowel in BASES {
-        let id = vowel.id() as usize;
+        let id = vowel.id() as u8 as usize;
         assert!(id < BASE_COUNT, "{vowel:?} has out-of-range id {id}");
         assert!(!seen[id], "id {id} is claimed by more than one vowel");
         seen[id] = true;
@@ -383,9 +366,9 @@ fn base_vowel_id_table_is_pinned() {
         "some id in 0..{BASE_COUNT} is unused"
     );
 
-    // Out of range on both ends.
-    assert!(BaseVowel::from_id(BASE_COUNT).is_none());
-    assert!(BaseVowel::from_id(usize::MAX).is_none());
+    // Out of range IDs are handled by BaseVowelId::from_u8.
+    assert!(BaseVowelId::from_u8(BASE_COUNT as u8).is_none());
+    assert!(BaseVowelId::from_u8(u8::MAX).is_none());
 
     // `Ord` must agree with `id` for every pair, not just adjacent ones in
     // `BASES`: `tone_placement` compares vowels pairwise, so a disagreement
@@ -415,7 +398,7 @@ fn root_shape_table_matches_the_allowed_vowels() {
         );
 
         if let Some(base) = expected {
-            let id = base.id() as usize;
+            let id = base.id();
             assert_eq!(
                 BaseVowel::from_id(id),
                 Some(base),
@@ -617,6 +600,64 @@ fn vowel_uses_the_documented_bit_layout() {
         assert_eq!(bits & 1, upper as u16, "case field mismatch");
         assert_eq!(bits >> 9, 0, "reserved bits must stay zero for {base:?}");
     });
+}
+
+/// base().id() must track the base vowel through every mutation, and
+/// equality must ignore it.
+#[test]
+fn base_id_tracks_the_base_and_is_ignored_by_equality() {
+    for &base in BASES {
+        for &other in BASES {
+            if base == other {
+                continue;
+            }
+
+            // Every mutator that can change the base.
+            let v = Vowel::lower(base, Tone::Acute);
+            assert_eq!(v.base().id(), base.id(), "new() for {base:?}");
+
+            let mut w = v;
+            w.set_base(other);
+            assert_eq!(w.base().id(), other.id(), "set_base for {other:?}");
+            assert_eq!(w.base(), other, "set_base did not change the base");
+
+            assert_eq!(
+                v.with_base(other).base().id(),
+                other.id(),
+                "with_base for {other:?}"
+            );
+            assert_eq!(
+                v.without_shape().base().id(),
+                base.remove_shape().id(),
+                "without_shape for {base:?}"
+            );
+            assert_eq!(
+                v.without_tone().base().id(),
+                base.id(),
+                "tone/case changes must not change the base id"
+            );
+            assert_eq!(
+                v.with_upper(true).base().id(),
+                base.id(),
+                "case changes must not change the base id"
+            );
+        }
+    }
+
+    // `to_char` renders from the base, so a base that ever disagreed with
+    // the encoded value would produce the wrong character. Covered over every base here
+    // so the release build is exercised too, not just the debug-only check.
+    for &base in BASES {
+        for &tone in TONES {
+            for upper in CASES {
+                let v = Vowel::new(base, tone, upper);
+                assert_eq!(v.to_char(), encode_vowel(base.id(), tone, upper));
+                let mut w = v;
+                w.set_base(base);
+                assert_eq!(w.to_char(), encode_vowel(base.id(), tone, upper));
+            }
+        }
+    }
 }
 
 /// The base field is 5 bits because that is all a `BaseVowel` needs.
@@ -888,7 +929,7 @@ fn encode_decode_is_bijective() {
 fn free_functions_agree_with_the_vowel_methods() {
     each_vowel(|base, tone, upper| {
         let vowel = Vowel::new(base, tone, upper);
-        let ch = encode_vowel(base, tone, upper);
+        let ch = encode_vowel(base.id(), tone, upper);
 
         assert_eq!(ch, vowel.to_char());
         assert_eq!(decode_vowel(ch), Some(vowel));
@@ -1139,14 +1180,14 @@ fn ordering_follows_priority_not_packed_value() {
             if i < j {
                 assert!(
                     a < b,
-                    "{a:?} must sort before {b:?} (ids {} vs {})",
+                    "{a:?} must sort before {b:?} (ids {:?} vs {:?})",
                     a.id(),
                     b.id()
                 );
             } else if i > j {
                 assert!(
                     b < a,
-                    "{b:?} must sort before {a:?} (ids {} vs {})",
+                    "{b:?} must sort before {a:?} (ids {:?} vs {:?})",
                     b.id(),
                     a.id()
                 );
@@ -1162,4 +1203,96 @@ fn ordering_follows_priority_not_packed_value() {
     // `max` is what the fallback reaches for.
     assert_eq!(BASES.iter().copied().max(), Some(BaseVowel::OHorn));
     assert_eq!(BASES.iter().copied().min(), Some(BaseVowel::Y));
+}
+
+// ───────────────────────────────── BaseVowelId ──────────────────────────
+
+#[test]
+fn base_vowel_id_count_is_correct() {
+    assert_eq!(BaseVowelId::COUNT, 12);
+}
+
+#[test]
+fn base_vowel_id_discriminants_are_dense() {
+    let mut seen = [false; BaseVowelId::COUNT];
+    for &vowel in BASES {
+        let id = vowel.id();
+        let raw = id as u8 as usize;
+        assert!(raw < BaseVowelId::COUNT, "{vowel:?} id out of range");
+        assert!(!seen[raw], "id {raw} is duplicated");
+        seen[raw] = true;
+    }
+    assert!(seen.iter().all(|&s| s), "some ids are unused");
+}
+
+#[test]
+fn base_vowel_id_from_u8_returns_correct_variants() {
+    for &vowel in BASES {
+        let id = vowel.id();
+        assert_eq!(BaseVowelId::from_u8(id as u8), Some(id));
+    }
+}
+
+#[test]
+fn base_vowel_id_from_u8_returns_none_for_out_of_bounds() {
+    assert!(BaseVowelId::from_u8(BaseVowelId::COUNT as u8).is_none());
+    assert!(BaseVowelId::from_u8(u8::MAX).is_none());
+}
+
+#[test]
+fn base_vowel_id_from_u8_unchecked_is_safe_for_valid_ids() {
+    for &vowel in BASES {
+        let id = vowel.id();
+        let reconstructed = unsafe { BaseVowelId::from_u8_unchecked(id as u8) };
+        assert_eq!(reconstructed, id);
+    }
+}
+
+#[test]
+fn base_vowel_id_from_u8_is_inverse_of_id() {
+    for vowel in BASES {
+        let id = vowel.id();
+        assert_eq!(BaseVowelId::from_u8(id as u8), Some(id));
+    }
+}
+
+#[test]
+fn base_vowel_id_from_u8_unchecked_is_unsafe() {
+    // Safety: the caller must guarantee id < COUNT. This test verifies
+    // that the function exists and is callable for valid IDs.
+    for i in 0..BaseVowelId::COUNT as u8 {
+        let id = unsafe { BaseVowelId::from_u8_unchecked(i) };
+        assert_eq!(BaseVowelId::from_u8(i), Some(id));
+    }
+}
+
+#[test]
+fn base_vowel_id_ordering_matches_discriminant_order() {
+    let ids: Vec<BaseVowelId> = BASES.iter().copied().map(|b| b.id()).collect();
+    let mut sorted = ids.clone();
+    sorted.sort();
+    assert_eq!(sorted, ids);
+
+    for pair in ids.windows(2) {
+        assert!(pair[0] < pair[1]);
+    }
+
+    assert_eq!(ids.iter().copied().max(), Some(BaseVowelId::OHorn));
+    assert_eq!(ids.iter().copied().min(), Some(BaseVowelId::Y));
+}
+
+#[test]
+fn base_vowel_id_from_id_round_trips() {
+    for &vowel in BASES {
+        let id = vowel.id();
+        assert_eq!(BaseVowel::from_id(id), Some(vowel));
+    }
+}
+
+#[test]
+fn base_vowel_id_as_u8_round_trips() {
+    for &vowel in BASES {
+        let id = vowel.id();
+        assert_eq!(id as u8, id as u8);
+    }
 }

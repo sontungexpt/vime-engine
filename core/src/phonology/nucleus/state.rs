@@ -20,13 +20,13 @@ pub enum NucleusState {
     InComplete,
 }
 
-macro_rules! states {
+macro_rules! state_match {
     // ============================================================
     // Public entry point
     // ============================================================
 
     ($vowels:ident; $($rules:tt)*) => {
-        states! {
+        state_match! {
             @collect
             $vowels
             []
@@ -47,7 +47,7 @@ macro_rules! states {
         [] => $state:ident,
         $($rest:tt)*
     ) => {
-        states! {
+        state_match! {
             @collect
             $vowels
             [$($two)*]
@@ -68,7 +68,7 @@ macro_rules! states {
         [$a:ident] => $state:ident,
         $($rest:tt)*
     ) => {
-        states! {
+        state_match! {
             @collect
             $vowels
             [$($two)*]
@@ -89,7 +89,7 @@ macro_rules! states {
         [$a:ident, $b:ident] => $state:ident,
         $($rest:tt)*
     ) => {
-        states! {
+        state_match! {
             @collect
             $vowels
             [
@@ -113,7 +113,7 @@ macro_rules! states {
         [$a:ident, $b:ident, $c:ident] => $state:ident,
         $($rest:tt)*
     ) => {
-        states! {
+        state_match! {
             @collect
             $vowels
             [$($two)*]
@@ -175,6 +175,14 @@ impl NucleusState {
         matches!(self, Self::Dead)
     }
 
+    pub fn is_incomplete(self) -> bool {
+        matches!(self, Self::InComplete)
+    }
+
+    pub fn is_valid(self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
     /// Looks up the state of a vowel nucleus.
     ///
     /// This is the canonical entry point and matches the caller's slice
@@ -190,7 +198,7 @@ impl NucleusState {
 
         // The table below is flat; the macro buckets it by arity, so this
         // expands to `match vowels.len()` with one inner match per length.
-        states! {
+        state_match! {
             vowels;
 
             [] => InComplete,

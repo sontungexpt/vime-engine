@@ -173,6 +173,9 @@ impl BuildingSyllable {
     where
         V: PhonotacticValidator,
     {
+        if self.nucleus_state.is_incomplete() {
+            return Err(PhonotacticError::IncompleteNucleus);
+        }
         validator.validate(self.onset_kind, &self.nucleus, self.coda_kind, self.tone)
     }
 

@@ -10,4 +10,6 @@ pub use coda::{Coda, CodaParseError};
 pub use nucleus::{NucleusState, NucleusView, TonePlacement, NUCLEUS_MAX_LEN};
 pub use onset::{Onset, OnsetParseError};
 pub use phonotactics::{DefaultPhonotacticValidator, PhonotacticValidator, PhonotacticError};
-pub use vowel::{decode_vowel, encode_vowel, is_vowel, BaseVowel, RootVowel, Shape, Tone, Vowel};
+pub use vowel::{
+    decode_vowel, encode_vowel, is_vowel, BaseVowel, BaseVowelId, RootVowel, Shape, Tone, Vowel,
+};
