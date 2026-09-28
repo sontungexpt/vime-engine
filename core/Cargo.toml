@@ -16,10 +16,6 @@ name = "bench_apply_uo_horn"
 harness = false
 
 [[bench]]
-name = "bench_vowel_layout"
-harness = false
-
-[[bench]]
 name = "bench_base_vowel_from_root"
 harness = false
 
@@ -37,10 +33,6 @@ harness = false
 
 [[bench]]
 name = "bench_inline_vec"
-harness = false
-
-[[bench]]
-name = "bench_from_id"
 harness = false
 
 [[bench]]
@@ -76,43 +68,11 @@ name = "bench_vowels_uo"
 harness = false
 
 [[bench]]
-name = "bench_cased_base_vowel"
-harness = false
-
-[[bench]]
-name = "bench_decode_ascii"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_merged"
-harness = false
-
-[[bench]]
 name = "bench_base_vowel_id"
 harness = false
 
 [[bench]]
 name = "bench_base_vowel_id_versions"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_id_production"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_from_parts"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_constructors"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_versions"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_option_lut"
 harness = false
 
 [[bench]]
