@@ -12,14 +12,6 @@ arrayvec = "0.7"
 criterion = "0.8.2"
 
 [[bench]]
-name = "bench_apply_uo_horn"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_from_root"
-harness = false
-
-[[bench]]
 name = "bench_coda"
 harness = false
 
@@ -40,15 +32,7 @@ name = "bench_has_key"
 harness = false
 
 [[bench]]
-name = "bench_is_ascii"
-harness = false
-
-[[bench]]
 name = "bench_keylookup"
-harness = false
-
-[[bench]]
-name = "bench_normalize_uo"
 harness = false
 
 [[bench]]
@@ -56,25 +40,6 @@ name = "bench_nucleus_state"
 harness = false
 
 [[bench]]
-name = "bench_nucleus_state_versions"
-harness = false
-
-[[bench]]
 name = "bench_onset"
 harness = false
 
-[[bench]]
-name = "bench_vowels_uo"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_id"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_id_versions"
-harness = false
-
-[[bench]]
-name = "bench_base_vowel_remove_shape"
-harness = false
