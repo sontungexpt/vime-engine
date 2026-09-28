@@ -1,3 +1,4 @@
+use std::fmt;
 use vime_engine::{Key, KeyEvent, KeyStates};
 
 use crate::types::{VimeKey, VimeKeyEvent};
