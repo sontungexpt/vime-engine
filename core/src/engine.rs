@@ -196,6 +196,7 @@ impl Engine<DefaultKeymap<'static>> {
         Self::new(config, DefaultKeymap::vni())
     }
 
+    /// Creates a VIQR engine with the given configuration.
     #[inline]
     pub fn viqr(config: Config) -> Self {
         Self::new(config, DefaultKeymap::viqr())
