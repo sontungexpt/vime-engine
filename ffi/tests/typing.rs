@@ -13,7 +13,7 @@ fn telex_word_and_commit() {
 
     let out = engine.commit();
     assert_eq!(out.action, VimeAction::Commit);
-    assert_eq!(engine.committed().as_deref(), Some("việt"));
+    assert_eq!(out.commit.as_deref(), Some("việt"));
     // Committing clears the word.
     assert_eq!(
         engine.process(key_event(VimeKey::Enter)).action,

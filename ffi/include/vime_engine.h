@@ -54,7 +54,11 @@ typedef enum VimeTonePlacement {
  * Discrete key codes. Values match the engine's internal Key enum.
  */
 typedef enum VimeKey {
-    VIME_KEY_NONE      = 0,
+    /* The event carries a character, in VimeKeyEvent::character. The core
+     * Key::Character holds a char, which a flat struct cannot, so this
+     * variant is payload-free and the character travels beside it. Every
+     * other variant is a discrete key with no character. */
+    VIME_KEY_CHARACTER = 0,
     VIME_KEY_BACKSPACE = 1,
     VIME_KEY_DELETE    = 2,
     VIME_KEY_LEFT      = 3,
@@ -91,9 +95,15 @@ typedef struct VimeKeyEvent {
 typedef struct VimeOutput {
     /* high-level action for the frontend state machine */
     VimeAction action;
-    /* text to commit (UTF-8), NULL if none; owned by the
-     * handle, valid until the next call on
-     * the same handle or vime_destroy */
+    /* Text to commit (UTF-8, NUL-terminated), or NULL if there is none.
+     *
+     * This is the only way to obtain the commit text: it is set when
+     * `action` is VIME_ACTION_COMMIT and NULL for every other action, so
+     * there is no separate accessor to call and no window in which a
+     * frontend can read a stale commit.
+     *
+     * Owned by the handle, valid until the next call that changes the state
+     * on the same handle, or vime_destroy. Do not free it. */
     const char *commit;
 } VimeOutput;
 
@@ -146,19 +156,6 @@ bool vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_pl
  * changes the state, or vime_destroy. Do not free it.
  */
 const char *vime_parsed(VimeEngineHandle *engine);
-
-/**
- * Returns the text to commit (UTF-8, NUL-terminated) that the last
- * VIME_ACTION_COMMIT produced, or NULL if nothing is pending.
- *
- * Committing happens while processing a key, so this only *reports* the text
- * that processing produced; it never commits anything itself. Any other action
- * clears the pending commit, so read it immediately after VIME_ACTION_COMMIT.
- *
- * The pointer is owned by the handle and stays valid until the next call that
- * changes the state, or vime_destroy. Do not free it.
- */
-const char *vime_committed(VimeEngineHandle *engine);
 
 /** Resets the engine buffer state. */
 VimeOutput vime_reset(VimeEngineHandle *engine);

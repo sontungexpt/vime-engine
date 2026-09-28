@@ -59,7 +59,7 @@ fn tone_placement_discriminants() {
 
 #[test]
 fn key_discriminants() {
-    assert_eq!(VimeKey::None as u32, 0);
+    assert_eq!(VimeKey::Character as u32, 0);
     assert_eq!(VimeKey::Backspace as u32, 1);
     assert_eq!(VimeKey::Delete as u32, 2);
     assert_eq!(VimeKey::Left as u32, 3);

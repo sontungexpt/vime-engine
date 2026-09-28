@@ -16,7 +16,7 @@ use vime_engine::{DefaultKeymap, Engine, Result};
 /// - **Staleness is explicit.** [`Self::invalidate`] marks the contents stale
 ///   without freeing them, and only a fresh buffer may be read.
 struct CText {
-    /// The UTF-8 bytes followed by one NUL. Empty means "nothing to report".
+    /// The UTF-8 bytes followed by one NUL. The NUL is always the last element.
     bytes: Vec<u8>,
     /// Whether `bytes` still describes the engine's current state.
     fresh: bool,
@@ -51,6 +51,12 @@ impl CText {
     }
 
     /// The C string view, or NULL when the buffer holds nothing.
+    ///
+    /// A rendered-but-empty word is one NUL byte, so it reads as a valid empty
+    /// string rather than NULL. That is deliberate: NULL means "there is no
+    /// buffer to read" (a cleared or never-set field), while `""` means "the
+    /// word is empty", which a frontend must act on by clearing its preedit.
+    /// Collapsing the two would leave a stale preedit on screen.
     ///
     /// Only call on a fresh buffer, or the caller will read text from before
     /// the last state change.
@@ -125,17 +131,6 @@ impl VimeEngineHandle {
         self.parsed.ptr()
     }
 
-    /// The text to commit, as a NUL-terminated UTF-8 string owned by this
-    /// handle, or NULL when there is nothing pending.
-    ///
-    /// Non-empty only after an action of
-    /// [`VimeAction::Commit`]: committing happens as part of processing the
-    /// key, so this reports the text that key produced rather than producing
-    /// any itself. Cleared by the next state change, as with the word.
-    pub(crate) fn committed_ptr(&self) -> *const c_char {
-        self.committed.ptr()
-    }
-
     /// Builds a `VimeOutput` view whose text lives in buffers owned by this
     /// handle. Any previously returned pointers become invalidated by this call.
     ///
@@ -201,8 +196,13 @@ impl TryFrom<VimeTonePlacement> for TonePlacement {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VimeKey {
+    /// The event carries a character, in [`VimeKeyEvent::character`].
+    ///
+    /// The core enum's `Key::Character(char)` holds a `char`, which a flat C
+    /// struct cannot, so this variant is payload-free and the character travels
+    /// beside it. Every other variant is a discrete key with no character.
     #[default]
-    None = 0,
+    Character = 0,
     Backspace = 1,
     Delete = 2,
     Left = 3,

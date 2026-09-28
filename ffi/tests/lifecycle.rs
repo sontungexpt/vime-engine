@@ -73,7 +73,7 @@ fn switch_then_commit_uses_new_placement() {
     engine.set_tone_placement(VimeTonePlacement::Old);
     let committed = engine.commit();
     assert_eq!(committed.action, VimeAction::Commit);
-    assert_eq!(engine.committed().as_deref(), Some("hóa"));
+    assert_eq!(committed.commit.as_deref(), Some("hóa"));
 }
 
 #[test]

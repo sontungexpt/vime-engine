@@ -8,13 +8,28 @@ pub enum KeyEventConversionError {
     InvalidKey(u32),
 }
 
+impl fmt::Display for KeyEventConversionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidUnicodeCharacter(code) => {
+                write!(f, "invalid Unicode scalar value: {code:#06X}")
+            }
+            Self::InvalidKey(raw) => {
+                write!(f, "invalid VimeKey discriminant: {raw}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for KeyEventConversionError {}
+
 impl TryFrom<VimeKeyEvent> for KeyEvent {
     type Error = KeyEventConversionError;
 
     #[inline]
     fn try_from(event: VimeKeyEvent) -> std::result::Result<Self, Self::Error> {
         let key = match event.key {
-            VimeKey::None => char::from_u32(event.character).map(Key::Character).ok_or(
+            VimeKey::Character => char::from_u32(event.character).map(Key::Character).ok_or(
                 KeyEventConversionError::InvalidUnicodeCharacter(event.character),
             )?,
             VimeKey::Backspace => Key::Backspace,
@@ -50,7 +65,7 @@ mod tests {
 
     #[test]
     fn converts_character_key() {
-        let event = event(VimeKey::None, 'v' as u32, 0);
+        let event = event(VimeKey::Character, 'v' as u32, 0);
 
         let result = KeyEvent::try_from(event).unwrap();
 
@@ -99,7 +114,8 @@ mod tests {
         ];
 
         for (state, vime_bit) in cases {
-            let result = KeyEvent::try_from(event(VimeKey::None, 'v' as u32, vime_bit)).unwrap();
+            let result =
+                KeyEvent::try_from(event(VimeKey::Character, 'v' as u32, vime_bit)).unwrap();
             assert!(result.states.contains(state), "missing bit {vime_bit:#x}");
         }
     }
@@ -107,20 +123,20 @@ mod tests {
     #[test]
     fn preserves_combined_states() {
         let vime_bits = (1u32 << 0) | (1u32 << 3); // CTRL | SUPER
-        let result = KeyEvent::try_from(event(VimeKey::None, 'v' as u32, vime_bits)).unwrap();
+        let result = KeyEvent::try_from(event(VimeKey::Character, 'v' as u32, vime_bits)).unwrap();
         assert!(result.states.contains(KeyStates::CTRL));
         assert!(result.states.contains(KeyStates::SUPER));
     }
 
     #[test]
     fn keeps_unknown_state_bits() {
-        let result = KeyEvent::try_from(event(VimeKey::None, 'v' as u32, 0xFFFF)).unwrap();
+        let result = KeyEvent::try_from(event(VimeKey::Character, 'v' as u32, 0xFFFF)).unwrap();
         assert_eq!(result.states.bits(), 0xFFFF);
     }
 
     #[test]
     fn rejects_invalid_unicode_character() {
-        let event = event(VimeKey::None, 0x11_0000, 0);
+        let event = event(VimeKey::Character, 0x11_0000, 0);
 
         assert_eq!(
             KeyEvent::try_from(event),

@@ -30,7 +30,7 @@ pub struct Engine(*mut VimeEngineHandle);
 /// Builds a character key event (no modifiers, no special key).
 pub fn char_event(ch: char) -> VimeKeyEvent {
     VimeKeyEvent {
-        key: VimeKey::None,
+        key: VimeKey::Character,
         character: ch as u32,
         states: 0,
     }
@@ -118,24 +118,12 @@ impl Engine {
     }
 
     /// Presses Enter and returns the text it committed, if any.
-    pub fn commit_and_read(&mut self) -> Option<String> {
-        self.commit();
-        self.committed()
-    }
-
-    /// The text the last `VIME_ACTION_COMMIT` produced, read on demand.
     ///
-    /// Committing happens while processing a key; this only reports the result,
-    /// so it never changes engine state.
-    pub fn committed(&mut self) -> Option<String> {
-        // SAFETY: `self.0` is live.
-        let ptr = unsafe { vime::vime_committed(self.0) };
-        if ptr.is_null() {
-            None
-        } else {
-            // SAFETY: non-null and NUL-terminated, owned by the handle.
-            Some(unsafe { CStr::from_ptr(ptr) }.to_str().unwrap().to_string())
-        }
+    /// The commit text arrives in the `VimeOutput` that `Enter` produced, so
+    /// there is no second call to make and no chance of reading a commit that
+    /// a later key has already cleared.
+    pub fn commit_and_read(&mut self) -> Option<String> {
+        self.commit().commit
     }
 
     /// Resets the buffer, returning the new (usually empty) word.

@@ -27,12 +27,10 @@ fn null_handle_is_safe_everywhere() {
         // The lazy word accessor must be NULL-safe too.
         assert!(vime::vime_parsed(ptr::null_mut()).is_null());
 
-        assert!(vime::vime_committed(ptr::null_mut()).is_null());
-
         let key = vime::vime_process_key(
             ptr::null_mut(),
             VimeKeyEvent {
-                key: VimeKey::None,
+                key: VimeKey::Character,
                 character: 'a' as u32,
                 states: 0,
             },
@@ -55,7 +53,7 @@ fn null_handle_is_safe_everywhere() {
 fn invalid_unicode_character_is_rejected() {
     let mut engine = Engine::create().unwrap();
     let out = engine.process(VimeKeyEvent {
-        key: VimeKey::None,
+        key: VimeKey::Character,
         character: 0x11_0000, // beyond the valid Unicode range
         states: 0,
     });
@@ -76,7 +74,7 @@ fn modifier_states_do_not_crash() {
     let mut engine = Engine::create().unwrap();
     for states in [0, 1, 2, 4, 8, 16, 32, 64, 128, 0xFF] {
         let out = engine.process(VimeKeyEvent {
-            key: VimeKey::None,
+            key: VimeKey::Character,
             character: 'v' as u32,
             states,
         });

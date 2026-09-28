@@ -5,11 +5,15 @@
 //!
 //! - **A NULL handle is never a crash.** Every entry point checks and returns a
 //!   neutral value: an empty [`VimeOutput`], a NULL string, or `false`.
-//! - **Text is read separately from the action that announces it.** A call that
-//!   changes state returns only an action; the frontend then asks
-//!   [`vime_parsed`] or [`vime_committed`] for the text it actually wants. The
-//!   word is rendered on that first read, so a frontend that never displays
-//!   it never pays for it.
+//! - **The word is read separately from the action that announces it.** A call
+//!   that changes state returns only an action; the frontend then asks
+//!   [`vime_parsed`] for the text it actually wants. The word is rendered on
+//!   that first read, so a frontend that never displays it never pays for it.
+//! - **The commit text rides along with its action.** Unlike the word, it is
+//!   already final when the key that produced it is processed, so it comes back
+//!   in [`VimeOutput::commit`] on `VIME_ACTION_COMMIT` and is NULL otherwise.
+//!   There is no accessor to call and no window in which a stale commit could
+//!   be read.
 
 use std::ffi::c_char;
 use std::ptr;
@@ -124,26 +128,6 @@ pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> VimeOutput
 pub unsafe extern "C" fn vime_parsed(engine: *mut VimeEngineHandle) -> *const c_char {
     let engine = handle_or!(engine, ptr::null());
     engine.parsed_ptr()
-}
-
-/// Returns the text to commit, as produced by the last `VIME_ACTION_COMMIT`.
-///
-/// Committing happens while processing the key, so this only *reports* the text
-/// that processing produced; it never commits anything itself. Returns NULL
-/// when nothing is pending — notably after any other action, which clears the
-/// pending commit.
-///
-/// The returned pointer is owned by the handle and is invalidated by the next
-/// call that changes the state, or by `vime_destroy`. Do not free it.
-///
-/// # Safety
-///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`] that has not been passed to [`vime_destroy`].
-#[no_mangle]
-pub unsafe extern "C" fn vime_committed(engine: *mut VimeEngineHandle) -> *const c_char {
-    let engine = handle_or!(engine, ptr::null());
-    engine.committed_ptr()
 }
 
 /// Processes a key event and reports what the frontend should do about it.
