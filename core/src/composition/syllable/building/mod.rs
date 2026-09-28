@@ -225,7 +225,7 @@ impl BuildingSyllable {
             return true;
         }
 
-        let state = NucleusState::check(&self.nucleus);
+        let state = self.nucleus.state();
 
         if state.is_dead() {
             rollback(&mut self.nucleus, undo_data);

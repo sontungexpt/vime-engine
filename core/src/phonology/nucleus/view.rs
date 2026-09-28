@@ -7,7 +7,7 @@
 //! [`BaseVowel`]s, as [`Vowel`]s (which pack the base vowel together with tone
 //! and case), or in the syllable builder's inline `Nucleus` buffer.
 
-use crate::phonology::{BaseVowel, Vowel};
+use crate::phonology::{nucleus::state::check_nucleus_state, BaseVowel, NucleusState, Vowel};
 
 /// A sequence of base vowels that can be inspected positionally.
 pub trait NucleusView {
@@ -24,6 +24,15 @@ pub trait NucleusView {
     /// method. Implementations may omit bounds checking based on this
     /// invariant.
     unsafe fn at(&self, index: usize) -> BaseVowel;
+
+    /// Returns the current validation state of the nucleus.
+    ///
+    /// Implementations with a cached state can override this method to return
+    /// the cached value directly without recomputing the nucleus state.
+    #[inline(always)]
+    fn state(&self) -> NucleusState {
+        check_nucleus_state(self)
+    }
 }
 
 impl NucleusView for [BaseVowel] {
