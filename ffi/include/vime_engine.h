@@ -30,6 +30,7 @@ typedef enum VimeAction {
     VIME_ACTION_NOOP           = 1, /* key consumed; nothing visibly changed     */
     VIME_ACTION_UPDATE_PREEDIT = 2, /* preedit updated; refresh the window       */
     VIME_ACTION_COMMIT         = 3, /* text committed; clear preedit, insert it  */
+    VIME_ACTION_CURSOR_MOVED   = 4, /* caret moved; preedit text unchanged      */
 } VimeAction;
 
 /**

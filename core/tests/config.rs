@@ -1,5 +1,6 @@
 //! Engine construction: tone-placement init and live updates.
 
+use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, Engine, Key, KeyEvent, KeyStates};
 
@@ -25,11 +26,10 @@ fn engine_defaults_to_modern_tone_placement() {
 }
 
 #[test]
-fn with_tone_placement_selects_old_at_construction() {
-    let mut engine = Engine::with_tone_placement(
+fn with_context_selects_old_at_construction() {
+    let mut engine = Engine::with_context(
         Config::default(),
-        vime_engine::DefaultKeymap::telex(),
-        TonePlacement::Old,
+        SyllableContext::new(vime_engine::DefaultKeymap::telex(), TonePlacement::Old),
     );
     assert_eq!(type_str(&mut engine, "hoas"), OLD_HOA);
 }
@@ -51,4 +51,77 @@ fn convenience_constructors_build_telex_and_vni() {
 
     let mut vni = Engine::vni(Config::default());
     assert_eq!(type_str(&mut vni, "hoa1"), MODERN_HOA);
+}
+
+// ─────────────────────────── Caret movement ───────────────────────────
+
+/// Presses a non-character key and reports what the engine did with it.
+fn press(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, key: Key) -> vime_engine::Result {
+    engine.process_key(KeyEvent {
+        key,
+        states: KeyStates::empty(),
+    })
+}
+
+/// The caret predicates decide whether a move is consumed or forwarded, so
+/// their boundary conditions are what the frontend contract rests on: the
+/// caret is always either movable left or movable right, and never both, and
+/// `can_move_right` goes false only once the caret is at the very end.
+#[test]
+fn caret_predicates_track_the_raw_buffer() {
+    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
+
+    // An empty buffer has nowhere to go in either direction.
+    type_str(&mut engine, "toa");
+    // Type "toa": the caret sits after the final character.
+    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
+    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
+    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
+
+    // Caret now at position 0: further left is forwarded, not consumed.
+    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::Forward);
+
+    // And back to the end, where right is forwarded.
+    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::CursorMoved);
+    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::CursorMoved);
+    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::CursorMoved);
+    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::Forward);
+}
+
+/// Moving the caret must not alter the rendered text, and resetting must put
+/// the caret back to the start.
+#[test]
+fn caret_moves_leave_the_render_unchanged() {
+    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
+    type_str(&mut engine, "hoas");
+    let before = engine.rendered();
+
+    for key in [Key::Left, Key::Left, Key::Right] {
+        engine.process_key(KeyEvent {
+            key,
+            states: KeyStates::empty(),
+        });
+    }
+    assert_eq!(engine.rendered(), before);
+
+    // After a reset the buffer is empty, so there is nowhere to move.
+    engine.reset();
+    assert_eq!(engine.rendered(), "");
+}
+
+/// Left at position 0 is forwarded, right at the end is forwarded, and both are
+/// consumed from inside the buffer.
+#[test]
+fn arrow_keys_are_forwarded_at_the_buffer_edges() {
+    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
+    type_str(&mut engine, "toa");
+
+    // Right at the end: forwarded.
+    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::Forward);
+
+    // Walk to the start, where left is forwarded.
+    for _ in 0..3 {
+        assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
+    }
+    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::Forward);
 }

@@ -1,6 +1,7 @@
 use std::ptr;
 
 use vime_engine::phonology::TonePlacement;
+use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::{Config, DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;
@@ -25,21 +26,19 @@ pub extern "C" fn vime_create_with(
     method: VimeInputMethod,
     tone_placement: VimeTonePlacement,
 ) -> *mut VimeEngineHandle {
+    let tone_placement = tone_placement.into();
     let engine = match method {
-        VimeInputMethod::Telex => Engine::with_tone_placement(
+        VimeInputMethod::Telex => Engine::with_context(
             Config::default(),
-            DefaultKeymap::telex(),
-            tone_placement.into(),
+            SyllableContext::new(DefaultKeymap::telex(), tone_placement),
         ),
-        VimeInputMethod::Vni => Engine::with_tone_placement(
+        VimeInputMethod::Vni => Engine::with_context(
             Config::default(),
-            DefaultKeymap::vni(),
-            tone_placement.into(),
+            SyllableContext::new(DefaultKeymap::vni(), tone_placement),
         ),
-        VimeInputMethod::Viqr => Engine::with_tone_placement(
+        VimeInputMethod::Viqr => Engine::with_context(
             Config::default(),
-            DefaultKeymap::viqr(),
-            tone_placement.into(),
+            SyllableContext::new(DefaultKeymap::viqr(), tone_placement),
         ),
         #[allow(unreachable_patterns)]
         _ => return ptr::null_mut(),

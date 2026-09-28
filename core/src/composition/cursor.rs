@@ -60,8 +60,9 @@ impl Cursor {
 
     /// Moves the cursor one position to the left (saturates at 0).
     #[inline(always)]
-    pub const fn move_left(&mut self) {
+    pub const fn move_left(&mut self) -> usize {
         self.0 = self.0.saturating_sub(1);
+        self.0
     }
 
     /// Moves the cursor one position to the right, bounded by `len`.
@@ -69,10 +70,11 @@ impl Cursor {
     /// A no-op once the cursor has reached `len`, so this never moves past the
     /// end of the sequence.
     #[inline(always)]
-    pub const fn move_right(&mut self, len: usize) {
+    pub const fn move_right(&mut self, len: usize) -> usize {
         if self.0 < len {
             self.0 += 1;
         }
+        self.0
     }
 
     /// Moves the cursor one position to the right, skipping the bound check
@@ -86,14 +88,16 @@ impl Cursor {
     /// cursor already sat at `len`; every later [`Self::get`] is then an
     /// out-of-bounds slice index.
     #[inline(always)]
-    pub const unsafe fn move_right_unchecked(&mut self) {
+    pub const unsafe fn move_right_unchecked(&mut self) -> usize {
         self.0 += 1;
+        self.0
     }
 
     /// Moves the cursor to the beginning (position 0).
     #[inline(always)]
-    pub const fn move_to_start(&mut self) {
+    pub const fn move_to_start(&mut self) -> usize {
         self.0 = 0;
+        self.0
     }
 
     /// Moves the cursor to the end of a sequence (`len`).
@@ -101,8 +105,9 @@ impl Cursor {
     /// `len` is taken on trust, so the result is only in bounds if it is the
     /// length of the sequence this cursor indexes.
     #[inline(always)]
-    pub const fn move_to_end(&mut self, len: usize) {
+    pub const fn move_to_end(&mut self, len: usize) -> usize {
         self.0 = len;
+        self.0
     }
 
     /// Returns whether the cursor is at the start (position 0).

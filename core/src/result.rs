@@ -7,6 +7,8 @@ pub enum Result {
     /// A word was finalized; the string must be committed to the
     /// application and the input buffer cleared.
     Commit(String),
+    /// The caret position changed, but the rendered text did not.
+    CursorMoved,
     /// The input was consumed but produced no visible change.
     Noop,
     /// The input was not consumed; frontends should pass the key through.

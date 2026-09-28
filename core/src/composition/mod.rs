@@ -4,26 +4,32 @@ pub mod syllable;
 pub use cursor::Cursor;
 
 use crate::{
-    composition::syllable::{InputEffect, SyllableBuilder},
+    composition::syllable::{InputEffect, SyllableBuilder, SyllableContext},
     keymap::Keymap,
     phonology::TonePlacement,
 };
 
-/// Incremental syllable parser driven by a [`Keymap`].
+/// Incremental syllable composition driven by a [`Keymap`].
 ///
-/// Holds the keystrokes exactly as typed (`raw`) alongside the parsed
-/// [`SyllableBuilder`] syllable, each with its own cursor. The two buffers are
-/// deliberately allowed to differ in length: a transform key collapses one
-/// syllable character out of two keystrokes (`a` + `w` → `ă`), and once the
-/// parse has died every later keystroke is recorded as rejected without being
-/// parsed at all. Hence two cursors rather than one.
+/// Keeps the user's raw keystrokes alongside the parsed [`SyllableBuilder`].
+/// The two buffers may have different lengths because input transformations
+/// can collapse multiple keystrokes into a single parsed character
+/// (`a` + `w` → `ă`), while a dead syllable preserves subsequent input
+/// verbatim.
 ///
-/// `len` and `cursor` describe the raw buffer, which is what an
-/// `empty`/`Forward` decision is judged on; [`Self::rendered`] reports the
-/// parsed syllable.
+/// Each buffer has its own cursor because raw and parsed positions are not
+/// necessarily one-to-one.
+///
+/// The raw buffer is authoritative for composition emptiness and for deciding
+/// whether editing or navigation can be handled by the IME. The parsed buffer
+/// is authoritative for rendered output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Composition<KM: Keymap> {
-    raw_input: Vec<char>,
+    raw: Vec<char>,
+
+    // Kept separately because raw and parsed positions are not necessarily
+    // one-to-one. Most editing/navigation decisions use `parsed_cursor`;
+    // `raw_cursor` is used to modify the raw keystroke buffer.
     raw_cursor: Cursor,
 
     parsed: SyllableBuilder<KM>,
@@ -31,161 +37,184 @@ pub struct Composition<KM: Keymap> {
 }
 
 impl<KM: Keymap> Composition<KM> {
-    // ------------------------------------------------------------- constructor
+    // --------------------------------------------------------- constructor
 
-    /// Creates a parser wrapping an already-constructed [`SyllableBuilder`],
-    /// which supplies the keymap, the tone-placement scheme and the initial
-    /// empty syllable state. Both buffers start empty with their cursors at
-    /// position 0.
+    /// Creates an empty composition from an already-constructed
+    /// [`SyllableBuilder`].
+    ///
+    /// The builder supplies the keymap, tone-placement scheme and initial
+    /// parser state. Both buffers and both cursors start empty at position 0.
     #[inline(always)]
     pub fn new(syllable_builder: SyllableBuilder<KM>) -> Self {
         Self {
-            raw_input: Vec::new(),
+            raw: Vec::new(),
             raw_cursor: Cursor::zero(),
             parsed: syllable_builder,
             parsed_cursor: Cursor::zero(),
         }
     }
 
-    // ---------------------------------------------------------------- keymap
+    // --------------------------------------------------------------- context
 
-    /// Swaps the active keymap without touching the buffered composition.
+    /// Replaces the parse context without modifying the buffered composition
+    /// or either cursor.
+    ///
+    /// The new keymap and tone-placement scheme are used by subsequent parsing
+    /// and rendering.
+    #[inline]
+    pub fn set_context(&mut self, context: SyllableContext<KM>) {
+        self.parsed.set_context(context);
+    }
+
+    /// Replaces the active keymap without modifying the buffered composition.
     #[inline]
     pub fn set_keymap(&mut self, keymap: KM) {
         self.parsed.set_keymap(keymap);
     }
 
-    // --------------------------------------------------------- tone placement
-
-    /// Replaces the tone-placement scheme without touching the buffered
-    /// composition; pending vowels are re-rendered under the new scheme.
+    /// Replaces the tone-placement scheme without modifying the buffered
+    /// composition. The existing parsed syllable is rendered using the new
+    /// scheme.
     #[inline]
     pub fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
         self.parsed.set_tone_placement(tone_placement);
     }
 
-    // --------------------------------------------------------------- state
+    // ------------------------------------------------------------ state
 
-    /// Resets the composition to its initial empty state: the raw buffer and
-    /// both cursors are cleared, and the syllable returns to a fresh, empty
-    /// building buffer, discarding any dead fallback.
+    /// Resets the composition to an empty building state.
     ///
-    /// The keymap and tone-placement scheme are left alone — they are
-    /// configuration rather than buffered input.
+    /// The raw buffer, parsed state and both cursors are cleared. The parse
+    /// context is preserved because it is configuration rather than input
+    /// state.
     #[inline]
     pub fn reset(&mut self) {
-        self.raw_input.clear();
+        self.raw.clear();
         self.raw_cursor.reset();
 
         self.parsed.reset();
         self.parsed_cursor.reset();
     }
 
-    /// Whether the raw input buffer holds no characters.
+    /// Returns `true` when no raw keystrokes are buffered.
     #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
-        self.raw_input.is_empty()
+    pub fn is_empty(&self) -> bool {
+        self.raw.is_empty()
     }
 
-    /// The number of buffered characters (from the raw input buffer).
-    #[inline(always)]
-    pub(crate) const fn len(&self) -> usize {
-        self.raw_input.len()
-    }
+    // --------------------------------------------------------- cursor move
 
-    /// The current 0-based caret position within the raw input buffer.
-    #[inline(always)]
-    pub(crate) const fn cursor(&self) -> usize {
-        self.raw_cursor.get()
-    }
-
-    // ------------------------------------------------------------ cursor move
-
-    /// Moves both cursors one position to the left, saturating at position 0.
+    /// Returns `true` if the cursor can move one position to the left.
     ///
-    /// The two cursors move independently of each other's buffer length, so
-    /// they are clamped by their own `Cursor::move_left` rather than against
-    /// either buffer.
+    /// This checks the parsed cursor because navigation follows the parsed
+    /// composition rather than the raw keystroke count.
+    #[inline(always)]
+    pub fn can_move_left(&self) -> bool {
+        !self.parsed_cursor.is_at_start()
+    }
+
+    /// Returns `true` if the cursor can move one position to the right.
+    ///
+    /// This checks the parsed cursor against the parsed buffer length because
+    /// the parsed and raw buffers may contain different numbers of characters.
+    #[inline(always)]
+    pub fn can_move_right(&self) -> bool {
+        !self.parsed_cursor.is_at_end(self.parsed.len())
+    }
+
+    /// Moves both cursors one position to the left.
+    ///
+    /// Each cursor is clamped independently at position 0 because the raw and
+    /// parsed buffers may have different lengths.
     #[inline]
     pub fn move_left(&mut self) {
         self.raw_cursor.move_left();
         self.parsed_cursor.move_left();
     }
 
-    /// Moves both cursors one position to the right, each bounded by its own
-    /// buffer length, so either may stop earlier than the other.
+    /// Moves both cursors one position to the right.
+    ///
+    /// Each cursor is bounded by its own buffer length because raw and parsed
+    /// positions are not necessarily one-to-one.
     #[inline]
     pub fn move_right(&mut self) {
-        self.raw_cursor.move_right(self.raw_input.len());
+        self.raw_cursor.move_right(self.raw.len());
         self.parsed_cursor.move_right(self.parsed.len());
     }
 
-    // ------------------------------------------------------------- mutation
+    // ----------------------------------------------------------- mutation
 
-    /// Inserts `input` at the raw cursor and mirrors it into the syllable.
+    /// Inserts `input` at the current cursor position.
     ///
-    /// A transform key (`a` + `w` → `ă`) is consumed by the syllable without
-    /// becoming a new character, so only [`InputEffect::StructurallyChanged`]
-    /// advances the syllable cursor.
+    /// The raw buffer always gains one character. The parsed buffer may either
+    /// gain a character or consume the input as a transformation, so the
+    /// parsed cursor advances only for [`InputEffect::StructurallyChanged`].
     pub fn insert(&mut self, input: char) {
-        self.raw_input.insert(self.raw_cursor.get(), input);
-        self.raw_cursor.move_right(self.raw_input.len());
+        self.raw.insert(self.raw_cursor.get(), input);
+
+        // Safe: insertion always increases the raw buffer length by one, so
+        // advancing the cursor by one stays within the new bounds.
+        unsafe {
+            self.raw_cursor.move_right_unchecked();
+        }
 
         match self.parsed.insert(self.parsed_cursor.get(), input) {
             InputEffect::StructurallyChanged => {
-                self.parsed_cursor.move_right(self.parsed.len());
+                // Safe: a structural insertion increases the parsed buffer
+                // length by one, making the next cursor position valid.
+                unsafe {
+                    self.parsed_cursor.move_right_unchecked();
+                }
             }
             InputEffect::Transformed => {}
         }
     }
 
-    /// Deletes the character before each cursor, moving both cursors one
-    /// position left.
+    /// Removes the character immediately before each cursor.
     ///
-    /// # Panics / silent misbehaviour
-    ///
-    /// Requires both cursors to sit strictly inside their buffers. Checking the
-    /// raw buffer for emptiness is *not* enough: [`Cursor::move_left`] saturates
-    /// at position 0, so a cursor already at the start leaves its index at 0 and
-    /// the removal then deletes the first character instead of doing nothing.
-    /// Undo a transform key (`ă` ← `a` + `w`) by deleting the syllable
-    /// character, not the keystroke that produced it.
-    #[inline]
-    pub fn backspace(&mut self) {
-        self.raw_cursor.move_left();
-        self.raw_input.remove(self.raw_cursor.get());
-
-        self.parsed_cursor.move_left();
-        match self.parsed.remove(self.parsed_cursor.get()) {
-            InputEffect::StructurallyChanged => {}
-            InputEffect::Transformed => {}
-        }
-    }
-
-    /// Deletes the character at each cursor, leaving both cursors where they
-    /// are. The syllable cursor does not move, since the character that
-    /// followed the cursor is the one going away.
+    /// The raw buffer removes one keystroke, while the parsed buffer removes
+    /// the corresponding parsed character. A transformed input may therefore
+    /// affect the parsed buffer differently from the raw buffer.
     ///
     /// # Panics
     ///
-    /// Panics if either cursor sits at the end of its buffer, where the
-    /// removal index is out of bounds. The raw cursor is at the end whenever the
-    /// caret is at the tail of the input, so a caller must check the raw
-    /// `cursor` against the raw `len` first.
+    /// Panics if either cursor is already at the beginning of its buffer.
+    /// Callers should check the appropriate cursor before calling this method.
+    #[inline]
+    pub fn backspace(&mut self) {
+        self.raw.remove(self.raw_cursor.move_left());
+
+        match self.parsed.remove(self.parsed_cursor.move_left()) {
+            InputEffect::StructurallyChanged => {}
+            InputEffect::Transformed => {}
+        }
+    }
+
+    /// Removes the character at each cursor without moving either cursor.
+    ///
+    /// The character immediately following the cursor is removed, so the
+    /// cursor remains at the same position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either cursor is at the end of its buffer.
     #[inline]
     pub fn delete(&mut self) {
-        self.raw_input.remove(self.raw_cursor.get());
+        self.raw.remove(self.raw_cursor.get());
+
         match self.parsed.remove(self.parsed_cursor.get()) {
             InputEffect::StructurallyChanged => {}
             InputEffect::Transformed => {}
         }
     }
 
-    // -------------------------------------------------------------- rendering
+    // ----------------------------------------------------------- rendering
 
-    /// Renders the parsed syllable as Vietnamese characters: the precomposed
-    /// form while building, or the dead buffer's verbatim contents once the
-    /// parse has failed.
+    /// Renders the current parsed composition.
+    ///
+    /// While the syllable is valid, rendering produces its Vietnamese form.
+    /// Once parsing enters the dead state, rendering preserves the dead
+    /// buffer's characters verbatim.
     #[inline]
     pub fn rendered(&self) -> String {
         let mut output = String::new();

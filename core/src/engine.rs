@@ -24,19 +24,16 @@ impl<KM: Keymap> Engine<KM> {
     /// modern tone-placement convention.
     #[inline]
     pub fn new(config: Config, keymap: KM) -> Self {
-        Self::with_tone_placement(config, keymap, TonePlacement::Modern)
+        Self::with_context(config, SyllableContext::new(keymap, TonePlacement::Modern))
     }
 
-    /// Creates an engine with the given configuration, `keymap` and
-    /// `tone_placement`.
+    /// Creates an engine with the given configuration and parse `context`,
+    /// which supplies the keymap and the tone-placement scheme.
     #[inline]
-    pub fn with_tone_placement(config: Config, keymap: KM, tone_placement: TonePlacement) -> Self {
+    pub fn with_context(config: Config, context: SyllableContext<KM>) -> Self {
         Self {
             config,
-            composition: Composition::new(SyllableBuilder::new(SyllableContext::new(
-                keymap,
-                tone_placement,
-            ))),
+            composition: Composition::new(SyllableBuilder::new(context)),
         }
     }
 
@@ -53,6 +50,14 @@ impl<KM: Keymap> Engine<KM> {
     #[inline]
     pub fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
         self.composition.set_tone_placement(tone_placement);
+    }
+
+    /// Switches the active keymap, resetting the composition to its initial
+    /// empty state.
+    #[inline]
+    pub fn set_keymap(&mut self, keymap: KM) {
+        self.composition.set_keymap(keymap);
+        self.composition.reset();
     }
 
     // --------------------------------------------------------------- state
@@ -129,7 +134,7 @@ impl<KM: Keymap> Engine<KM> {
 
     #[inline]
     fn delete(&mut self) -> Result {
-        if self.composition.cursor() >= self.composition.len() {
+        if !self.composition.can_move_right() {
             return Result::Forward;
         }
 
@@ -139,22 +144,22 @@ impl<KM: Keymap> Engine<KM> {
 
     #[inline]
     fn move_left(&mut self) -> Result {
-        if self.composition.cursor() == 0 {
+        if !self.composition.can_move_left() {
             return Result::Forward;
         }
 
         self.composition.move_left();
-        Result::Changed
+        Result::CursorMoved
     }
 
     #[inline]
     fn move_right(&mut self) -> Result {
-        if self.composition.cursor() >= self.composition.len() {
+        if !self.composition.can_move_right() {
             return Result::Forward;
         }
 
         self.composition.move_right();
-        Result::Changed
+        Result::CursorMoved
     }
 }
 
@@ -173,11 +178,8 @@ impl Engine<DefaultKeymap<'static>> {
         Self::new(config, DefaultKeymap::vni())
     }
 
-    /// Switches the active keymap, resetting the composition to its initial
-    /// empty state.
     #[inline]
-    pub fn set_keymap(&mut self, keymap: DefaultKeymap<'static>) {
-        self.composition.set_keymap(keymap);
-        self.composition.reset();
+    pub fn viqr(config: Config) -> Self {
+        Self::new(config, DefaultKeymap::viqr())
     }
 }

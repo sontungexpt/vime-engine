@@ -40,6 +40,7 @@ impl VimeEngineHandle {
                 self.commit = Some(CString::new(text).expect("committed text cannot contain NUL"));
                 VimeAction::Commit
             }
+            Result::CursorMoved => VimeAction::CursorMoved,
         };
 
         VimeOutput {
@@ -121,6 +122,9 @@ pub enum VimeAction {
     UpdatePreedit = 2,
     /// Text was committed; clear the preedit window and insert committed text.
     Commit = 3,
+    /// The caret moved within the preedit; the preedit text is unchanged, so
+    /// refresh the window only if the frontend tracks the caret.
+    CursorMoved = 4,
 }
 
 #[repr(C)]

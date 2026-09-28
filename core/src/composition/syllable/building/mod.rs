@@ -1,9 +1,15 @@
 //! The building-phase syllable: an incremental, validated Vietnamese syllable
-//! under construction. Editing paths live in sibling modules:
+//! under construction. The type and its editing paths live in sibling
+//! modules:
 //!
 //! * [`push`]: appending at the end,
 //! * [`insert`]: explicit-cursor insertion,
-//! * [`remove`]: deletion.
+//! * [`remove`]: deletion,
+//! * [`error`]: [`SyllableBuildError`], why an edit was rejected,
+//! * [`types`]: the buffer aliases, [`Nucleus`] / [`OnsetChars`] / [`CodaChars`].
+//!
+//! Every mutator validates as it goes, so a rejected edit is rolled back and
+//! the syllable keeps its previous contents.
 use crate::{
     keymap::Keymap,
     phonology::{
@@ -63,6 +69,7 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Accessors ───────────────────────────
 
+    /// Total rendered length: onset + vowels + coda.
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.onset.len() + self.nucleus.len() + self.coda.len()
@@ -106,6 +113,7 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Lifecycle ───────────────────────────
 
+    /// Returns the syllable to its empty state, dropping every part.
     #[inline]
     pub fn reset(&mut self) {
         self.onset_kind = Onset::None;
@@ -174,6 +182,17 @@ impl BuildingSyllable {
         output
     }
 
+    // ─────────────────────────── Validation ───────────────────────────
+
+    // The `try_update_*` methods below share one transactional shape: run the
+    // mutation, re-derive the cached state, and on failure hand the undo data
+    // to `rollback` so the part is left exactly as it was. Each returns whether
+    // the syllable is still valid afterwards.
+
+    /// Checks the syllable against `validator`.
+    ///
+    /// An incomplete nucleus fails before the validator is consulted, so a
+    /// half-typed syllable never reaches a phonotactic rule.
     pub fn validate<V>(&self, validator: V) -> Result<(), PhonotacticError>
     where
         V: PhonotacticValidator,
@@ -183,8 +202,6 @@ impl BuildingSyllable {
         }
         validator.validate(self.onset_kind, &self.nucleus, self.coda_kind, self.tone)
     }
-
-    // ─────────────────────────── Validation ───────────────────────────
 
     /// Mutates the onset; updates `onset_kind` on success, otherwise undoes
     /// the change with the undo data.
@@ -220,11 +237,13 @@ impl BuildingSyllable {
     {
         let undo_data = update(&mut self.nucleus);
 
-        // The syllable stores its tone once, separately from its nucleus.
+        // The syllable stores its tone once, separately from its nucleus, so
+        // every stored vowel is flattened here and the render re-applies it.
         for vowel in self.nucleus.iter_mut() {
             vowel.set_tone(Tone::Flat);
         }
 
+        // A single vowel is always a nucleus; there is nothing to check.
         if self.nucleus.len() < 2 {
             self.nucleus_state = NucleusState::Valid;
             return true;
@@ -310,7 +329,8 @@ impl BuildingSyllable {
     /// `uơ → ươ` and `ưo → ươ` are folded once at least two vowels are present.
     #[inline]
     fn normalize_uo_horn(&mut self) {
-        // Needs 2+ vowels with a coda, or 3+ vowels on their own.
+        // A bare `uo` is only normalized once it is unambiguously a nucleus:
+        // two vowels need a coda, three need nothing more.
         if self.nucleus.len() < 2 || (self.nucleus.len() < 3 && self.coda.is_empty()) {
             return;
         }
@@ -329,6 +349,8 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Transforms ───────────────────────────
 
+    /// Routes `key` to the transform it names: tone, vowel shape, or the
+    /// D-stroke, in that order.
     #[inline]
     fn try_transform<KM: Keymap>(
         &mut self,
@@ -336,7 +358,8 @@ impl BuildingSyllable {
         key: char,
         vowel_upper_bound_idx: Option<usize>,
     ) -> TransformResult {
-        // 1. Tone.
+        // 1. Tone. Only a key the keymap can decode counts; an undecodable
+        //    tone key falls through to the shape and stroke checks below.
         if keymap.is_tone_key(key) {
             if let Some(tone) = keymap.decode_tone(key) {
                 return self.apply_tone(tone);
@@ -399,6 +422,8 @@ impl BuildingSyllable {
         TransformResult::NotApplicable
     }
 
+    /// Applies the D-stroke when `key` is the stroke key, and reports
+    /// [`TransformResult::NotApplicable`] when it is not.
     #[inline]
     fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformResult {
         if keymap.is_stroke_key(key) {
@@ -427,7 +452,7 @@ impl BuildingSyllable {
             Onset::DStroke => {
                 debug_assert!(
                     matches!(self.onset[0], 'đ' | 'Đ'),
-                    "Onset state desync: onset_kind is D, but onset[0] is {:?}",
+                    "Onset state desync: onset_kind is DStroke, but onset[0] is {:?}",
                     self.onset[0]
                 );
 
