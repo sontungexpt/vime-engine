@@ -42,8 +42,15 @@ impl Coda {
         self as u8
     }
 
+    /// The `Coda` with this id, or `None` if `id` is out of range.
+    ///
+    /// The round trip `from_id(id())` is total, which is what the
+    /// `coda_discriminants_are_contiguous` test pins.
     #[inline(always)]
     pub const fn from_id(id: u8) -> Option<Self> {
+        // SAFETY: the variants above are declared contiguously from 0 to
+        // `COUNT - 1`, so every `id` the guard admits is a real discriminant.
+        // The test named above is what makes that true rather than assumed.
         if id < Self::COUNT as u8 {
             Some(unsafe { transmute(id as u8) })
         } else {

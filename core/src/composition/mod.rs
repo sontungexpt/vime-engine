@@ -152,7 +152,7 @@ impl<KM: Keymap> Composition<KM> {
     pub fn insert(&mut self, input: char) {
         self.raw.insert(self.raw_cursor.get(), input);
 
-        // Safe: insertion always increases the raw buffer length by one, so
+        // SAFETY: insertion always increases the raw buffer length by one, so
         // advancing the cursor by one stays within the new bounds.
         unsafe {
             self.raw_cursor.move_right_unchecked();
@@ -160,8 +160,10 @@ impl<KM: Keymap> Composition<KM> {
 
         match self.parsed.insert(self.parsed_cursor.get(), input) {
             InputEffect::StructurallyChanged => {
-                // Safe: a structural insertion increases the parsed buffer
-                // length by one, making the next cursor position valid.
+                // SAFETY: a structural insertion increases the parsed buffer
+                // length by one, making the next cursor position valid. A
+                // transformed key consumes the input without lengthening the
+                // buffer, which is why this arm is the only one that moves.
                 unsafe {
                     self.parsed_cursor.move_right_unchecked();
                 }

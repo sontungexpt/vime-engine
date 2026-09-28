@@ -140,7 +140,9 @@ impl BaseVowelId {
     /// than or equal to `Self::COUNT` produces an invalid enum variant, causing Undefined Behavior.
     #[inline(always)]
     pub const unsafe fn from_u8_unchecked(id: u8) -> Self {
-        std::mem::transmute(id)
+        // SAFETY: the caller guarantees `id < Self::COUNT`, which is the whole
+        // contract of this function, so re-establishing it here is a no-op.
+        unsafe { std::mem::transmute(id) }
     }
 
     /// Safely converts a raw `u8` ID into `Self`. Returns `None` if `id` is out of bounds.
@@ -831,6 +833,11 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
                 Vowel::lower(Y, Tilde),
             ];
             let offset = (code - 0x1EA0) as usize;
+            // SAFETY: the outer match admits only 0x1EA0..=0x1EF9, and the
+            // table is a contiguous `const` array, so `offset` is in bounds.
+            // Both bounds live in the same expression above, so widening one
+            // without the other would fail this arithmetic rather than the
+            // lookup.
             Some(unsafe { *DECODED_VIETNAMESE_BLOCK_LUT.as_ptr().add(offset) })
         }
 

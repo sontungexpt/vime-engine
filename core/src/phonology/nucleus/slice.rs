@@ -34,7 +34,8 @@ impl BaseVowelSlice for [BaseVowel] {
 
     #[inline(always)]
     unsafe fn at(&self, index: usize) -> BaseVowel {
-        *self.get_unchecked(index)
+        // SAFETY: the caller's contract is `index < self.len()`.
+        unsafe { *self.get_unchecked(index) }
     }
 }
 
@@ -46,7 +47,8 @@ impl BaseVowelSlice for [Vowel] {
 
     #[inline(always)]
     unsafe fn at(&self, index: usize) -> BaseVowel {
-        self.get_unchecked(index).base()
+        // SAFETY: the caller's contract is `index < self.len()`.
+        unsafe { self.get_unchecked(index).base() }
     }
 }
 
@@ -58,7 +60,8 @@ impl<const N: usize> BaseVowelSlice for [BaseVowel; N] {
 
     #[inline(always)]
     unsafe fn at(&self, index: usize) -> BaseVowel {
-        *self.get_unchecked(index)
+        // SAFETY: the caller's contract is `index < self.len()`.
+        unsafe { *self.get_unchecked(index) }
     }
 }
 
@@ -70,6 +73,7 @@ impl<const N: usize> BaseVowelSlice for [Vowel; N] {
 
     #[inline(always)]
     unsafe fn at(&self, index: usize) -> BaseVowel {
-        self.get_unchecked(index).base()
+        // SAFETY: the caller's contract is `index < self.len()`.
+        unsafe { self.get_unchecked(index).base() }
     }
 }

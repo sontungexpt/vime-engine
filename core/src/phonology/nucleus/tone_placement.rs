@@ -20,6 +20,19 @@ impl TonePlacement {
     /// position in the full syllable or a global vowel identifier.
     ///
     /// Returns `None` if the nucleus is empty (`vowels.len() == 0`).
+    ///
+    /// ## Why the `at` calls below are sound
+    ///
+    /// Every helper reaches a [`BaseVowelSlice::at`] through this dispatch:
+    /// `tone_index_2_*` is only reached on `len == 2`, `tone_index_3` only on
+    /// `len == 3`, and `tone_index_fallback` iterates `1..len`. Each index is
+    /// therefore below `len` at the point of the call, which is exactly that
+    /// method's safety contract. The `len` value is not re-read in between, and
+    /// the helpers take `&V`, so nothing can change it.
+    ///
+    /// The helpers are deliberately `#[inline(always)]` so that this
+    /// reasoning survives optimisation: the length check and the unchecked
+    /// reads fold together, and the check cannot be reordered after them.
     #[inline]
     pub fn vowel_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>
     where

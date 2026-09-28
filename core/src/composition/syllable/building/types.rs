@@ -11,7 +11,9 @@ impl BaseVowelSlice for Nucleus {
 
     #[inline(always)]
     unsafe fn at(&self, index: usize) -> BaseVowel {
-        self.get_unchecked(index).base()
+        // SAFETY: the caller's contract is `index < self.len()`; the nucleus
+        // is only indexed by indices the tone-placement dispatch admitted.
+        unsafe { self.get_unchecked(index).base() }
     }
 }
 

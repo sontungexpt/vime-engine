@@ -267,6 +267,8 @@ impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
 
         let orig_len = self.len;
         let space = N - orig_len;
+        // SAFETY: `len` never exceeds `N`, so `orig_len` addresses a slot
+        // inside the array, and the free space after it is exactly `space`.
         let start = unsafe { self.buf.as_mut_ptr().cast::<T>().add(orig_len) };
         let mut ptr = start;
 
@@ -283,12 +285,18 @@ impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
         while left > 0 {
             match iter.next() {
                 Some(value) => unsafe {
+                    // SAFETY: `left` counts down from `trusted <= space`, so at
+                    // most `space` writes land, filling exactly the free slots
+                    // past `orig_len`. No slot is written twice.
                     ptr.write(value);
                     ptr = ptr.add(1);
                 },
                 None => {
                     // The iterator produced fewer items than its hint promised;
                     // `ptr - start` already counts what was actually written.
+                    // SAFETY: both pointers address the same array and `ptr`
+                    // never precedes `start`, so the distance is non-negative
+                    // and at most `N`.
                     self.len = orig_len + unsafe { ptr.offset_from(start) } as usize;
                     return;
                 }
@@ -302,6 +310,9 @@ impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
             if space_left == 0 {
                 panic!("InlineVec overflow: cannot extend, capacity is {N}");
             }
+            // SAFETY: the `space_left == 0` guard above runs first, so this
+            // write targets a free slot and `space_left` counts down to zero
+            // exactly as the space runs out.
             unsafe {
                 ptr.write(value);
                 ptr = ptr.add(1);

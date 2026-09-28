@@ -21,6 +21,12 @@
 //! - [`Engine`]: the frontend-facing state machine, turning each [`KeyEvent`]
 //!   into a [`Result`] (re-render, commit, ignore or forward the key).
 
+// The `unsafe fn` bodies in this crate are `const fn`s whose safety contract
+// is a bounds precondition. Requiring an explicit `unsafe` block inside them
+// keeps the contract visible at the point of the read, rather than relying on
+// the implicit-unsafe that `unsafe fn` used to confer.
+#![deny(unsafe_op_in_unsafe_fn)]
+
 mod config;
 mod engine;
 mod event;
