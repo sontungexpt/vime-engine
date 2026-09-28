@@ -28,27 +28,6 @@ mod types;
 pub use error::SyllableBuildError;
 pub use types::*;
 
-#[inline(always)]
-const fn is_q_ignore_case(ch: char) -> bool {
-    matches!(ch, 'q' | 'Q')
-}
-
-#[inline(always)]
-const fn is_i_ignore_case(ch: char) -> bool {
-    matches!(ch, 'i' | 'I')
-}
-
-/// Effect of applying a transform key (shape/tone mark) to the syllable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TransformResult {
-    /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
-    Applied,
-    /// Undid an existing mark back to base (e.g. `ă` + `w` -> `a`).
-    Reverted,
-    /// The key cannot transform the current state; pass through as a literal char.
-    NotApplicable,
-}
-
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuildingSyllable {
@@ -62,6 +41,27 @@ pub struct BuildingSyllable {
     coda: CodaChars,
 
     tone: Tone,
+}
+
+/// Effect of applying a transform key (shape/tone mark) to the syllable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransformResult {
+    /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
+    Applied,
+    /// Undid an existing mark back to base (e.g. `ă` + `w` -> `a`).
+    Reverted,
+    /// The key cannot transform the current state; pass through as a literal char.
+    NotApplicable,
+}
+
+#[inline(always)]
+const fn is_q_ignore_case(ch: char) -> bool {
+    matches!(ch, 'q' | 'Q')
+}
+
+#[inline(always)]
+const fn is_i_ignore_case(ch: char) -> bool {
+    matches!(ch, 'i' | 'I')
 }
 
 impl BuildingSyllable {
@@ -139,8 +139,19 @@ impl BuildingSyllable {
     /// wanted as a value to keep.
     #[inline(always)]
     pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
-        output.extend(self.onset.iter().copied());
+        // Reserve up front. `String::extend` only reserves `size_hint().0`,
+        // which counts *chars*, while a Vietnamese vowel is up to 3 UTF-8
+        // bytes — so without this the destination can reallocate mid-nucleus.
+        let estimated_bytes = (self.onset.len() + self.nucleus.len() + self.coda.len()) * 3;
+        output.reserve(estimated_bytes);
 
+        // 1. Onset (contiguous chars)
+        for &c in self.onset.iter() {
+            output.push(c);
+        }
+
+        // 2. Vowels: the nucleus stores Flat tones; apply the syllable tone
+        // only while rendering the vowel selected by the placement rules.
         let tone_pos = self.tone_vowel_index(tone_placement);
         for (idx, vowel) in self.nucleus.iter().enumerate() {
             let tone = if Some(idx) == tone_pos {
@@ -151,7 +162,36 @@ impl BuildingSyllable {
             output.push(vowel.with_tone(tone).to_char());
         }
 
-        output.extend(self.coda.iter().copied());
+        // 3. Coda
+        for &c in self.coda.iter() {
+            output.push(c);
+        }
+    }
+
+    /// Yields the rendered characters, in the same order as [`Self::to_chars`],
+    /// onset, then the tone-marked vowels, then the coda.
+    ///
+    /// Needs no intermediate buffer, so it is the cheapest way to consume the
+    /// render. Prefer [`Self::write_to`] when the characters are only being
+    /// written somewhere, and `to_chars` when they are wanted as a value.
+    #[inline]
+    pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
+        let tone_pos = self.tone_vowel_index(tone_placement);
+
+        let onset_iter = self.onset.iter().copied();
+
+        let nucleus_iter = self.nucleus.iter().enumerate().map(move |(idx, vowel)| {
+            let tone = if Some(idx) == tone_pos {
+                self.tone
+            } else {
+                Tone::Flat
+            };
+            vowel.with_tone(tone).to_char()
+        });
+
+        let coda_iter = self.coda.iter().copied();
+
+        onset_iter.chain(nucleus_iter).chain(coda_iter)
     }
 
     /// Renders the syllable into an inline buffer: onset, then the tone-marked
@@ -286,6 +326,29 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Normalization ───────────────────────────
 
+    /// Normalizes an unmarked `u o` prefix that arrived without a shape key.
+    ///
+    /// `uơ → ươ` and `ưo → ươ` are folded once at least two vowels are present.
+    #[inline]
+    fn normalize_uo_horn(&mut self) {
+        // A bare `uo` is only normalized once it is unambiguously a nucleus:
+        // two vowels need a coda, three need nothing more.
+        if self.nucleus.len() < 2 || (self.nucleus.len() < 3 && self.coda.is_empty()) {
+            return;
+        }
+
+        use BaseVowel::*;
+        match (self.nucleus[0].base(), self.nucleus[1].base()) {
+            (U, OHorn) => {
+                self.nucleus[0].set_base(UHorn);
+            }
+            (UHorn, O) => {
+                self.nucleus[1].set_base(OHorn);
+            }
+            _ => {}
+        }
+    }
+
     // NOTE:
     // Kept commented out intentionally as a reference for the previous
     // `G + I + V <-> Gi + V` normalization strategy.
@@ -323,29 +386,6 @@ impl BuildingSyllable {
     //             .insert(0, Vowel::new(BaseVowel::I, Tone::Flat, i == 'I'));
     //     }
     // }
-
-    /// Normalizes an unmarked `u o` prefix that arrived without a shape key.
-    ///
-    /// `uơ → ươ` and `ưo → ươ` are folded once at least two vowels are present.
-    #[inline]
-    fn normalize_uo_horn(&mut self) {
-        // A bare `uo` is only normalized once it is unambiguously a nucleus:
-        // two vowels need a coda, three need nothing more.
-        if self.nucleus.len() < 2 || (self.nucleus.len() < 3 && self.coda.is_empty()) {
-            return;
-        }
-
-        use BaseVowel::*;
-        match (self.nucleus[0].base(), self.nucleus[1].base()) {
-            (U, OHorn) => {
-                self.nucleus[0].set_base(UHorn);
-            }
-            (UHorn, O) => {
-                self.nucleus[1].set_base(OHorn);
-            }
-            _ => {}
-        }
-    }
 
     // ─────────────────────────── Transforms ───────────────────────────
 
