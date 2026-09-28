@@ -20,7 +20,7 @@ use std::ptr;
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, DefaultKeymap, Engine, KeyEvent};
+use vime_engine::{DefaultKeymap, Engine, KeyEvent};
 
 pub mod convert;
 pub mod types;
@@ -95,11 +95,10 @@ pub extern "C" fn vime_create_with(
 ///
 /// # Safety
 ///
-/// `config` must be NULL or point to a readable [`VimeConfig`]. See
-/// [`VimeConfig`] for the versioning rules; a NULL pointer and a zeroed struct
-/// both mean "every default".
+/// `config` must be NULL or point to a readable [`VimeConfig`]. A NULL pointer
+/// means "every default".
 ///
-/// Returns NULL for an unknown input method or an invalid `config`.
+/// Returns NULL for an unknown input method.
 #[no_mangle]
 pub unsafe extern "C" fn vime_create_with_config(
     config: *const VimeConfig,
@@ -107,19 +106,15 @@ pub unsafe extern "C" fn vime_create_with_config(
     tone_placement: VimeTonePlacement,
 ) -> *mut VimeEngineHandle {
     // SAFETY: forwarded from this function's own contract.
-    let Some(_config) = (unsafe { VimeConfig::read(config) }) else {
-        return ptr::null_mut();
-    };
+    let config = unsafe { VimeConfig::read(config) };
     let (Some(keymap), Ok(tone_placement)) =
         (keymap_for(method), TonePlacement::try_from(tone_placement))
     else {
         return ptr::null_mut();
     };
     let engine = Engine::with_context(
-        // `Config` is empty today, so there is nothing to carry across yet.
-        // When it gains a field this is where `_config` starts being used, and
-        // the struct is built from the fields `struct_size` proved present.
-        Config::default(),
+        // The one place a C field becomes a `Config` field.
+        config.to_engine_config(),
         SyllableContext::new(keymap, tone_placement),
     );
     VimeEngineHandle::new(engine).into_raw()

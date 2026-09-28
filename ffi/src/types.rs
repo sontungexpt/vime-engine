@@ -1,5 +1,4 @@
 use std::ffi::c_char;
-use std::mem::size_of;
 use std::ptr;
 
 use vime_engine::phonology::TonePlacement;
@@ -25,77 +24,57 @@ struct CText {
 
 /// Engine settings, in the layout a C caller sees.
 ///
-/// The engine's own [`vime_engine::Config`] is currently empty: the only two
-/// settings that exist are the input method and the tone-placement scheme, and
-/// both already have their own entry points. This struct exists so that adding
-/// a third one does not mean a third ABI break.
+/// Each field mirrors one field of the engine's own [`vime_engine::Config`],
+/// so a frontend sets its behaviour without a bespoke call per setting. The
+/// input method and tone-placement scheme are not here: they are runtime
+/// choices with their own entry points.
 ///
-/// # Versioning
-///
-/// [`Self::struct_size`] is the size the caller compiled against. A library
-/// that gains a field appends it and does not change the leading fields, so an
-/// older caller still passes the smaller size and the library reads only the
-/// fields that were present. This is the same convention as `XkbGetRules` and
-/// `FcConfigSet`.
-///
-/// A zero size means "no configuration": every field takes its default. That is
-/// also what a NULL pointer means, so the two are interchangeable.
+/// The library and this header are installed together, so a caller cannot
+/// end up with a struct from one revision and a `libvime.so` from another.
+/// Adding a field is therefore a normal breaking change, handled the same way
+/// as any other edit to this file.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct VimeConfig {
-    /// `size_of(VimeConfig)` as the caller knows it. Zero selects every default.
-    pub struct_size: u32,
+    /// Restore English when the word is empty. Mirrors
+    /// [`vime_engine::Config::auto_restore_english`].
+    pub auto_restore_english: bool,
 }
 
-/// The revision this library was built with.
-///
-/// A `u32` field alone, so the struct is 4 bytes with no tail padding. Future
-/// fields are appended, and this constant becomes the size of the then-current
-/// revision; the header's `VIME_CONFIG_INIT` computes the same value with
-/// `sizeof`, and `config_layout` in `tests/abi.rs` pins the two together.
-const VIME_CONFIG_SIZE: u32 = size_of::<VimeConfig>() as u32;
+impl Default for VimeConfig {
+    /// Matches the engine's own default.
+    ///
+    /// Spelled out rather than derived, because a derived `Default` would give
+    /// `false` for the field while the engine defaults it to `true`, and the
+    /// two are converted into each other. `config_defaults_match_the_engine` in
+    /// `tests/safety.rs` pins them together.
+    fn default() -> Self {
+        Self {
+            auto_restore_english: vime_engine::Config::default().auto_restore_english,
+        }
+    }
+}
 
 impl VimeConfig {
-    /// The configuration a caller gets by passing NULL or a zeroed struct.
-    pub const fn default_config() -> Self {
-        Self { struct_size: 0 }
-    }
-
-    /// Reads the caller's fields, ignoring anything beyond `struct_size`.
-    ///
-    /// Returns `None` for a `struct_size` this library does not recognise:
-    /// either a layout from a future revision, or a plausible-looking value
-    /// that was never valid. Rejecting is the only safe answer, because
-    /// reading fields the caller did not set would read whatever is on its
-    /// stack.
-    ///
-    /// This is fallible rather than asserting on purpose: it is reached from an
-    /// `extern "C"` function, where a panic cannot unwind and the process would
-    /// abort. The entry point turns `None` into the NULL return the header
-    /// promises.
+    /// Reads the caller's fields.
     ///
     /// # Safety
     ///
     /// `config` must be NULL or point to a readable `VimeConfig`.
-    pub unsafe fn read(config: *const Self) -> Option<Self> {
-        // SAFETY: the caller guarantees the pointer is readable.
-        let Some(config) = (unsafe { config.as_ref() }) else {
-            // NULL means "no configuration", the same as a zeroed struct.
-            return Some(Self::default_config());
-        };
+    pub unsafe fn read(config: *const Self) -> Self {
+        // SAFETY: the caller guarantees the pointer is readable. A NULL config
+        // means "no configuration", the same as passing the default.
+        unsafe { config.as_ref() }.copied().unwrap_or_default()
+    }
 
-        // 0 means "no configuration", so every field takes its default.
-        if config.struct_size == 0 {
-            return Some(Self::default_config());
+    /// Converts to the engine's own configuration.
+    ///
+    /// One place decides what a C field means, so a frontend and the engine
+    /// cannot disagree about it.
+    pub fn to_engine_config(self) -> vime_engine::Config {
+        vime_engine::Config {
+            auto_restore_english: self.auto_restore_english,
         }
-        if config.struct_size < VIME_CONFIG_SIZE {
-            return None;
-        }
-
-        // No fields beyond the size yet, so there is nothing to copy out. When
-        // one is added it is read here, and only when `struct_size` proves the
-        // caller has it.
-        Some(Self::default_config())
     }
 }
 

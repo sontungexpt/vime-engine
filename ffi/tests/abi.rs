@@ -19,14 +19,13 @@ fn scalar_enum_widths() {
     assert_eq!(size_of::<VimeKey>(), 4);
 }
 
-/// The versioning contract only holds if the size is what the header's
-/// `VIME_CONFIG_INIT` computes, so the leading field must stay at offset 0 and
-/// the struct must not grow silently between the header and the backend.
+/// The header and the backend must agree on the struct, and the default must
+/// be the engine's rather than the C zero for a bool.
 #[test]
 fn config_layout() {
-    assert_eq!(size_of::<VimeConfig>(), 4, "VimeConfig must stay 4 bytes");
-    assert_eq!(align_of::<VimeConfig>(), 4);
-    assert_eq!(offset_of!(VimeConfig, struct_size), 0);
+    assert_eq!(size_of::<VimeConfig>(), 1, "VimeConfig is a single bool");
+    assert_eq!(align_of::<VimeConfig>(), 1);
+    assert_eq!(offset_of!(VimeConfig, auto_restore_english), 0);
 }
 
 #[test]

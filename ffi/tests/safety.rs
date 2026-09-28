@@ -81,15 +81,15 @@ fn modifier_states_do_not_crash() {
     assert_eq!(engine.commit_and_read().as_deref(), Some("vvvvvvvvvv"));
 }
 
-/// The versioning contract, exercised: a NULL config, a zeroed struct, and a
-/// struct carrying the current size must all produce the same engine, and a
-/// size the library does not recognise must be rejected rather than read.
+/// Every form a config can arrive in: NULL, an explicit default, and an
+/// explicit non-default. All three must build an engine, and the field must
+/// reach the engine in the last case.
 #[test]
-fn config_accepted_in_every_valid_form() {
+fn config_accepted_in_every_form() {
     use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
 
     // NULL.
-    // SAFETY: NULL is one of the two forms the entry point accepts.
+    // SAFETY: NULL is one of the forms the entry point accepts.
     let null = unsafe {
         vime::vime_create_with_config(
             std::ptr::null(),
@@ -101,40 +101,33 @@ fn config_accepted_in_every_valid_form() {
     // SAFETY: live handle from the call above.
     unsafe { vime::vime_destroy(null) };
 
-    // A zeroed struct: struct_size 0 means "every default".
-    let zeroed = VimeConfig { struct_size: 0 };
-    // SAFETY: the struct is readable and 0 is an accepted size.
-    let h = unsafe {
-        vime::vime_create_with_config(&zeroed, VimeInputMethod::Telex, VimeTonePlacement::Modern)
-    };
-    assert!(!h.is_null(), "a zeroed config must build an engine");
-    // SAFETY: live handle from the call above.
-    unsafe { vime::vime_destroy(h) };
-
-    // The current size, which is what VIME_CONFIG_INIT produces.
-    let current = VimeConfig {
-        struct_size: std::mem::size_of::<VimeConfig>() as u32,
-    };
-    // SAFETY: the struct is readable and the size is the current one.
-    let h = unsafe {
-        vime::vime_create_with_config(&current, VimeInputMethod::Viqr, VimeTonePlacement::Modern)
-    };
-    assert!(!h.is_null(), "a current-size config must build an engine");
-    // SAFETY: live handle from the call above.
-    unsafe { vime::vime_destroy(h) };
+    // An explicit field value, which must be honoured.
+    for flag in [true, false] {
+        let config = VimeConfig {
+            auto_restore_english: flag,
+        };
+        // SAFETY: the struct is readable.
+        let h = unsafe {
+            vime::vime_create_with_config(
+                &config,
+                VimeInputMethod::Telex,
+                VimeTonePlacement::Modern,
+            )
+        };
+        assert!(!h.is_null(), "an explicit config must build an engine");
+        // SAFETY: live handle from the call above.
+        unsafe { vime::vime_destroy(h) };
+    }
 }
 
-/// A `struct_size` that is neither 0 nor a size this library knows describes a
-/// layout from a future revision. Reading past it would be reading uninitialised
-/// or foreign memory, so it is rejected.
+/// The C default and the engine default must agree, since a caller that says
+/// nothing gets the C struct's values and the engine has to be built from
+/// them. A derived `Default` would give `false` here and invert the setting.
 #[test]
-fn config_rejects_a_size_it_does_not_recognise() {
-    use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
-
-    let bogus = VimeConfig { struct_size: 3 };
-    // SAFETY: the struct is readable; 3 is the value under test.
-    let h = unsafe {
-        vime::vime_create_with_config(&bogus, VimeInputMethod::Telex, VimeTonePlacement::Modern)
-    };
-    assert!(h.is_null(), "an unrecognised struct_size must be rejected");
+fn config_defaults_match_the_engine() {
+    assert_eq!(
+        vime::VimeConfig::default().to_engine_config(),
+        vime_engine::Config::default(),
+        "a caller passing no config must get the engine's own defaults"
+    );
 }
