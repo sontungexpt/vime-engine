@@ -26,7 +26,7 @@ pub mod convert;
 pub mod types;
 
 pub use types::{
-    VimeAction, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
+    VimeAction, VimeConfig, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
     VimeTonePlacement,
 };
 
@@ -58,24 +58,67 @@ fn keymap_for(method: VimeInputMethod) -> Option<DefaultKeymap<'static>> {
 }
 
 /// Creates a Telex engine with the default configuration.
+///
+/// Equivalent to `vime_create_with_config(NULL, VIME_INPUT_METHOD_TELEX,
+/// VIME_TONE_PLACEMENT_MODERN)`. The config argument is accepted even though
+/// it currently carries no fields, so that adding one does not change this
+/// signature.
 #[no_mangle]
 pub extern "C" fn vime_create() -> *mut VimeEngineHandle {
-    VimeEngineHandle::new(Engine::telex(Config::default())).into_raw()
+    // SAFETY: passes a NULL config, which is one of the two forms
+    // `vime_create_with_config` accepts and which takes no reading at all.
+    unsafe {
+        vime_create_with_config(
+            ptr::null(),
+            VimeInputMethod::Telex,
+            VimeTonePlacement::Modern,
+        )
+    }
 }
 
 /// Creates an engine for any built-in input method with the given
 /// tone-placement scheme. Returns NULL for an unknown input method.
+///
+/// The shorter form of [`vime_create_with_config`] for the common case, where
+/// every setting takes its default.
 #[no_mangle]
 pub extern "C" fn vime_create_with(
     method: VimeInputMethod,
     tone_placement: VimeTonePlacement,
 ) -> *mut VimeEngineHandle {
+    // SAFETY: as in `vime_create`, a NULL config is read by nobody.
+    unsafe { vime_create_with_config(ptr::null(), method, tone_placement) }
+}
+
+/// Creates an engine for any built-in input method with the given
+/// tone-placement scheme and settings.
+///
+/// # Safety
+///
+/// `config` must be NULL or point to a readable [`VimeConfig`]. See
+/// [`VimeConfig`] for the versioning rules; a NULL pointer and a zeroed struct
+/// both mean "every default".
+///
+/// Returns NULL for an unknown input method or an invalid `config`.
+#[no_mangle]
+pub unsafe extern "C" fn vime_create_with_config(
+    config: *const VimeConfig,
+    method: VimeInputMethod,
+    tone_placement: VimeTonePlacement,
+) -> *mut VimeEngineHandle {
+    // SAFETY: forwarded from this function's own contract.
+    let Some(_config) = (unsafe { VimeConfig::read(config) }) else {
+        return ptr::null_mut();
+    };
     let (Some(keymap), Ok(tone_placement)) =
         (keymap_for(method), TonePlacement::try_from(tone_placement))
     else {
         return ptr::null_mut();
     };
     let engine = Engine::with_context(
+        // `Config` is empty today, so there is nothing to carry across yet.
+        // When it gains a field this is where `_config` starts being used, and
+        // the struct is built from the fields `struct_size` proved present.
         Config::default(),
         SyllableContext::new(keymap, tone_placement),
     );

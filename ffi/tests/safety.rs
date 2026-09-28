@@ -80,3 +80,61 @@ fn modifier_states_do_not_crash() {
     }
     assert_eq!(engine.commit_and_read().as_deref(), Some("vvvvvvvvvv"));
 }
+
+/// The versioning contract, exercised: a NULL config, a zeroed struct, and a
+/// struct carrying the current size must all produce the same engine, and a
+/// size the library does not recognise must be rejected rather than read.
+#[test]
+fn config_accepted_in_every_valid_form() {
+    use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
+
+    // NULL.
+    // SAFETY: NULL is one of the two forms the entry point accepts.
+    let null = unsafe {
+        vime::vime_create_with_config(
+            std::ptr::null(),
+            VimeInputMethod::Vni,
+            VimeTonePlacement::Old,
+        )
+    };
+    assert!(!null.is_null(), "NULL config must build an engine");
+    // SAFETY: live handle from the call above.
+    unsafe { vime::vime_destroy(null) };
+
+    // A zeroed struct: struct_size 0 means "every default".
+    let zeroed = VimeConfig { struct_size: 0 };
+    // SAFETY: the struct is readable and 0 is an accepted size.
+    let h = unsafe {
+        vime::vime_create_with_config(&zeroed, VimeInputMethod::Telex, VimeTonePlacement::Modern)
+    };
+    assert!(!h.is_null(), "a zeroed config must build an engine");
+    // SAFETY: live handle from the call above.
+    unsafe { vime::vime_destroy(h) };
+
+    // The current size, which is what VIME_CONFIG_INIT produces.
+    let current = VimeConfig {
+        struct_size: std::mem::size_of::<VimeConfig>() as u32,
+    };
+    // SAFETY: the struct is readable and the size is the current one.
+    let h = unsafe {
+        vime::vime_create_with_config(&current, VimeInputMethod::Viqr, VimeTonePlacement::Modern)
+    };
+    assert!(!h.is_null(), "a current-size config must build an engine");
+    // SAFETY: live handle from the call above.
+    unsafe { vime::vime_destroy(h) };
+}
+
+/// A `struct_size` that is neither 0 nor a size this library knows describes a
+/// layout from a future revision. Reading past it would be reading uninitialised
+/// or foreign memory, so it is rejected.
+#[test]
+fn config_rejects_a_size_it_does_not_recognise() {
+    use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
+
+    let bogus = VimeConfig { struct_size: 3 };
+    // SAFETY: the struct is readable; 3 is the value under test.
+    let h = unsafe {
+        vime::vime_create_with_config(&bogus, VimeInputMethod::Telex, VimeTonePlacement::Modern)
+    };
+    assert!(h.is_null(), "an unrecognised struct_size must be rejected");
+}

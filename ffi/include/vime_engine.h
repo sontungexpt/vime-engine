@@ -111,11 +111,58 @@ typedef struct VimeOutput {
 /* Engine Lifecycle                                                          */
 /* ========================================================================= */
 
-/** Creates a new engine instance. Returns NULL on allocation failure. */
+/**
+ * Engine settings, in the layout a C caller sees.
+ *
+ * The engine's own configuration is currently empty: the only two settings
+ * that exist are the input method and the tone-placement scheme, and both
+ * already have their own entry points. This struct exists so that adding a
+ * third one does not mean another ABI break.
+ *
+ * ## Versioning
+ *
+ * struct_size is the size the caller compiled against. A library that gains a
+ * field appends it and does not change the leading fields, so an older caller
+ * still passes the smaller size and the library reads only the fields that
+ * were present. This is the same convention as XkbGetRules and FcConfigSet.
+ *
+ * A zero size means "no configuration": every field takes its default. That is
+ * also what a NULL pointer means, so the two are interchangeable.
+ *
+ * Initialise with VIME_CONFIG_INIT so a caller that sets no fields still
+ * passes a valid size.
+ */
+typedef struct VimeConfig {
+    /* sizeof(VimeConfig) as the caller knows it; 0 selects every default. */
+    uint32_t struct_size;
+    /* Fields are appended below in later revisions. Read one only after
+     * checking that struct_size covers it. */
+} VimeConfig;
+
+/* The value a caller must store in VimeConfig::struct_size. */
+#define VIME_CONFIG_INIT \
+    ((VimeConfig){ .struct_size = (uint32_t)sizeof(VimeConfig) })
+
+/** Creates a new Telex engine with the default configuration. */
 VimeEngineHandle *vime_create(void);
 
-/** Creates an engine for the given input method and tone-placement scheme. */
+/**
+ * Creates an engine for the given input method and tone-placement scheme,
+ * with every setting at its default.
+ */
 VimeEngineHandle *vime_create_with(VimeInputMethod method, VimeTonePlacement tone_placement);
+
+/**
+ * Creates an engine for the given input method, tone-placement scheme and
+ * settings.
+ *
+ * config may be NULL, which means every default; see VimeConfig for the
+ * versioning rules. Returns NULL for an unknown input method or a
+ * struct_size this library does not recognise.
+ */
+VimeEngineHandle *vime_create_with_config(const VimeConfig *config,
+                                          VimeInputMethod method,
+                                          VimeTonePlacement tone_placement);
 
 /** Destroys an engine instance and frees associated memory. */
 void vime_destroy(VimeEngineHandle *engine);

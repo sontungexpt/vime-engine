@@ -6,7 +6,9 @@
 
 use std::mem::{align_of, offset_of, size_of};
 
-use vime::{VimeAction, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput, VimeTonePlacement};
+use vime::{
+    VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput, VimeTonePlacement,
+};
 
 #[test]
 fn scalar_enum_widths() {
@@ -15,6 +17,16 @@ fn scalar_enum_widths() {
     assert_eq!(size_of::<VimeTonePlacement>(), 4);
     assert_eq!(size_of::<VimeKey>(), size_of::<u32>());
     assert_eq!(size_of::<VimeKey>(), 4);
+}
+
+/// The versioning contract only holds if the size is what the header's
+/// `VIME_CONFIG_INIT` computes, so the leading field must stay at offset 0 and
+/// the struct must not grow silently between the header and the backend.
+#[test]
+fn config_layout() {
+    assert_eq!(size_of::<VimeConfig>(), 4, "VimeConfig must stay 4 bytes");
+    assert_eq!(align_of::<VimeConfig>(), 4);
+    assert_eq!(offset_of!(VimeConfig, struct_size), 0);
 }
 
 #[test]
