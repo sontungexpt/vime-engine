@@ -22,11 +22,12 @@ fn null_handle_is_safe_everywhere() {
 
         let reset = vime::vime_reset(ptr::null_mut());
         assert_eq!(reset.action, VimeAction::Forward);
-        assert!(reset.rendered.is_null());
         assert!(reset.commit.is_null());
 
-        let commit = vime::vime_commit(ptr::null_mut());
-        assert_eq!(commit.action, VimeAction::Forward);
+        // The lazy preedit accessor must be NULL-safe too.
+        assert!(vime::vime_preedit(ptr::null_mut()).is_null());
+
+        assert!(vime::vime_committed(ptr::null_mut()).is_null());
 
         let key = vime::vime_process_key(
             ptr::null_mut(),
@@ -38,11 +39,15 @@ fn null_handle_is_safe_everywhere() {
         );
         assert_eq!(key.action, VimeAction::Forward);
 
-        let method = vime::vime_set_input_method(ptr::null_mut(), VimeInputMethod::Telex);
-        assert_eq!(method.action, VimeAction::Forward);
-
-        let tone = vime::vime_set_tone_placement(ptr::null_mut(), VimeTonePlacement::Modern);
-        assert_eq!(tone.action, VimeAction::Forward);
+        // The config setters report success, and a null handle is not success.
+        assert!(!vime::vime_set_input_method(
+            ptr::null_mut(),
+            VimeInputMethod::Telex
+        ));
+        assert!(!vime::vime_set_tone_placement(
+            ptr::null_mut(),
+            VimeTonePlacement::Modern
+        ));
     }
 }
 
@@ -63,7 +68,6 @@ fn invalid_unicode_character_is_rejected() {
 fn vime_output_default_is_forward() {
     let out = VimeOutput::default();
     assert_eq!(out.action, VimeAction::Forward);
-    assert!(out.rendered.is_null());
     assert!(out.commit.is_null());
 }
 
@@ -78,5 +82,5 @@ fn modifier_states_do_not_crash() {
         });
         assert_eq!(out.action, VimeAction::UpdatePreedit);
     }
-    assert_eq!(engine.commit().commit.as_deref(), Some("vvvvvvvvvv"));
+    assert_eq!(engine.commit_and_read().as_deref(), Some("vvvvvvvvvv"));
 }

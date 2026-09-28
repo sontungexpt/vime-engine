@@ -1,8 +1,11 @@
 //! Shared harness for the FFI integration tests.
 //!
 //! Wraps the C ABI in an RAII-friendly driver that copies out every piece of
-//! `VimeOutput` text immediately (pointers are invalidated by the next call on
-//! the same handle) and destroys the handle on drop.
+//! text immediately (pointers are invalidated by the next call on the same
+//! handle) and destroys the handle on drop.
+//!
+//! The preedit is fetched through `vime_preedit` only when the action says it
+//! changed, which is how a real frontend should use the lazy accessor.
 
 #![allow(dead_code)]
 
@@ -42,11 +45,19 @@ pub fn key_event(key: VimeKey) -> VimeKeyEvent {
     }
 }
 
-unsafe fn read_output(out: VimeOutput) -> Outcome {
-    let rendered = if out.rendered.is_null() {
-        None
-    } else {
-        Some(CStr::from_ptr(out.rendered).to_str().unwrap().to_string())
+unsafe fn read_output(handle: *mut VimeEngineHandle, out: VimeOutput) -> Outcome {
+    // The preedit is only rendered when the action says the text changed,
+    // mirroring how a frontend is meant to drive the lazy accessor.
+    let rendered = match out.action {
+        VimeAction::UpdatePreedit | VimeAction::CursorMoved => {
+            let ptr = vime::vime_preedit(handle);
+            if ptr.is_null() {
+                None
+            } else {
+                Some(CStr::from_ptr(ptr).to_str().unwrap().to_string())
+            }
+        }
+        _ => None,
     };
     let commit = if out.commit.is_null() {
         None
@@ -97,35 +108,82 @@ impl Engine {
         // SAFETY: `self.0` is the live handle owned by this struct.
         let out = unsafe { vime::vime_process_key(self.0, event) };
         // SAFETY: `out` is a plain-repr struct of pointers; copying is safe.
-        unsafe { read_output(out) }
+        unsafe { read_output(self.0, out) }
     }
 
-    /// Commits the buffer, returning the text (or `Forward` when empty).
+    /// Presses Enter, which is how a frontend commits: the key handler
+    /// produces the commit text and reports `VIME_ACTION_COMMIT`.
     pub fn commit(&mut self) -> Outcome {
+        self.process(key_event(VimeKey::Enter))
+    }
+
+    /// Presses Enter and returns the text it committed, if any.
+    pub fn commit_and_read(&mut self) -> Option<String> {
+        self.commit();
+        self.committed()
+    }
+
+    /// The text the last `VIME_ACTION_COMMIT` produced, read on demand.
+    ///
+    /// Committing happens while processing a key; this only reports the result,
+    /// so it never changes engine state.
+    pub fn committed(&mut self) -> Option<String> {
         // SAFETY: `self.0` is live.
-        let out = unsafe { vime::vime_commit(self.0) };
-        unsafe { read_output(out) }
+        let ptr = unsafe { vime::vime_committed(self.0) };
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: non-null and NUL-terminated, owned by the handle.
+            Some(unsafe { CStr::from_ptr(ptr) }.to_str().unwrap().to_string())
+        }
     }
 
     /// Resets the buffer, returning the new (usually empty) preedit.
     pub fn reset(&mut self) -> Outcome {
         // SAFETY: `self.0` is live.
         let out = unsafe { vime::vime_reset(self.0) };
-        unsafe { read_output(out) }
+        unsafe { read_output(self.0, out) }
     }
 
     /// Switches the input method, returning the new preedit.
+    ///
+    /// The C entry point reports only success, so the preedit is read here on
+    /// the way out: a switch clears the buffer, so a caller needs the new
+    /// text.
     pub fn set_input_method(&mut self, method: VimeInputMethod) -> Outcome {
         // SAFETY: `self.0` is live.
-        let out = unsafe { vime::vime_set_input_method(self.0, method) };
-        unsafe { read_output(out) }
+        let ok = unsafe { vime::vime_set_input_method(self.0, method) };
+        let out = if ok {
+            VimeOutput {
+                action: VimeAction::UpdatePreedit,
+                commit: std::ptr::null(),
+            }
+        } else {
+            VimeOutput::empty(VimeAction::Forward)
+        };
+        unsafe { read_output(self.0, out) }
+    }
+
+    /// The raw handle, for tests that need to drive the C ABI directly.
+    pub fn raw(&self) -> *mut VimeEngineHandle {
+        self.0
     }
 
     /// Switches the tone-placement scheme, returning the re-rendered preedit.
+    ///
+    /// As with `set_input_method`, the entry point reports only success.
     pub fn set_tone_placement(&mut self, tone: VimeTonePlacement) -> Outcome {
         // SAFETY: `self.0` is live.
-        let out = unsafe { vime::vime_set_tone_placement(self.0, tone) };
-        unsafe { read_output(out) }
+        let ok = unsafe { vime::vime_set_tone_placement(self.0, tone) };
+        let out = if ok {
+            VimeOutput {
+                action: VimeAction::UpdatePreedit,
+                commit: std::ptr::null(),
+            }
+        } else {
+            VimeOutput::empty(VimeAction::Forward)
+        };
+        unsafe { read_output(self.0, out) }
     }
 }
 

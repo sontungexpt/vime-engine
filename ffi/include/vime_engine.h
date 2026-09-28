@@ -91,13 +91,9 @@ typedef struct VimeKeyEvent {
 typedef struct VimeOutput {
     /* high-level action for the frontend state machine */
     VimeAction action;
-    /* preedit text (UTF-8), NULL if empty/unchanged;
-     * owned by the handle, valid until the next call on
-     * the same handle or vime_destroy */
-    const char *rendered;
     /* text to commit (UTF-8), NULL if none; owned by the
-     * handle, valid until the next call on the same
-     * handle or vime_destroy */
+     * handle, valid until the next call on
+     * the same handle or vime_destroy */
     const char *commit;
 } VimeOutput;
 
@@ -114,17 +110,58 @@ VimeEngineHandle *vime_create_with(VimeInputMethod method, VimeTonePlacement ton
 /** Destroys an engine instance and frees associated memory. */
 void vime_destroy(VimeEngineHandle *engine);
 
-/** Sets the active input method engine, clearing the buffer. */
-VimeOutput vime_set_input_method(VimeEngineHandle *engine, VimeInputMethod method);
+/**
+ * Sets the active input method, clearing the buffer.
+ *
+ * Returns true on success, false for a NULL handle or an unknown method (in
+ * which case the engine is untouched).
+ *
+ * On success the buffer was cleared, so the preedit has changed: call
+ * vime_preedit and refresh the window. No key was consumed and no text is
+ * committed, so there is no action to dispatch.
+ */
+bool vime_set_input_method(VimeEngineHandle *engine, VimeInputMethod method);
 
-/** Switches the tone-placement scheme, re-rendering the current preedit. */
-VimeOutput vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_placement);
+/**
+ * Switches the tone-placement scheme, re-rendering the current preedit.
+ *
+ * Returns true on success, false for a NULL handle or an unknown scheme (in
+ * which case the engine is untouched).
+ *
+ * On success the pending vowels render under the new scheme, so the preedit
+ * has changed: call vime_preedit and refresh the window.
+ */
+bool vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_placement);
+
+/**
+ * Returns the current preedit text (UTF-8, NUL-terminated), or NULL if the
+ * engine has no valid handle.
+ *
+ * Rendered lazily: the text is produced on the first call after a state change
+ * and cached until the next call that changes the state, so a frontend that
+ * only reacts to VIME_ACTION_COMMIT never pays for it. Call this whenever the
+ * action is VIME_ACTION_UPDATE_PREEDIT or VIME_ACTION_CURSOR_MOVED.
+ *
+ * The pointer is owned by the handle and stays valid until the next call that
+ * changes the state, or vime_destroy. Do not free it.
+ */
+const char *vime_preedit(VimeEngineHandle *engine);
+
+/**
+ * Returns the text to commit (UTF-8, NUL-terminated) that the last
+ * VIME_ACTION_COMMIT produced, or NULL if nothing is pending.
+ *
+ * Committing happens while processing a key, so this only *reports* the text
+ * that processing produced; it never commits anything itself. Any other action
+ * clears the pending commit, so read it immediately after VIME_ACTION_COMMIT.
+ *
+ * The pointer is owned by the handle and stays valid until the next call that
+ * changes the state, or vime_destroy. Do not free it.
+ */
+const char *vime_committed(VimeEngineHandle *engine);
 
 /** Resets the engine buffer state. */
 VimeOutput vime_reset(VimeEngineHandle *engine);
-
-/** Commits the pending buffer as text and clears the preedit. */
-VimeOutput vime_commit(VimeEngineHandle *engine);
 
 /* ========================================================================= */
 /* Event Processing & Utilities                                              */

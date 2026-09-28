@@ -215,10 +215,24 @@ impl<KM: Keymap> Composition<KM> {
     /// While the syllable is valid, rendering produces its Vietnamese form.
     /// Once parsing enters the dead state, rendering preserves the dead
     /// buffer's characters verbatim.
+    /// The keystrokes as this composition parses them, as a fresh [`String`].
+    ///
+    /// While the parse succeeds this is the spelled-out syllable; once it has
+    /// failed the raw buffer comes back verbatim.
     #[inline]
-    pub fn rendered(&self) -> String {
+    pub fn parsed(&self) -> String {
         let mut output = String::new();
-        self.parsed.write_to(&mut output);
+        self.write_parsed_to(&mut output);
         output
+    }
+
+    /// Writes the parsed word into `output`, replacing its contents: the
+    /// rendered syllable while parsing, the verbatim buffer once dead.
+    ///
+    /// The allocation-free counterpart to [`Self::parsed`], for a caller that
+    /// writes on every keystroke and can reuse one buffer.
+    #[inline]
+    pub fn write_parsed_to(&self, output: &mut String) {
+        self.parsed.write_to(output);
     }
 }

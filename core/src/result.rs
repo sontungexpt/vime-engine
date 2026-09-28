@@ -1,8 +1,8 @@
 /// Semantic result of processing one input.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Result {
-    /// Input buffer state changed; frontends should re-render the preedit
-    /// from the current state's rendered text.
+    /// Input buffer state changed; frontends should re-read the parsed word
+    /// and re-render it.
     Changed,
     /// A word was finalized; the string must be committed to the
     /// application and the input buffer cleared.

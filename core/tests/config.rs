@@ -11,7 +11,7 @@ fn type_str(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, s: &str) -
             states: KeyStates::empty(),
         });
     }
-    engine.rendered()
+    engine.parsed()
 }
 
 // "hoa" + sắc: the two schemes place the mark on different vowels
@@ -41,7 +41,7 @@ fn set_tone_placement_re_renders_the_live_buffer() {
 
     // Flip mid-buffer: the pending vowel re-renders under the new scheme.
     engine.set_tone_placement(TonePlacement::Old);
-    assert_eq!(engine.rendered(), OLD_HOA);
+    assert_eq!(engine.parsed(), OLD_HOA);
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn caret_predicates_track_the_raw_buffer() {
 fn caret_moves_leave_the_render_unchanged() {
     let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
     type_str(&mut engine, "hoas");
-    let before = engine.rendered();
+    let before = engine.parsed();
 
     for key in [Key::Left, Key::Left, Key::Right] {
         engine.process_key(KeyEvent {
@@ -102,11 +102,11 @@ fn caret_moves_leave_the_render_unchanged() {
             states: KeyStates::empty(),
         });
     }
-    assert_eq!(engine.rendered(), before);
+    assert_eq!(engine.parsed(), before);
 
     // After a reset the buffer is empty, so there is nowhere to move.
     engine.reset();
-    assert_eq!(engine.rendered(), "");
+    assert_eq!(engine.parsed(), "");
 }
 
 /// Left at position 0 is forwarded, right at the end is forwarded, and both are

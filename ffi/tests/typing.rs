@@ -13,8 +13,12 @@ fn telex_preedit_and_commit() {
 
     let out = engine.commit();
     assert_eq!(out.action, VimeAction::Commit);
-    assert_eq!(out.commit.as_deref(), Some("việt"));
-    assert!(out.rendered.is_none());
+    assert_eq!(engine.committed().as_deref(), Some("việt"));
+    // Committing clears the preedit.
+    assert_eq!(
+        engine.process(key_event(VimeKey::Enter)).action,
+        VimeAction::Forward
+    );
 }
 
 #[test]
@@ -23,7 +27,7 @@ fn modern_telex_tone_placement() {
         .expect("engine must be created");
     let rendered = engine.type_text("hoas");
     assert_eq!(rendered, "hoá");
-    assert_eq!(engine.commit().commit.as_deref(), Some("hoá"));
+    assert_eq!(engine.commit_and_read().as_deref(), Some("hoá"));
 }
 
 #[test]
@@ -32,7 +36,7 @@ fn old_telex_tone_placement() {
         .expect("engine must be created");
     let rendered = engine.type_text("hoas");
     assert_eq!(rendered, "hóa");
-    assert_eq!(engine.commit().commit.as_deref(), Some("hóa"));
+    assert_eq!(engine.commit_and_read().as_deref(), Some("hóa"));
 }
 
 #[test]
@@ -41,7 +45,7 @@ fn vni_round_trip() {
         .expect("engine must be created");
     let rendered = engine.type_text("hoa1");
     assert_eq!(rendered, "hoá");
-    assert_eq!(engine.commit().commit.as_deref(), Some("hoá"));
+    assert_eq!(engine.commit_and_read().as_deref(), Some("hoá"));
 }
 
 #[test]
@@ -50,7 +54,7 @@ fn viqr_round_trip() {
         .expect("engine must be created");
     let rendered = engine.type_text("toa'n");
     assert_eq!(rendered, "toán");
-    assert_eq!(engine.commit().commit.as_deref(), Some("toán"));
+    assert_eq!(engine.commit_and_read().as_deref(), Some("toán"));
 }
 
 #[test]

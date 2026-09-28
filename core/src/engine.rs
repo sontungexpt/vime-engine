@@ -62,11 +62,29 @@ impl<KM: Keymap> Engine<KM> {
 
     // --------------------------------------------------------------- state
 
-    /// Renders the current buffer as Vietnamese text, or as the raw characters
-    /// when the composition can no longer form a valid syllable.
+    /// The buffer as this engine parses it, as a fresh [`String`].
+    ///
+    /// Parsing is what turns raw keystrokes into a word, so this is the
+    /// spelled-out form: `aw` reads back as `ă`, not `aw`. Once the parse has
+    /// failed there is nothing left to apply, and the raw keystrokes come back
+    /// verbatim.
+    ///
+    /// See [`Self::write_parsed_to`] for the version that does not allocate.
     #[inline]
-    pub fn rendered(&self) -> String {
-        self.composition.rendered()
+    pub fn parsed(&self) -> String {
+        let mut output = String::new();
+        self.write_parsed_to(&mut output);
+        output
+    }
+
+    /// Writes the parsed word into `output`, replacing its contents.
+    ///
+    /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
+    /// on every keystroke can keep one `String` and reuse its capacity instead
+    /// of building a new one each time.
+    #[inline]
+    pub fn write_parsed_to(&self, output: &mut String) {
+        self.composition.write_parsed_to(output);
     }
 
     // ------------------------------------------------------------ key event
@@ -107,7 +125,7 @@ impl<KM: Keymap> Engine<KM> {
             return Result::Forward;
         }
 
-        let mut text = self.rendered();
+        let mut text = self.parsed();
         text.push_str(suffix);
 
         self.composition.reset();
@@ -124,7 +142,7 @@ impl<KM: Keymap> Engine<KM> {
 
     #[inline]
     fn backspace(&mut self) -> Result {
-        if self.composition.is_empty() {
+        if !self.composition.can_move_left() {
             return Result::Forward;
         }
 

@@ -76,3 +76,36 @@ fn right_at_buffer_end_forwards() {
         VimeAction::Forward
     );
 }
+
+/// The preedit is produced lazily: `vime_process_key` must not render it, and
+/// `vime_preedit` must yield the same text the eager field used to carry. A
+/// frontend that never asks must never pay for the render.
+#[test]
+fn preedit_is_fetched_lazily_and_stays_valid() {
+    use std::ffi::CStr;
+
+    let mut engine = Engine::create().unwrap();
+    engine.type_text("viet");
+
+    // SAFETY: the handle is live and owned by `engine`.
+    let rendered = unsafe {
+        let ptr = vime::vime_preedit(engine.raw());
+        assert!(!ptr.is_null());
+        // Asking again yields the same cached text, still valid.
+        let again = vime::vime_preedit(engine.raw());
+        assert_eq!(ptr, again, "repeated reads hit the cache");
+        CStr::from_ptr(ptr).to_str().unwrap().to_string()
+    };
+    assert_eq!(rendered, "viet");
+
+    // The cache is invalidated by the next state change, and the new text is
+    // rendered on demand.
+    engine.process(key_event(VimeKey::Backspace));
+    // SAFETY: as above.
+    let after = unsafe {
+        let ptr = vime::vime_preedit(engine.raw());
+        assert!(!ptr.is_null());
+        CStr::from_ptr(ptr).to_str().unwrap().to_string()
+    };
+    assert_eq!(after, "vie");
+}
