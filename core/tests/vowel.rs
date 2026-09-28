@@ -334,7 +334,7 @@ fn base_vowel_id_table_is_pinned() {
     assert_eq!(EXPECTED.len(), BASE_COUNT, "every base vowel must be listed");
     for &(vowel, want) in EXPECTED {
         assert_eq!(vowel.id(), want, "{vowel:?} has id {:?} but this test pins {want:?}", vowel.id());
-        assert_eq!(BaseVowel::from_id(want), Some(vowel), "from_id({want:?}) must return {vowel:?}");
+        assert_eq!(BaseVowel::from_id(want), vowel, "from_id({want:?}) must return {vowel:?}");
     }
     assert_ne!(BaseVowel::UHorn.id() as u8, BaseVowel::UHorn as u8, "id must not be the packed discriminant");
     assert!((BaseVowel::UHorn as u8) < (BaseVowel::ECircumflex as u8), "packed order differs from id order");
@@ -367,7 +367,7 @@ fn root_shape_table_matches_the_allowed_vowels() {
         assert_eq!(BaseVowel::from_parts(root, shape), expected, "from_parts mismatch for {root:?} + {shape:?}");
         if let Some(base) = expected {
             let id = base.id();
-            assert_eq!(BaseVowel::from_id(id), Some(base), "id round-trip for {root:?} + {shape:?}");
+            assert_eq!(BaseVowel::from_id(id), base, "id round-trip for {root:?} + {shape:?}");
             assert_eq!(base.root(), root);
             assert_eq!(base.shape(), shape);
         }
@@ -535,7 +535,7 @@ fn base_vowel_id_ordering_matches_discriminant_order() {
 fn base_vowel_id_from_id_round_trips() {
     for &vowel in BASES {
         let id = vowel.id();
-        assert_eq!(BaseVowel::from_id(id), Some(vowel));
+        assert_eq!(BaseVowel::from_id(id), vowel);
     }
 }
 

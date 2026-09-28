@@ -257,21 +257,20 @@ impl BaseVowel {
     /// The inverse of [`Self::id`], verified for every declared ID by the const
     /// check below.
     #[inline(always)]
-    pub const fn from_id(vowel_id: BaseVowelId) -> Option<Self> {
+    pub const fn from_id(vowel_id: BaseVowelId) -> Self {
         match vowel_id {
-            BaseVowelId::Y => Some(Self::Y),
-            BaseVowelId::U => Some(Self::U),
-            BaseVowelId::I => Some(Self::I),
-            BaseVowelId::E => Some(Self::E),
-            BaseVowelId::O => Some(Self::O),
-            BaseVowelId::A => Some(Self::A),
-            BaseVowelId::UHorn => Some(Self::UHorn),
-            BaseVowelId::ACircumflex => Some(Self::ACircumflex),
-            BaseVowelId::OCircumflex => Some(Self::OCircumflex),
-            BaseVowelId::ABreve => Some(Self::ABreve),
-            BaseVowelId::ECircumflex => Some(Self::ECircumflex),
-            BaseVowelId::OHorn => Some(Self::OHorn),
-            _ => None,
+            BaseVowelId::Y => Self::Y,
+            BaseVowelId::U => Self::U,
+            BaseVowelId::I => Self::I,
+            BaseVowelId::E => Self::E,
+            BaseVowelId::O => Self::O,
+            BaseVowelId::A => Self::A,
+            BaseVowelId::UHorn => Self::UHorn,
+            BaseVowelId::ACircumflex => Self::ACircumflex,
+            BaseVowelId::OCircumflex => Self::OCircumflex,
+            BaseVowelId::ABreve => Self::ABreve,
+            BaseVowelId::ECircumflex => Self::ECircumflex,
+            BaseVowelId::OHorn => Self::OHorn,
         }
     }
 
