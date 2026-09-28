@@ -28,9 +28,9 @@ typedef struct VimeEngineHandle VimeEngineHandle;
 typedef enum VimeAction {
     VIME_ACTION_FORWARD        = 0, /* key ignored by IME; forward it to the app */
     VIME_ACTION_NOOP           = 1, /* key consumed; nothing visibly changed     */
-    VIME_ACTION_UPDATE_PREEDIT = 2, /* preedit updated; refresh the window       */
-    VIME_ACTION_COMMIT         = 3, /* text committed; clear preedit, insert it  */
-    VIME_ACTION_CURSOR_MOVED   = 4, /* caret moved; preedit text unchanged      */
+    VIME_ACTION_CHANGED        = 2, /* buffer changed; re-read and redraw     */
+    VIME_ACTION_COMMIT         = 3, /* text committed; clear the word, insert  */
+    VIME_ACTION_CURSOR_MOVED   = 4, /* caret moved; the word is unchanged      */
 } VimeAction;
 
 /**
@@ -116,36 +116,36 @@ void vime_destroy(VimeEngineHandle *engine);
  * Returns true on success, false for a NULL handle or an unknown method (in
  * which case the engine is untouched).
  *
- * On success the buffer was cleared, so the preedit has changed: call
- * vime_preedit and refresh the window. No key was consumed and no text is
- * committed, so there is no action to dispatch.
+ * On success the buffer was cleared, so the word has changed: call
+ * vime_parsed and redraw. No key was consumed and no text is committed, so
+ * there is no action to dispatch.
  */
 bool vime_set_input_method(VimeEngineHandle *engine, VimeInputMethod method);
 
 /**
- * Switches the tone-placement scheme, re-rendering the current preedit.
+ * Switches the tone-placement scheme, re-rendering the current word.
  *
  * Returns true on success, false for a NULL handle or an unknown scheme (in
  * which case the engine is untouched).
  *
- * On success the pending vowels render under the new scheme, so the preedit
- * has changed: call vime_preedit and refresh the window.
+ * On success the pending vowels render under the new scheme, so the word has
+ * changed: call vime_parsed and redraw.
  */
 bool vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_placement);
 
 /**
- * Returns the current preedit text (UTF-8, NUL-terminated), or NULL if the
+ * Returns the word currently parsed (UTF-8, NUL-terminated), or NULL if the
  * engine has no valid handle.
  *
  * Rendered lazily: the text is produced on the first call after a state change
  * and cached until the next call that changes the state, so a frontend that
  * only reacts to VIME_ACTION_COMMIT never pays for it. Call this whenever the
- * action is VIME_ACTION_UPDATE_PREEDIT or VIME_ACTION_CURSOR_MOVED.
+ * action is VIME_ACTION_CHANGED or VIME_ACTION_CURSOR_MOVED.
  *
  * The pointer is owned by the handle and stays valid until the next call that
  * changes the state, or vime_destroy. Do not free it.
  */
-const char *vime_preedit(VimeEngineHandle *engine);
+const char *vime_parsed(VimeEngineHandle *engine);
 
 /**
  * Returns the text to commit (UTF-8, NUL-terminated) that the last

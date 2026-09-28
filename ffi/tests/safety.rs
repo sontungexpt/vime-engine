@@ -24,8 +24,8 @@ fn null_handle_is_safe_everywhere() {
         assert_eq!(reset.action, VimeAction::Forward);
         assert!(reset.commit.is_null());
 
-        // The lazy preedit accessor must be NULL-safe too.
-        assert!(vime::vime_preedit(ptr::null_mut()).is_null());
+        // The lazy word accessor must be NULL-safe too.
+        assert!(vime::vime_parsed(ptr::null_mut()).is_null());
 
         assert!(vime::vime_committed(ptr::null_mut()).is_null());
 
@@ -80,7 +80,7 @@ fn modifier_states_do_not_crash() {
             character: 'v' as u32,
             states,
         });
-        assert_eq!(out.action, VimeAction::UpdatePreedit);
+        assert_eq!(out.action, VimeAction::Changed);
     }
     assert_eq!(engine.commit_and_read().as_deref(), Some("vvvvvvvvvv"));
 }

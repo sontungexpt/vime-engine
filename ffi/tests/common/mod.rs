@@ -4,7 +4,7 @@
 //! text immediately (pointers are invalidated by the next call on the same
 //! handle) and destroys the handle on drop.
 //!
-//! The preedit is fetched through `vime_preedit` only when the action says it
+//! The word is fetched through `vime_parsed` only when the action says it
 //! changed, which is how a real frontend should use the lazy accessor.
 
 #![allow(dead_code)]
@@ -46,11 +46,11 @@ pub fn key_event(key: VimeKey) -> VimeKeyEvent {
 }
 
 unsafe fn read_output(handle: *mut VimeEngineHandle, out: VimeOutput) -> Outcome {
-    // The preedit is only rendered when the action says the text changed,
+    // The word is only rendered when the action says the text changed,
     // mirroring how a frontend is meant to drive the lazy accessor.
     let rendered = match out.action {
-        VimeAction::UpdatePreedit | VimeAction::CursorMoved => {
-            let ptr = vime::vime_preedit(handle);
+        VimeAction::Changed | VimeAction::CursorMoved => {
+            let ptr = vime::vime_parsed(handle);
             if ptr.is_null() {
                 None
             } else {
@@ -90,12 +90,12 @@ impl Engine {
         Self::from_raw(vime::vime_create_with(method, tone))
     }
 
-    /// Feeds `text` character-by-character; returns the last preedit.
+    /// Feeds `text` character-by-character; returns the last word.
     pub fn type_text(&mut self, text: &str) -> String {
         let mut last = String::new();
         for ch in text.chars() {
             let out = self.process(char_event(ch));
-            assert_eq!(out.action, VimeAction::UpdatePreedit);
+            assert_eq!(out.action, VimeAction::Changed);
             if let Some(rendered) = out.rendered {
                 last = rendered;
             }
@@ -138,16 +138,16 @@ impl Engine {
         }
     }
 
-    /// Resets the buffer, returning the new (usually empty) preedit.
+    /// Resets the buffer, returning the new (usually empty) word.
     pub fn reset(&mut self) -> Outcome {
         // SAFETY: `self.0` is live.
         let out = unsafe { vime::vime_reset(self.0) };
         unsafe { read_output(self.0, out) }
     }
 
-    /// Switches the input method, returning the new preedit.
+    /// Switches the input method, returning the new word.
     ///
-    /// The C entry point reports only success, so the preedit is read here on
+    /// The C entry point reports only success, so the word is read here on
     /// the way out: a switch clears the buffer, so a caller needs the new
     /// text.
     pub fn set_input_method(&mut self, method: VimeInputMethod) -> Outcome {
@@ -155,7 +155,7 @@ impl Engine {
         let ok = unsafe { vime::vime_set_input_method(self.0, method) };
         let out = if ok {
             VimeOutput {
-                action: VimeAction::UpdatePreedit,
+                action: VimeAction::Changed,
                 commit: std::ptr::null(),
             }
         } else {
@@ -169,7 +169,7 @@ impl Engine {
         self.0
     }
 
-    /// Switches the tone-placement scheme, returning the re-rendered preedit.
+    /// Switches the tone-placement scheme, returning the re-rendered word.
     ///
     /// As with `set_input_method`, the entry point reports only success.
     pub fn set_tone_placement(&mut self, tone: VimeTonePlacement) -> Outcome {
@@ -177,7 +177,7 @@ impl Engine {
         let ok = unsafe { vime::vime_set_tone_placement(self.0, tone) };
         let out = if ok {
             VimeOutput {
-                action: VimeAction::UpdatePreedit,
+                action: VimeAction::Changed,
                 commit: std::ptr::null(),
             }
         } else {

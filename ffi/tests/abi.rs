@@ -25,8 +25,8 @@ fn key_event_layout() {
     assert_eq!(offset_of!(VimeKeyEvent, states), 8);
 }
 
-/// `VimeOutput` carries only the commit text; the preedit is fetched
-/// separately through `vime_preedit` when the frontend wants it.
+/// `VimeOutput` carries only the commit text; the word is fetched
+/// separately through `vime_parsed` when the frontend wants it.
 #[test]
 fn output_layout() {
     assert_eq!(size_of::<VimeOutput>(), 16);
@@ -39,7 +39,7 @@ fn output_layout() {
 fn action_discriminants() {
     assert_eq!(VimeAction::Forward as u32, 0);
     assert_eq!(VimeAction::Noop as u32, 1);
-    assert_eq!(VimeAction::UpdatePreedit as u32, 2);
+    assert_eq!(VimeAction::Changed as u32, 2);
     assert_eq!(VimeAction::Commit as u32, 3);
     assert_eq!(VimeAction::CursorMoved as u32, 4);
 }

@@ -35,11 +35,11 @@ fn commit_on_empty_buffer_forwards() {
 }
 
 #[test]
-fn reset_returns_updated_empty_preedit() {
+fn reset_returns_updated_empty_buffer() {
     let mut engine = Engine::create().unwrap();
     engine.type_text("viet");
     let out = engine.reset();
-    assert_eq!(out.action, VimeAction::UpdatePreedit);
+    assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some(""));
     assert!(out.commit.is_none());
 }
@@ -49,7 +49,7 @@ fn switching_method_clears_pending_buffer() {
     let mut engine = Engine::create().unwrap();
     engine.type_text("too");
     let out = engine.set_input_method(VimeInputMethod::Vni);
-    assert_eq!(out.action, VimeAction::UpdatePreedit);
+    assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some(""));
     assert!(out.commit.is_none());
 }
@@ -60,7 +60,7 @@ fn switching_placement_renders_without_text_commit() {
         .expect("engine must be created");
     engine.type_text("hoas");
     let out = engine.set_tone_placement(VimeTonePlacement::Old);
-    assert_eq!(out.action, VimeAction::UpdatePreedit);
+    assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some("hóa"));
     assert!(out.commit.is_none());
 }
@@ -98,10 +98,10 @@ fn navigate_empty_buffer_forwards() {
 }
 
 /// A state change made outside `vime_process_key` must still invalidate the
-/// cached preedit, or a lazy `vime_preedit` hands back text from before the
+/// cached word, or a lazy `vime_parsed` hands back text from before the
 /// change. Both config setters are state changes of exactly that kind.
 #[test]
-fn config_changes_invalidate_the_cached_preedit() {
+fn config_changes_invalidate_the_cached_word() {
     use std::ffi::CStr;
 
     let mut engine = Engine::create_with(VimeInputMethod::Telex, VimeTonePlacement::Modern)
@@ -110,7 +110,7 @@ fn config_changes_invalidate_the_cached_preedit() {
 
     // SAFETY: the handle is live and owned by `engine`.
     let read = |engine: &mut Engine| unsafe {
-        let ptr = vime::vime_preedit(engine.raw());
+        let ptr = vime::vime_parsed(engine.raw());
         assert!(!ptr.is_null());
         CStr::from_ptr(ptr).to_str().unwrap().to_string()
     };
@@ -130,11 +130,11 @@ fn config_changes_invalidate_the_cached_preedit() {
     assert_eq!(read(&mut engine), "");
 }
 
-/// The preedit buffer is reused across renders rather than reallocated, so the
+/// The word buffer is reused across renders rather than reallocated, so the
 /// returned pointer must stay correct after a state change: the new text has to
 /// land in the same live buffer the frontend is still holding.
 #[test]
-fn reused_preedit_buffer_serves_the_current_text() {
+fn reused_word_buffer_serves_the_current_text() {
     use std::ffi::CStr;
 
     let mut engine = Engine::create().unwrap();
@@ -142,7 +142,7 @@ fn reused_preedit_buffer_serves_the_current_text() {
 
     // SAFETY: the handle is live and owned by `engine`.
     let read = |engine: &mut Engine| unsafe {
-        let ptr = vime::vime_preedit(engine.raw());
+        let ptr = vime::vime_parsed(engine.raw());
         assert!(!ptr.is_null());
         CStr::from_ptr(ptr).to_str().unwrap().to_string()
     };
@@ -158,7 +158,7 @@ fn reused_preedit_buffer_serves_the_current_text() {
     for _ in 0..4 {
         engine.process(key_event(VimeKey::Backspace));
         let now = read(&mut engine);
-        assert_ne!(now, previous, "backspace must change the preedit");
+        assert_ne!(now, previous, "backspace must change the word");
         previous = now;
     }
 

@@ -7,8 +7,8 @@
 //!   neutral value: an empty [`VimeOutput`], a NULL string, or `false`.
 //! - **Text is read separately from the action that announces it.** A call that
 //!   changes state returns only an action; the frontend then asks
-//!   [`vime_preedit`] or [`vime_committed`] for the text it actually wants. The
-//!   preedit is rendered on that first read, so a frontend that never displays
+//!   [`vime_parsed`] or [`vime_committed`] for the text it actually wants. The
+//!   word is rendered on that first read, so a frontend that never displays
 //!   it never pays for it.
 
 use std::ffi::c_char;
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn vime_destroy(engine: *mut VimeEngineHandle) {
     }
 }
 
-/// Clears the buffer, returning the action for the resulting empty preedit.
+/// Clears the buffer, returning the action for the resulting empty word.
 ///
 /// # Safety
 ///
@@ -105,10 +105,10 @@ pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> VimeOutput
     engine.output(result)
 }
 
-/// Returns the current preedit text, rendered on demand.
+/// Returns the word the engine currently has parsed, rendered on demand.
 ///
 /// The action returned by the last call decides whether this is worth asking
-/// for: read it on `VIME_ACTION_UPDATE_PREEDIT` and
+/// for: read it on `VIME_ACTION_CHANGED` and
 /// `VIME_ACTION_CURSOR_MOVED`, skip it otherwise. The text is cached after the
 /// first call, so asking twice between state changes costs one render.
 ///
@@ -121,9 +121,9 @@ pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> VimeOutput
 /// `engine` must be NULL or a live pointer from [`vime_create`] /
 /// [`vime_create_with`] that has not been passed to [`vime_destroy`].
 #[no_mangle]
-pub unsafe extern "C" fn vime_preedit(engine: *mut VimeEngineHandle) -> *const c_char {
+pub unsafe extern "C" fn vime_parsed(engine: *mut VimeEngineHandle) -> *const c_char {
     let engine = handle_or!(engine, ptr::null());
-    engine.preedit_ptr()
+    engine.parsed_ptr()
 }
 
 /// Returns the text to commit, as produced by the last `VIME_ACTION_COMMIT`.
@@ -172,8 +172,8 @@ pub unsafe extern "C" fn vime_process_key(
 /// Returns whether the switch happened. False means a null handle or an unknown
 /// method, in which case the engine is untouched.
 ///
-/// On success the buffer is cleared, so the preedit has changed: the frontend
-/// must re-read it with [`vime_preedit`]. There is no action to dispatch,
+/// On success the buffer is cleared, so the word has changed: the frontend must
+/// re-read it with [`vime_parsed`]. There is no action to dispatch,
 /// because nothing here consumes a key.
 ///
 /// # Safety
@@ -191,20 +191,20 @@ pub unsafe extern "C" fn vime_set_input_method(
     };
 
     engine.engine.set_keymap(keymap);
-    // `set_keymap` clears the buffer, so the preedit the frontend last read is
+    // `set_keymap` clears the buffer, so the word the frontend last read is
     // no longer what the engine holds.
     engine.engine.reset();
-    engine.invalidate_preedit();
+    engine.invalidate_parsed();
     true
 }
 
-/// Switches the tone-placement scheme, re-rendering the current preedit.
+/// Switches the tone-placement scheme, re-rendering the current parsed.
 ///
 /// Returns whether the switch happened. False means a null handle or an unknown
 /// scheme, in which case the engine is untouched.
 ///
-/// On success the pending vowels render under the new scheme, so the preedit
-/// has changed: the frontend must re-read it with [`vime_preedit`].
+/// On success the pending vowels render under the new scheme, so the word has
+/// changed: the frontend must re-read it with [`vime_parsed`].
 ///
 /// # Safety
 ///
@@ -221,8 +221,8 @@ pub unsafe extern "C" fn vime_set_tone_placement(
     };
 
     engine.engine.set_tone_placement(tone_placement);
-    // The pending vowels re-render under the new scheme, so the cached preedit
+    // The pending vowels re-render under the new scheme, so the cached parsed
     // no longer describes the buffer.
-    engine.invalidate_preedit();
+    engine.invalidate_parsed();
     true
 }

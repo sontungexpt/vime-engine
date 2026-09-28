@@ -70,12 +70,12 @@ impl CText {
 #[repr(C)]
 pub struct VimeEngineHandle {
     pub(crate) engine: Engine<DefaultKeymap<'static>>,
-    /// The preedit, rendered lazily and reused across keystrokes.
-    preedit: CText,
-    /// The text a commit produced, or empty when none is pending.
-    commit: CText,
-    /// Scratch space the preedit is rendered into before being copied out.
-    /// Kept so the render can reuse its capacity too.
+    /// The word the engine has parsed, rendered lazily and reused across keystrokes.
+    parsed: CText,
+    /// The text the last commit produced, or empty when none is pending.
+    committed: CText,
+    /// Scratch space the word is rendered into before being copied out. Kept
+    /// so the render can reuse its capacity too.
     scratch: String,
 }
 
@@ -92,37 +92,37 @@ impl VimeEngineHandle {
     pub(crate) fn new(engine: Engine<DefaultKeymap<'static>>) -> Self {
         Self {
             engine,
-            preedit: CText::new(),
-            commit: CText::new(),
+            parsed: CText::new(),
+            committed: CText::new(),
             scratch: String::new(),
         }
     }
 
-    /// Marks the preedit stale without touching the buffer.
+    /// Marks the word stale without touching the buffer.
     ///
     /// For state changes made outside [`Self::output`] — the config setters,
     /// which return no [`VimeOutput`]. Dropping the text here would defeat the
     /// buffer reuse that keeps a warm handle allocation-free.
-    pub(crate) fn invalidate_preedit(&mut self) {
-        self.preedit.invalidate();
+    pub(crate) fn invalidate_parsed(&mut self) {
+        self.parsed.invalidate();
     }
 
-    /// The current preedit text, as a NUL-terminated UTF-8 string owned by this
-    /// handle, or NULL when there is nothing to show.
+    /// The word the engine currently has parsed, as a NUL-terminated UTF-8
+    /// string owned by this handle, or NULL when there is nothing to show.
     ///
     /// Rendered on first use after a state change and cached until the next
-    /// [`Self::output`], so a frontend that never reads the preedit never pays
+    /// [`Self::output`], so a frontend that never reads the word never pays
     /// for it. The returned pointer stays valid until the next call on this
     /// handle or [`vime_destroy`](crate::vime_destroy).
-    pub(crate) fn preedit_ptr(&mut self) -> *const c_char {
-        if !self.preedit.fresh {
+    pub(crate) fn parsed_ptr(&mut self) -> *const c_char {
+        if !self.parsed.fresh {
             // Render into the reusable scratch, then copy into the buffer we
             // already own: neither step allocates once the handle is warm.
             self.scratch.clear();
             self.engine.write_parsed_to(&mut self.scratch);
-            self.preedit.set(&self.scratch);
+            self.parsed.set(&self.scratch);
         }
-        self.preedit.ptr()
+        self.parsed.ptr()
     }
 
     /// The text to commit, as a NUL-terminated UTF-8 string owned by this
@@ -131,27 +131,27 @@ impl VimeEngineHandle {
     /// Non-empty only after an action of
     /// [`VimeAction::Commit`]: committing happens as part of processing the
     /// key, so this reports the text that key produced rather than producing
-    /// any itself. Cleared by the next state change, as with the preedit.
+    /// any itself. Cleared by the next state change, as with the word.
     pub(crate) fn committed_ptr(&self) -> *const c_char {
-        self.commit.ptr()
+        self.committed.ptr()
     }
 
     /// Builds a `VimeOutput` view whose text lives in buffers owned by this
     /// handle. Any previously returned pointers become invalidated by this call.
     ///
-    /// The preedit is *not* rendered here: read it with
-    /// [`Self::preedit_ptr`] only when the frontend actually needs it.
+    /// The parsed is *not* rendered here: read it with
+    /// [`Self::parsed_ptr`] only when the frontend actually needs it.
     pub(crate) fn output(&mut self, result: Result) -> VimeOutput {
         // Any text pointer handed out earlier is stale once the state moves on.
-        self.preedit.invalidate();
-        self.commit.clear();
+        self.parsed.invalidate();
+        self.committed.clear();
 
         let action = match result {
             Result::Forward => return VimeOutput::empty(VimeAction::Forward),
             Result::Noop => return VimeOutput::empty(VimeAction::Noop),
-            Result::Changed => VimeAction::UpdatePreedit,
+            Result::Changed => VimeAction::Changed,
             Result::Commit(text) => {
-                self.commit.set(&text);
+                self.committed.set(&text);
                 VimeAction::Commit
             }
             Result::CursorMoved => VimeAction::CursorMoved,
@@ -159,7 +159,7 @@ impl VimeEngineHandle {
 
         VimeOutput {
             action,
-            commit: self.commit.ptr(),
+            commit: self.committed.ptr(),
         }
     }
 }
@@ -235,14 +235,17 @@ pub struct VimeKeyEvent {
 pub enum VimeAction {
     /// Key was ignored by IME; frontend must forward key to active application.
     Forward = 0,
-    /// Key was consumed by IME, but preedit/commit state did not change.
+    /// Key was consumed by IME, but nothing in the buffer changed.
     Noop = 1,
-    /// Preedit text was updated; update the client preedit window.
-    UpdatePreedit = 2,
-    /// Text was committed; clear the preedit window and insert committed text.
+    /// The buffer changed; re-read the word with [`crate::vime_parsed`] and
+    /// redraw whatever the frontend shows for it. Mirrors the core's
+    /// `Result::Changed`.
+    Changed = 2,
+    /// Text was committed; clear the displayed word and insert the committed
+    /// text.
     Commit = 3,
-    /// The caret moved within the preedit; the preedit text is unchanged, so
-    /// refresh the window only if the frontend tracks the caret.
+    /// The caret moved within the word, which is unchanged. Re-read with
+    /// [`crate::vime_parsed`] only if the frontend shows the caret.
     CursorMoved = 4,
 }
 

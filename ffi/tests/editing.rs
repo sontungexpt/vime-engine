@@ -16,7 +16,7 @@ fn backspace_removes_last_character() {
     engine.type_text("viet");
 
     let out = engine.process(key_event(VimeKey::Backspace));
-    assert_eq!(out.action, VimeAction::UpdatePreedit);
+    assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some("vie"));
 }
 
@@ -27,7 +27,7 @@ fn backspace_steps_back_through_a_syllable() {
 
     engine.process(key_event(VimeKey::Backspace));
     let out = engine.process(key_event(VimeKey::Backspace));
-    assert_eq!(out.action, VimeAction::UpdatePreedit);
+    assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some("vi"));
 }
 
@@ -77,11 +77,11 @@ fn right_at_buffer_end_forwards() {
     );
 }
 
-/// The preedit is produced lazily: `vime_process_key` must not render it, and
-/// `vime_preedit` must yield the same text the eager field used to carry. A
+/// The word is produced lazily: `vime_process_key` must not render it, and
+/// `vime_parsed` must yield the same text the eager field used to carry. A
 /// frontend that never asks must never pay for the render.
 #[test]
-fn preedit_is_fetched_lazily_and_stays_valid() {
+fn parsed_is_fetched_lazily_and_stays_valid() {
     use std::ffi::CStr;
 
     let mut engine = Engine::create().unwrap();
@@ -89,10 +89,10 @@ fn preedit_is_fetched_lazily_and_stays_valid() {
 
     // SAFETY: the handle is live and owned by `engine`.
     let rendered = unsafe {
-        let ptr = vime::vime_preedit(engine.raw());
+        let ptr = vime::vime_parsed(engine.raw());
         assert!(!ptr.is_null());
         // Asking again yields the same cached text, still valid.
-        let again = vime::vime_preedit(engine.raw());
+        let again = vime::vime_parsed(engine.raw());
         assert_eq!(ptr, again, "repeated reads hit the cache");
         CStr::from_ptr(ptr).to_str().unwrap().to_string()
     };
@@ -103,7 +103,7 @@ fn preedit_is_fetched_lazily_and_stays_valid() {
     engine.process(key_event(VimeKey::Backspace));
     // SAFETY: as above.
     let after = unsafe {
-        let ptr = vime::vime_preedit(engine.raw());
+        let ptr = vime::vime_parsed(engine.raw());
         assert!(!ptr.is_null());
         CStr::from_ptr(ptr).to_str().unwrap().to_string()
     };

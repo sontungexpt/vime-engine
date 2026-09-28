@@ -1,4 +1,4 @@
-//! Typing round-trips for each built-in input method and preedit rendering.
+//! Typing round-trips for each built-in input method and word rendering.
 
 mod common;
 
@@ -6,7 +6,7 @@ use common::{key_event, Engine};
 use vime::{VimeAction, VimeInputMethod, VimeKey, VimeTonePlacement};
 
 #[test]
-fn telex_preedit_and_commit() {
+fn telex_word_and_commit() {
     let mut engine = Engine::create().unwrap();
     let rendered = engine.type_text("vieetj");
     assert_eq!(rendered, "việt");
@@ -14,7 +14,7 @@ fn telex_preedit_and_commit() {
     let out = engine.commit();
     assert_eq!(out.action, VimeAction::Commit);
     assert_eq!(engine.committed().as_deref(), Some("việt"));
-    // Committing clears the preedit.
+    // Committing clears the word.
     assert_eq!(
         engine.process(key_event(VimeKey::Enter)).action,
         VimeAction::Forward
@@ -76,12 +76,12 @@ fn space_appends_suffix_on_commit() {
 }
 
 #[test]
-fn each_keystroke_shows_live_preedit() {
+fn each_keystroke_shows_live_word() {
     let mut engine = Engine::create().unwrap();
     let mut seen = Vec::new();
     for ch in "vieetj".chars() {
         let out = engine.process(common::char_event(ch));
-        assert_eq!(out.action, VimeAction::UpdatePreedit);
+        assert_eq!(out.action, VimeAction::Changed);
         seen.push(out.rendered.unwrap());
     }
     assert_eq!(seen, ["v", "vi", "vie", "viê", "viêt", "việt"]);
