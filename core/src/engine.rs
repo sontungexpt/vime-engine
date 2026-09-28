@@ -3,7 +3,7 @@ use crate::{
     composition::Composition,
     config::Config,
     event::{Key, KeyEvent},
-    keymap::Keymap,
+    keymap::{DefaultKeymap, Keymap},
     phonology::TonePlacement,
     result::Result,
 };
@@ -178,5 +178,26 @@ impl<KM: Keymap> Engine<KM> {
 
         self.composition.move_right();
         Result::CursorMoved
+    }
+}
+
+impl Engine<DefaultKeymap<'static>> {
+    // -------------------------------------------------- convenience ctor
+
+    /// Creates a Telex engine with the given configuration.
+    #[inline]
+    pub fn telex(config: Config) -> Self {
+        Self::new(config, DefaultKeymap::telex())
+    }
+
+    /// Creates a VNI engine with the given configuration.
+    #[inline]
+    pub fn vni(config: Config) -> Self {
+        Self::new(config, DefaultKeymap::vni())
+    }
+
+    #[inline]
+    pub fn viqr(config: Config) -> Self {
+        Self::new(config, DefaultKeymap::viqr())
     }
 }
