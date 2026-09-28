@@ -176,22 +176,7 @@ impl BuildingSyllable {
     /// written somewhere, and `to_chars` when they are wanted as a value.
     #[inline]
     pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
-        let tone_pos = self.tone_vowel_index(tone_placement);
-
-        let onset_iter = self.onset.iter().copied();
-
-        let nucleus_iter = self.nucleus.iter().enumerate().map(move |(idx, vowel)| {
-            let tone = if Some(idx) == tone_pos {
-                self.tone
-            } else {
-                Tone::Flat
-            };
-            vowel.with_tone(tone).to_char()
-        });
-
-        let coda_iter = self.coda.iter().copied();
-
-        onset_iter.chain(nucleus_iter).chain(coda_iter)
+        self.to_chars(tone_placement).into_iter()
     }
 
     /// Renders the syllable into an inline buffer: onset, then the tone-marked

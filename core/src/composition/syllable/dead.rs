@@ -47,13 +47,14 @@ impl DeadSyllable {
     /// This is the accepted prefix of the parse that just failed; the
     /// character that caused the rejection is not part of it and is expected to
     /// be [`Self::push`]ed or [`Self::insert`]ed straight after.
+    #[inline]
     pub fn from_accepted(valid_chars: impl IntoIterator<Item = char>) -> Self {
         let iter = valid_chars.into_iter();
-        let (lower, _) = iter.size_hint();
-
+        let (lower, upper) = iter.size_hint();
+        let cap = upper.unwrap_or(lower);
         // Room for the one character that will end the parse, so the caller
         // does not reallocate on the first push.
-        let mut chars = Vec::with_capacity(lower + 1);
+        let mut chars = Vec::with_capacity(cap + 1);
         chars.extend(iter.map(CharState::Accepted));
 
         Self {

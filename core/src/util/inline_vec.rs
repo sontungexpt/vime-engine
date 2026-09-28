@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    iter::FusedIterator,
     mem::MaybeUninit,
     ops::{Deref, DerefMut, Index, IndexMut},
     slice::SliceIndex,
@@ -318,5 +319,115 @@ impl<T: Copy, const N: usize> FromIterator<T> for InlineVec<T, N> {
         let mut vec = InlineVec::default();
         vec.extend(iter);
         vec
+    }
+}
+
+// impl<T: Copy, const N: usize> IntoIterator for InlineVec<T, N> {
+//     type Item = T;
+//     type IntoIter = core::iter::Take<core::array::IntoIter<T, N>>;
+//
+//     #[inline(always)]
+//     fn into_iter(self) -> Self::IntoIter {
+//         let len = self.len;
+//         // 1. Tạo một mảng tạm [MaybeUninit<T>; N] an toàn bằng cách copy buffer
+//         let buf = self.buf;
+//
+//         // 2. Transmute mảng MaybeUninit<T> thành [T; N]
+//         // SAFETY: T: Copy và ta dùng core::array::IntoIter,
+//         // các element chưa khởi tạo ở phần đuôi (từ len..N) sẽ bị .take(len) bỏ qua,
+//         // đồng thời T: Copy nên không lo bị gọi Drop trên dữ liệu rác.
+//         let array: [T; N] = unsafe { core::mem::transmute_copy(&buf) };
+//
+//         // 3. Chuyển thành iterator mảng chuẩn của Rust và chỉ lấy `len` phần tử đầu
+//         array.into_iter().take(len)
+//     }
+// }
+
+/// Owning iterator over an [`InlineVec`]'s live elements.
+///
+/// It holds the buffer **by value** instead of pointing into an `InlineVec`
+/// that has already been dropped. That is what makes it sound: `InlineVec`
+/// stores its elements inline, in the struct itself, so an iterator that only
+/// kept `start`/`end` pointers into it would dangle the moment the temporary
+/// was dropped at the end of the `into_iter()` statement.
+pub struct IntoIter<T: Copy, const N: usize> {
+    buf: [MaybeUninit<T>; N],
+    front: usize,
+    back: usize,
+}
+
+impl<T: Copy, const N: usize> IntoIter<T, N> {
+    /// Elements not yet yielded from either end.
+    #[inline(always)]
+    fn remaining(&self) -> usize {
+        self.back - self.front
+    }
+}
+
+impl<T: Copy, const N: usize> Iterator for IntoIter<T, N> {
+    type Item = T;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+
+        // SAFETY: `front < back <= len`, and every slot in `0..len` was
+        // initialized before `len` was advanced to cover it. `T: Copy`, so
+        // reading the value out and forgetting the slot cannot drop it twice.
+        let value = unsafe { self.buf.get_unchecked(self.front).assume_init_read() };
+        self.front += 1;
+
+        Some(value)
+    }
+
+    #[inline(always)]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.remaining();
+        (n, Some(n))
+    }
+
+    #[inline(always)]
+    fn count(self) -> usize {
+        self.remaining()
+    }
+}
+
+impl<T: Copy, const N: usize> ExactSizeIterator for IntoIter<T, N> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.remaining()
+    }
+}
+
+impl<T: Copy, const N: usize> DoubleEndedIterator for IntoIter<T, N> {
+    #[inline(always)]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+
+        // SAFETY: as in `next`, but from the back. `back` is exclusive, so the
+        // slot at `back - 1` is still inside the initialized `0..len` prefix.
+        self.back -= 1;
+        Some(unsafe { self.buf.get_unchecked(self.back).assume_init_read() })
+    }
+}
+
+impl<T: Copy, const N: usize> FusedIterator for IntoIter<T, N> {}
+
+impl<T: Copy, const N: usize> IntoIterator for InlineVec<T, N> {
+    type Item = T;
+    type IntoIter = IntoIter<T, N>;
+
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        let len = self.len;
+        IntoIter {
+            buf: self.buf,
+            front: 0,
+            back: len,
+        }
     }
 }
