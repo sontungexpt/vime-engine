@@ -309,3 +309,37 @@ fn open_diphthong_tone_placement_is_swapped() {
 
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+/// `write_to` and `to_chars` must produce the same characters, in the same
+/// order, for both tone-placement schemes and across the whole corpus. The
+/// render logic now exists twice — once writing straight to the destination,
+/// once into the inline buffer — and this is what keeps them in step.
+#[test]
+fn write_to_matches_to_chars_across_the_corpus() {
+    for placement in [TonePlacement::Modern, TonePlacement::Old] {
+        for case in renderable_cases() {
+            let builder = push_all(&DefaultKeymap::telex(), case.input);
+
+            let mut written = String::new();
+            builder.write_to(placement, &mut written);
+            let buffered: String = builder.to_chars(placement).iter().collect();
+
+            assert_eq!(
+                written, buffered,
+                "write_to != to_chars for {:?} under {placement:?}",
+                case.input
+            );
+        }
+    }
+}
+
+/// `write_to` appends, so it must leave anything already in the buffer alone.
+#[test]
+fn write_to_appends_rather_than_replaces() {
+    let builder = push_all(&DefaultKeymap::telex(), &['n', 'g', 'u', 'y', 'e', 'n']);
+    let expected: String = builder.to_chars(TonePlacement::Modern).iter().collect();
+
+    let mut out = String::from("prefix|");
+    builder.write_to(TonePlacement::Modern, &mut out);
+    assert_eq!(out, format!("prefix|{expected}"));
+}

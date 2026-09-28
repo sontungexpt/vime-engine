@@ -1,5 +1,5 @@
 use crate::{
-    composition::syllable::SyllableBuilder,
+    composition::syllable::{SyllableBuilder, SyllableContext},
     composition::Composition,
     config::Config,
     event::{Key, KeyEvent},
@@ -33,7 +33,10 @@ impl<KM: Keymap> Engine<KM> {
     pub fn with_tone_placement(config: Config, keymap: KM, tone_placement: TonePlacement) -> Self {
         Self {
             config,
-            composition: Composition::new(SyllableBuilder::new(keymap, tone_placement)),
+            composition: Composition::new(SyllableBuilder::new(SyllableContext::new(
+                keymap,
+                tone_placement,
+            ))),
         }
     }
 

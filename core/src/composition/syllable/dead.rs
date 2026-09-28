@@ -109,10 +109,22 @@ impl DeadSyllable {
     }
 
     /// Collects the buffered characters, accepted and rejected alike, into a
-    /// [`Vec`].
+    /// [`Vec`]. See also [`Self::write_to`], which writes the same characters
+    /// without allocating.
     #[inline(always)]
     pub fn to_chars(&self) -> Vec<char> {
         self.chars.iter().copied().map(CharState::char).collect()
+    }
+
+    /// Appends the buffered characters to `output`, accepted and rejected
+    /// alike, in input order.
+    ///
+    /// Needs no intermediate buffer. Prefer it when the characters are only
+    /// being written somewhere; use [`Self::to_chars`] when they are wanted as
+    /// a value to keep.
+    #[inline(always)]
+    pub fn write_to(&self, output: &mut String) {
+        output.extend(self.iter_chars());
     }
 
     /// Empties the buffer, dropping both the characters and the rejected

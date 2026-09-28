@@ -122,6 +122,33 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Rendering ───────────────────────────
 
+    /// Appends the rendered syllable to `output`: onset, then the tone-marked
+    /// vowels, then the coda — the same order as [`Self::to_chars`].
+    ///
+    /// Unlike [`Self::to_chars`] this needs no intermediate buffer, so the
+    /// characters go straight to the destination. Prefer it when the render is
+    /// only being written somewhere; use `to_chars` when the characters are
+    /// wanted as a value to keep.
+    #[inline(always)]
+    pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
+        output.extend(self.onset.iter().copied());
+
+        let tone_pos = self.tone_vowel_index(tone_placement);
+        for (idx, vowel) in self.nucleus.iter().enumerate() {
+            let tone = if Some(idx) == tone_pos {
+                self.tone
+            } else {
+                Tone::Flat
+            };
+            output.push(vowel.with_tone(tone).to_char());
+        }
+
+        output.extend(self.coda.iter().copied());
+    }
+
+    /// Renders the syllable into an inline buffer: onset, then the tone-marked
+    /// vowels, then the coda. See also [`Self::write_to`], which writes the
+    /// same characters without an intermediate buffer.
     #[inline(always)]
     pub fn to_chars(&self, tone_placement: TonePlacement) -> InlineVec<char, { Self::MAX_LEN }> {
         let mut output = InlineVec::default();

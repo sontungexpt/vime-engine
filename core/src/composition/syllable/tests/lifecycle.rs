@@ -5,16 +5,21 @@
 //! The mutators (`push` / `insert` / `remove`) are `pub(crate)`, so these are
 //! unit tests: only crate-internal code can drive the dead phase.
 
-use crate::composition::syllable::{InputEffect, SyllableBuilder};
+use crate::composition::syllable::{InputEffect, SyllableBuilder, SyllableContext};
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Onset, TonePlacement};
 
 fn builder() -> SyllableBuilder<DefaultKeymap<'static>> {
-    SyllableBuilder::new(DefaultKeymap::telex(), TonePlacement::Modern)
+    SyllableBuilder::new(SyllableContext::new(
+        DefaultKeymap::telex(),
+        TonePlacement::Modern,
+    ))
 }
 
 fn chars(s: &SyllableBuilder<DefaultKeymap<'static>>) -> String {
-    s.to_chars().iter().collect()
+    let mut out = String::new();
+    s.write_to(&mut out);
+    out
 }
 
 // ─────────────────────────────── Building phase ───────────────────────────────
@@ -170,4 +175,91 @@ fn remove_on_building_path() {
 
     assert!(s.is_building());
     assert_eq!(chars(&s), "t");
+}
+
+// ─────────────────────────────── Rendering ───────────────────────────────
+
+/// `write_to` must append exactly what `to_chars` yields, in both phases.
+#[test]
+fn write_to_matches_to_chars_in_both_phases() {
+    // Building phase: inline render.
+    let mut s = builder();
+    for ch in "nguye".chars() {
+        s.push(ch);
+    }
+    assert!(s.is_building());
+    let mut out = String::new();
+    s.write_to(&mut out);
+    assert_eq!(out, s.to_chars().iter().collect::<String>());
+
+    // Dead phase: verbatim buffer, reached after a rejected character.
+    s.push('z');
+    assert!(!s.is_building());
+    let mut out = String::new();
+    s.write_to(&mut out);
+    assert_eq!(out, s.to_chars().iter().collect::<String>());
+}
+
+/// `write_to` appends, so it must not clobber what is already in the buffer.
+#[test]
+fn write_to_appends_rather_than_replaces() {
+    let mut s = builder();
+    for ch in "toi".chars() {
+        s.push(ch);
+    }
+
+    let mut out = String::from("prefix:");
+    s.write_to(&mut out);
+    assert_eq!(out, format!("prefix:{}", s.to_chars().iter().collect::<String>()));
+
+    // And in the dead phase too.
+    s.push('z');
+    let mut out = String::from("dead:");
+    s.write_to(&mut out);
+    assert_eq!(out, format!("dead:{}", s.to_chars().iter().collect::<String>()));
+}
+
+/// The dead phase writes its characters in the order they were typed,
+/// accepted and rejected alike.
+#[test]
+fn write_to_walks_dead_buffer_in_order() {
+    let mut s = builder();
+    for ch in "toizq".chars() {
+        s.push(ch);
+    }
+    assert!(!s.is_building());
+    assert_eq!(chars(&s), "toizq");
+}
+
+/// An empty syllable writes nothing in either phase.
+#[test]
+fn write_to_on_empty_syllable() {
+    let mut s = builder();
+    assert!(s.is_building());
+    let mut out = String::new();
+    s.write_to(&mut out);
+    assert_eq!(out, "");
+
+    // A dead buffer that still holds nothing.
+    s.push('z');
+    s.remove(0);
+    let mut out = String::new();
+    s.write_to(&mut out);
+    assert!(out.is_empty());
+}
+
+/// The dead phase's own `write_to` must agree with its `to_chars`, and append
+/// rather than replace — the same contract the building phase's `write_to` has.
+#[test]
+fn dead_write_to_matches_to_chars_and_appends() {
+    let mut s = builder();
+    for ch in "toizq".chars() {
+        s.push(ch);
+    }
+    assert!(!s.is_building());
+
+    let mut out = String::from("head|");
+    s.write_to(&mut out);
+    assert_eq!(out, format!("head|{}", s.to_chars().iter().collect::<String>()));
+    assert_eq!(out, "head|toizq");
 }

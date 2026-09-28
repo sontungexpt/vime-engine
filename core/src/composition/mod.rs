@@ -188,6 +188,8 @@ impl<KM: Keymap> Composition<KM> {
     /// parse has failed.
     #[inline]
     pub fn rendered(&self) -> String {
-        self.parsed.to_chars().iter().collect()
+        let mut output = String::new();
+        self.parsed.write_to(&mut output);
+        output
     }
 }
