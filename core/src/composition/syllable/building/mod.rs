@@ -17,8 +17,10 @@ mod error;
 mod insert;
 mod push;
 mod remove;
+mod types;
 
 pub use error::SyllableBuildError;
+pub use types::*;
 
 #[inline(always)]
 const fn is_q_ignore_case(ch: char) -> bool {
@@ -40,23 +42,6 @@ enum TransformResult {
     /// The key cannot transform the current state; pass through as a literal char.
     NotApplicable,
 }
-
-type Nucleus = InlineVec<Vowel, NUCLEUS_MAX_LEN>;
-
-impl NucleusView for Nucleus {
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline(always)]
-    unsafe fn at(&self, index: usize) -> BaseVowel {
-        self.get_unchecked(index).base()
-    }
-}
-
-type OnsetChars = InlineVec<char, { Onset::MAX_LEN }>;
-type CodaChars = InlineVec<char, { Coda::MAX_LEN }>;
 
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -450,7 +435,11 @@ impl BuildingSyllable {
     /// Applying the shape it already has reverts it; an invalid result rolls
     /// the vowel back.
     fn apply_vowel_shape(&mut self, vowel_index: usize, shape: Shape) -> TransformResult {
-        debug_assert!(vowel_index < self.nucleus.len());
+        debug_assert!(
+            vowel_index < self.nucleus.len(),
+            "vowel_index ({vowel_index}) out of bounds for nucleus of length {}",
+            self.nucleus.len()
+        );
 
         let old = self.nucleus[vowel_index].base();
 
@@ -545,7 +534,7 @@ impl BuildingSyllable {
     #[inline(always)]
     fn nucleus_starts_with_uo(&self) -> bool {
         self.nucleus.len() > 1
-            && self.nucleus[0].base().root() == RootVowel::U
-            && self.nucleus[1].base().root() == RootVowel::O
+            && self.nucleus[0].root() == RootVowel::U
+            && self.nucleus[1].root() == RootVowel::O
     }
 }
