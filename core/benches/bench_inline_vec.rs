@@ -1,107 +1,36 @@
-//! Micro-benchmark: crate `InlineVec` vs `arrayvec::ArrayVec`.
+//! Micro-benchmark of the crate's own [`InlineVec`], the buffer behind nuclei,
+//! onsets and codas.
 //!
-//! `InlineVec` replaces `ArrayVec` as the inline buffer backing
-//! `BuildingSyllable` (onset/coda `char`, nucleus `Vowel`). Both
-//! types are measured on identical, capacity-bounded edit bursts — push-heavy
-//! typing, caret insert/remove, backspace pops, and read-out — over the same
-//! state population. Any regression from the swap shows up as ns/op.
+//! `InlineVec` replaced `arrayvec::ArrayVec` as that backing store. The A/B
+//! between the two settled that question and was removed along with the
+//! `arrayvec` dev-dependency; what remains is the thing worth watching over
+//! time, which is the container's own cost on the edit bursts the syllable
+//! builder actually issues: push-heavy typing, caret insert/remove, backspace
+//! pops, and the read-out that render walks.
 //!
 //!   cargo bench --bench bench_inline_vec
+//!
+//! A second section measures the three public ways to fill a buffer from a
+//! slice, plus the mechanism ceiling behind them, so a future `push`-loop
+//! change can be judged against the best the hardware offers.
 
-use std::time::Instant;
-
-use arrayvec::ArrayVec;
 use vime_engine::phonology::{BaseVowel, Tone, Vowel};
 use vime_engine::util::InlineVec;
 
-/// The `BuildingSyllable` buffer surface: bounded push/insert/pop/remove,
-/// cleared between words, read back as a slice.
-trait Buf<T: Copy> {
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool;
-    fn fill(state: &[T]) -> Self;
-    fn push(&mut self, v: T);
-    fn pop(&mut self) -> Option<T>;
-    fn insert(&mut self, i: usize, v: T);
-    fn remove(&mut self, i: usize) -> T;
-    fn clear(&mut self);
-    fn count_iter(&self) -> usize;
-}
+mod support;
+use support::{ns_per_unit, rounds, time};
 
-macro_rules! impl_buf {
-    ($t:ty) => {
-        impl<T: Copy, const N: usize> Buf<T> for $t {
-            #[inline(always)]
-            fn len(&self) -> usize {
-                self.len()
-            }
-
-            #[inline(always)]
-            fn is_empty(&self) -> bool {
-                self.is_empty()
-            }
-
-            fn fill(state: &[T]) -> Self {
-                let mut b = Self::default();
-                for &v in state {
-                    b.push(v);
-                }
-                b
-            }
-
-            #[inline(always)]
-            fn push(&mut self, v: T) {
-                self.push(v)
-            }
-
-            #[inline(always)]
-            fn pop(&mut self) -> Option<T> {
-                self.pop()
-            }
-
-            #[inline(always)]
-            fn insert(&mut self, i: usize, v: T) {
-                self.insert(i, v)
-            }
-
-            #[inline(always)]
-            fn remove(&mut self, i: usize) -> T {
-                self.remove(i)
-            }
-
-            #[inline(always)]
-            fn clear(&mut self) {
-                self.clear()
-            }
-
-            #[inline(always)]
-            fn count_iter(&self) -> usize {
-                self.iter().count()
-            }
-        }
-    };
-}
-
-impl_buf!(ArrayVec<T, N>);
-impl_buf!(InlineVec<T, N>);
-
-fn time(f: impl FnMut(), rounds: usize, iters: usize) -> std::time::Duration {
-    let mut f = f;
-    let mut best = std::time::Duration::MAX;
-    for _ in 0..rounds {
-        let start = Instant::now();
-        for _ in 0..iters {
-            f();
-        }
-        best = best.min(start.elapsed());
-    }
-    best
-}
-
-/// Push-heavy burst: typing a syllable with the real capacity guard, then
-/// one candidate fix (pop + push).
+/// Push-heavy burst: typing a syllable under the real capacity guard, then one
+/// candidate fix (pop + push).
 #[inline(always)]
-fn typing_burst<T: Copy, B: Buf<T>>(b: &mut B, cap: usize, a: T, p: T, q: T, ops: &mut usize) {
+fn typing_burst<T: Copy, const N: usize>(
+    b: &mut InlineVec<T, N>,
+    a: T,
+    p: T,
+    q: T,
+    ops: &mut usize,
+) {
+    let cap = N;
     if b.len() < cap {
         b.push(a);
         *ops += 1;
@@ -122,12 +51,12 @@ fn typing_burst<T: Copy, B: Buf<T>>(b: &mut B, cap: usize, a: T, p: T, q: T, ops
 
 /// Caret-edit burst: mid-cluster insert, first-slot insert, front removal.
 #[inline(always)]
-fn edit_burst<T: Copy, B: Buf<T>>(b: &mut B, cap: usize, v: T, ops: &mut usize) {
-    if b.len() < cap && !b.is_empty() {
+fn edit_burst<T: Copy, const N: usize>(b: &mut InlineVec<T, N>, v: T, ops: &mut usize) {
+    if b.len() < N && !b.is_empty() {
         b.insert(b.len() / 2, v);
         *ops += 1;
     }
-    if b.len() < cap {
+    if b.len() < N {
         b.insert(0, v);
         *ops += 1;
     }
@@ -139,152 +68,83 @@ fn edit_burst<T: Copy, B: Buf<T>>(b: &mut B, cap: usize, v: T, ops: &mut usize) 
 
 /// Backspace burst.
 #[inline(always)]
-fn pop_burst<T: Copy, B: Buf<T>>(b: &mut B, ops: &mut usize) {
-    if !b.is_empty() {
-        let _ = b.pop();
-        *ops += 1;
-    }
-    if !b.is_empty() {
-        let _ = b.pop();
-        *ops += 1;
+fn pop_burst<T: Copy, const N: usize>(b: &mut InlineVec<T, N>, ops: &mut usize) {
+    for _ in 0..2 {
+        if !b.is_empty() {
+            let _ = b.pop();
+            *ops += 1;
+        }
     }
 }
 
-/// Read-out burst (the `to_chars` render path walks the live slice).
-#[inline(always)]
-fn read_burst<T: Copy, B: Buf<T>>(b: &mut B, acc: &mut usize) {
-    let n = b.count_iter();
-    *acc = acc.wrapping_add(n);
-}
-
-#[inline(always)]
-fn run_pass<T: Copy, B: Buf<T>>(
-    states: &mut [B],
-    cap: usize,
-    acc: &mut usize,
+/// One pass over a population of buffers, exercising every burst.
+fn run_pass<T: Copy, const N: usize>(
+    states: &mut [InlineVec<T, N>],
     a: T,
     p: T,
     q: T,
     v: T,
-) -> usize {
+) -> (usize, usize) {
     let mut ops = 0usize;
+    let mut reads = 0usize;
     for s in states {
-        typing_burst(s, cap, a, p, q, &mut ops);
-        read_burst(s, acc);
-        edit_burst(s, cap, v, &mut ops);
+        typing_burst(s, a, p, q, &mut ops);
+        reads = reads.wrapping_add(s.len());
+        edit_burst(s, v, &mut ops);
         pop_burst(s, &mut ops);
         s.clear();
-        if !s.is_empty() {
-            ops += 1;
-        }
+        assert!(s.is_empty(), "clear must empty the buffer");
         s.push(a);
         ops += 1;
     }
-    ops
+    (ops, reads)
 }
 
-/// Benchmarks one population (`N` capacity, `T` element) on both buffer types.
-fn bench_pop<T: Copy, const N: usize>(label: &str, specs: &[Vec<T>], (a, p, q, v): (T, T, T, T))
-where
-    ArrayVec<T, N>: Buf<T>,
-    InlineVec<T, N>: Buf<T>,
-{
-    let mut av: Vec<ArrayVec<T, N>> = specs.iter().map(|s| ArrayVec::fill(s)).collect();
-    let mut fa: Vec<InlineVec<T, N>> = specs.iter().map(|s| InlineVec::fill(s)).collect();
+/// Benchmarks one population (`N` capacity, `T` element).
+fn bench_pop<T: Copy, const N: usize>(label: &str, specs: &[Vec<T>], (a, p, q, v): (T, T, T, T)) {
+    let mut states: Vec<InlineVec<T, N>> = specs
+        .iter()
+        .map(|s| {
+            let mut b = InlineVec::<T, N>::default();
+            b.extend_from_slice(s);
+            b
+        })
+        .collect();
 
-    let mut acc_av = 0usize;
-    let mut acc_fa = 0usize;
-
-    let rounds = 2000;
+    let rounds = rounds();
     let iters = 300_000;
 
-    let ops_per_pass = run_pass(&mut av, N, &mut acc_av, a, p, q, v);
-    assert_eq!(
-        ops_per_pass,
-        run_pass(&mut fa, N, &mut acc_fa, a, p, q, v),
-        "both sides must execute the same edit burst"
+    // One untimed pass, to learn the real op count: that is the normalizer.
+    let (ops_per_pass, _) = run_pass(&mut states, a, p, q, v);
+    assert!(
+        ops_per_pass > 0,
+        "the burst must perform work, or the timing is meaningless"
     );
-    assert_eq!(acc_av, acc_fa, "both sides must produce the same reads");
 
-    let t_av = time(
+    let t = time(
         || {
-            let mut acc = 0usize;
-            run_pass(&mut av, N, &mut acc, a, p, q, v);
-            std::hint::black_box(acc);
-        },
-        rounds,
-        iters,
-    );
-    let t_fa = time(
-        || {
-            let mut acc = 0usize;
-            run_pass(&mut fa, N, &mut acc, a, p, q, v);
-            std::hint::black_box(acc);
+            let (ops, reads) = run_pass(&mut states, a, p, q, v);
+            std::hint::black_box(ops ^ reads);
         },
         rounds,
         iters,
     );
 
-    let base = iters as f64 * ops_per_pass as f64;
-    let av_ns = t_av.as_nanos() as f64 / base;
-    let fa_ns = t_fa.as_nanos() as f64 / base;
-
-    println!("── {label} (capacity {N}, states {}) ──", specs.len());
-    println!("  ArrayVec:   {:7.3} ns/op", av_ns);
-    println!("  InlineVec: {:7.3} ns/op", fa_ns);
-    println!("  InlineVec/ArrayVec: {:.3}x", fa_ns / av_ns);
-    println!("  checksum: ArrayVec {} / InlineVec {}", acc_av, acc_fa);
+    println!("── {label} (InlineVec<T, {N}>, {} states) ──", states.len());
+    println!(
+        "  {:>7.3} ns/op   ({} ops/pass, best of {rounds})",
+        ns_per_unit(t, iters, ops_per_pass as f64),
+        ops_per_pass
+    );
 }
 
 fn v(b: BaseVowel) -> Vowel {
     Vowel::lower(b, Tone::Flat)
 }
 
-fn main() {
-    // ─────────────────────── Onset · char<3> ───────────────────────
-    let onset_specs: &[Vec<char>] = &[
-        vec!['t'],
-        vec!['t', 'h'],
-        vec!['n', 'g', 'h'],
-        vec!['q', 'u'],
-        vec!['g', 'i'],
-        vec!['t', 'r'],
-    ];
-    println!("Onset/coda buffers: char, capacity {}.", "3/2");
-
-    bench_pop::<char, 3>("onset", onset_specs, ('n', 'g', 'h', 'x'));
-
-    // ─────────────────────── Nucleus · Vowel<3> ───────────────────────
-    let nucleus_specs: &[Vec<Vowel>] = &[
-        vec![v(BaseVowel::A)],
-        vec![v(BaseVowel::A), v(BaseVowel::E)],
-        vec![v(BaseVowel::U), v(BaseVowel::O)],
-        vec![v(BaseVowel::U), v(BaseVowel::OHorn)],
-        vec![v(BaseVowel::O), v(BaseVowel::A), v(BaseVowel::I)],
-        vec![v(BaseVowel::U), v(BaseVowel::O), v(BaseVowel::Y)],
-        vec![v(BaseVowel::I), v(BaseVowel::E), v(BaseVowel::U)],
-    ];
-    bench_pop::<Vowel, 3>(
-        "nucleus",
-        nucleus_specs,
-        (
-            v(BaseVowel::A),
-            v(BaseVowel::E),
-            v(BaseVowel::U),
-            v(BaseVowel::O),
-        ),
-    );
-
-    // ─────────────────────── Coda · char<2> ───────────────────────
-    let coda_specs: &[Vec<char>] = &[vec!['n'], vec!['t'], vec!['n', 'g'], vec!['n', 'h']];
-    bench_pop::<char, 2>("coda", coda_specs, ('n', 'h', 'c', 'g'));
-
-    // ─────────────────────── Fill strategy shootout (char<3>) ───────────────────────
-    //
-    // Fill a `char<3>` from a slice prefix of length `n` three public ways.
-    // The input is `black_box`-pinned (no constant folding) and lengths are
-    // accumulated into `acc`, printed afterwards, so every store is observed.
-    let rounds = 1000;
+/// Fill strategies, plus a raw-column ceiling to compare them against.
+fn bench_fill() {
+    let rounds = rounds();
     let iters = 500_000;
 
     for n in 1..=3usize {
@@ -324,19 +184,21 @@ fn main() {
             iters,
         );
 
-        let ns = |t: std::time::Duration| t.as_nanos() as f64 / iters as f64;
-        println!("── fill char<3> with {n} items (checksum {acc}) ──");
-        println!("  push loop:          {:7.3} ns/op", ns(t_push));
-        println!("  extend(iter):       {:7.3} ns/op", ns(t_extend));
-        println!("  extend_from_slice:  {:7.3} ns/op", ns(t_slice));
-    }
+        let rows = support::ranked(vec![
+            ("push loop", ns_per_unit(t_push, iters, 1.0)),
+            ("extend(iter)", ns_per_unit(t_extend, iters, 1.0)),
+            ("extend_from_slice", ns_per_unit(t_slice, iters, 1.0)),
+        ]);
 
-    bench_mechanism();
+        println!("── fill InlineVec<char, 3> with {n} items (checksum {acc}) ──");
+        for (name, ns) in rows {
+            println!("  {name:<18} {ns:>7.3} ns/op");
+        }
+    }
 }
 
-/// A raw byte column mirroring `InlineVec`'s backing store, with no borrow
-/// or adapter indirection. Used to probe the *mechanism* ceiling of each
-/// write strategy in isolation.
+/// A raw byte column with no borrow or adapter indirection, to probe the
+/// mechanism ceiling of each write strategy in isolation.
 #[derive(Clone, Copy)]
 struct Column {
     buf: [u8; 8],
@@ -359,10 +221,8 @@ impl Column {
     }
 }
 
-/// Mechanism ceiling: same three write strategies against a raw column, so the
-/// per-write cost is measured with zero trait/iterator overhead in the way.
 fn bench_mechanism() {
-    let rounds = 1000;
+    let rounds = rounds();
     let iters = 500_000;
 
     for n in 1..=3usize {
@@ -408,10 +268,58 @@ fn bench_mechanism() {
             iters,
         );
 
-        let ns = |t: std::time::Duration| t.as_nanos() as f64 / iters as f64;
+        let rows = support::ranked(vec![
+            ("per-item store", ns_per_unit(t_item, iters, 1.0)),
+            ("indexed store", ns_per_unit(t_indexed, iters, 1.0)),
+            ("memcpy (copy_slice)", ns_per_unit(t_memcpy, iters, 1.0)),
+        ]);
+
         println!("── mechanism, raw column {n}/8 (checksum {acc}) ──");
-        println!("  per-item store:     {:7.3} ns/op", ns(t_item));
-        println!("  indexed store:      {:7.3} ns/op", ns(t_indexed));
-        println!("  memcpy (copy_slice):{:7.3} ns/op", ns(t_memcpy));
+        for (name, ns) in rows {
+            println!("  {name:<18} {ns:>7.3} ns/op");
+        }
     }
+}
+
+fn main() {
+    // Onset: char<3>, the most-edited buffer in the builder.
+    let onset: &[Vec<char>] = &[
+        vec!['t'],
+        vec!['t', 'h'],
+        vec!['n', 'g', 'h'],
+        vec!['q', 'u'],
+        vec!['g', 'i'],
+        vec!['t', 'r'],
+    ];
+    bench_pop::<char, 3>("onset", onset, ('n', 'g', 'h', 'x'));
+
+    // Nucleus: Vowel<3>, the largest element in the crate.
+    let nucleus: &[Vec<Vowel>] = &[
+        vec![v(BaseVowel::A)],
+        vec![v(BaseVowel::A), v(BaseVowel::E)],
+        vec![v(BaseVowel::U), v(BaseVowel::O)],
+        vec![v(BaseVowel::U), v(BaseVowel::OHorn)],
+        vec![v(BaseVowel::O), v(BaseVowel::A), v(BaseVowel::I)],
+        vec![v(BaseVowel::U), v(BaseVowel::O), v(BaseVowel::Y)],
+        vec![v(BaseVowel::I), v(BaseVowel::E), v(BaseVowel::U)],
+    ];
+    bench_pop::<Vowel, 3>(
+        "nucleus",
+        nucleus,
+        (
+            v(BaseVowel::A),
+            v(BaseVowel::E),
+            v(BaseVowel::U),
+            v(BaseVowel::O),
+        ),
+    );
+
+    // Coda: char<2>, the smallest capacity.
+    let coda: &[Vec<char>] = &[vec!['n'], vec!['t'], vec!['n', 'g'], vec!['n', 'h']];
+    bench_pop::<char, 2>("coda", coda, ('n', 'h', 'c', 'g'));
+
+    println!();
+    bench_fill();
+    println!();
+    bench_mechanism();
 }

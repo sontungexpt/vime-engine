@@ -150,20 +150,35 @@ fn assert_stroke_keys(km: impl Keymap, strokes: &[char]) {
 }
 
 /// Asserts the characters in `neutral` trigger no role and no transform.
-fn assert_neutral(km: impl Keymap, neutral: &[char]) {
+///
+/// `layout` names the keymap under test so a failure points at one layout.
+fn assert_neutral(layout: &str, km: impl Keymap, neutral: &[char]) {
     for &ch in neutral {
-        assert!(!km.is_tone_key(ch), "{ch:?} must not be a tone key");
-        assert!(!km.is_shape_key(ch), "{ch:?} must not be a shape key");
-        assert!(!km.is_stroke_key(ch), "{ch:?} must not be a stroke key");
+        assert!(
+            !km.is_tone_key(ch),
+            "{layout}: {ch:?} must not be a tone key"
+        );
+        assert!(
+            !km.is_shape_key(ch),
+            "{layout}: {ch:?} must not be a shape key"
+        );
+        assert!(
+            !km.is_stroke_key(ch),
+            "{layout}: {ch:?} must not be a stroke key"
+        );
         assert!(
             !km.is_transform_key(ch),
-            "{ch:?} must not be a transform key"
+            "{layout}: {ch:?} must not be a transform key"
         );
-        assert_eq!(km.decode_tone(ch), None, "{ch:?} must not decode as a tone");
+        assert_eq!(
+            km.decode_tone(ch),
+            None,
+            "{layout}: {ch:?} must not decode as a tone"
+        );
         assert_eq!(
             km.decode_shape(ch, RootVowel::A),
             None,
-            "{ch:?} must not decode as a shape"
+            "{layout}: {ch:?} must not decode as a shape"
         );
     }
 }
@@ -195,12 +210,6 @@ fn telex_transform_key_matches_classification() {
         assert!(km.is_transform_key(key));
     }
     assert!(km.is_transform_key('d'));
-    assert_neutral(km, &NEUTRAL);
-}
-
-#[test]
-fn telex_unbound_keys_are_rejected() {
-    assert_neutral(DefaultKeymap::telex(), &NEUTRAL);
 }
 
 // ------------------------------------------------------------------ vni mask
@@ -220,11 +229,6 @@ fn vni_stroke_key_matches_layout() {
     assert_stroke_keys(DefaultKeymap::vni(), &['9']);
 }
 
-#[test]
-fn vni_unbound_keys_are_rejected() {
-    assert_neutral(DefaultKeymap::vni(), &NEUTRAL);
-}
-
 // ------------------------------------------------------------------ viqr mask
 
 #[test]
@@ -242,11 +246,6 @@ fn viqr_stroke_key_matches_layout() {
     assert_stroke_keys(DefaultKeymap::viqr(), &['d']);
 }
 
-#[test]
-fn viqr_unbound_keys_are_rejected() {
-    assert_neutral(DefaultKeymap::viqr(), &NEUTRAL);
-}
-
 // ----------------------------------------------------------- cross-layout mask
 
 #[test]
@@ -262,22 +261,50 @@ fn mask_is_case_insensitive_for_punctuation_too() {
     }
 }
 
+/// `^` and `~` differ only in bit 0x20, so they are the pair that catches a
+/// lookup which lowercases arithmetically (`| 0x20`) instead of calling
+/// `to_ascii_lowercase`.
+///
+/// `^` is a VIQR *shape* key and `~` a VIQR *tone* key. Folding the two
+/// together makes `^` report as the `~` tone bit, which silently drops every
+/// circumflex in VIQR. The shipped `to_ascii_lowercase` keeps them apart, and
+/// this is the test that says so — previously the only evidence was an A/B
+/// bench asserting a rejected branchless variant was wrong.
 #[test]
-fn ascii_boundary_characters_are_rejected() {
-    // NUL (0) and DEL (127) are the ASCII range edges; neither is a bound key.
-    for &ch in &['\0', '\x7F'] {
-        assert_neutral(DefaultKeymap::telex(), &[ch]);
-        assert_neutral(DefaultKeymap::vni(), &[ch]);
-        assert_neutral(DefaultKeymap::viqr(), &[ch]);
-    }
+fn viqr_caret_and_tilde_do_not_collide() {
+    let viqr = DefaultKeymap::viqr();
+
+    assert!(viqr.is_shape_key('^'), "'^' must be a shape key");
+    assert!(
+        !viqr.is_tone_key('^'),
+        "'^' must not be mistaken for the '~' tone key"
+    );
+
+    assert!(viqr.is_tone_key('~'), "'~' must be a tone key");
+    assert!(!viqr.is_shape_key('~'), "'~' must not be a shape key");
+
+    // The fold that would break it, spelled out: 0x5E | 0x20 == 0x7E == '~'.
+    assert_eq!(b'^' | 0x20, b'~', "the collision this test guards is real");
 }
 
+/// Keys bound to no role in any shipped layout, plus the characters that must
+/// never reach a bitmask shift: the ASCII range edges and non-ASCII scalars.
 #[test]
-fn non_ascii_input_is_rejected_without_panic() {
-    // Keys are stored as u8 (ASCII only); lookups must bound the bit index
-    // before shifting so large Unicode scalars never overflow the u128 mask.
-    for &ch in &['đ', 'Đ', 'ư', 'ơ', 'â', '　', '😀', '\u{10FFFF}'] {
-        assert_neutral(DefaultKeymap::telex(), &[ch]);
+fn unbound_keys_are_rejected_in_every_layout() {
+    let telex = DefaultKeymap::telex();
+    let vni = DefaultKeymap::vni();
+    let viqr = DefaultKeymap::viqr();
+    let layouts = [("telex", &telex), ("vni", &vni), ("viqr", &viqr)];
+
+    let rejected: Vec<char> = NEUTRAL
+        .iter()
+        .copied()
+        .chain(['\0', '\x7F']) // ASCII range edges
+        .chain(['đ', 'Đ', 'ư', 'ơ', 'â', '　', '😀', '\u{10FFFF}'])
+        .collect();
+
+    for (name, km) in layouts {
+        assert_neutral(name, *km, &rejected);
     }
 }
 
@@ -412,36 +439,31 @@ fn rules_reject_stroke_shape_collision() {
 
 #[test]
 fn rules_reject_non_ascii_key() {
-    for bad in [
-        &[ToneRule {
+    // Every key is a `u8`; a rule carrying a byte outside ASCII must panic
+    // rather than silently alias an ASCII slot in the bitmask.
+    const HIGH_TONES: [ToneRule; 3] = [
+        ToneRule {
             key: 0xFF,
             tone: Tone::Acute,
-        }][..],
-        &[ToneRule {
+        },
+        ToneRule {
             key: 0x80,
             tone: Tone::Acute,
-        }][..],
-    ] {
-        assert_invalid(|| Rules::new(bad, &[], &[]));
-    }
-    assert_invalid(|| {
-        Rules::new(
-            &[],
-            &[ShapeRule {
-                key: 0xF0,
-                on: RootVowel::A,
-                shape: Shape::Breve,
-            }],
-            &[],
-        )
-    });
-    assert_invalid(|| Rules::new(&[], &[], &[0x80]));
-}
+        },
+        ToneRule {
+            key: 0xF0,
+            tone: Tone::Acute,
+        },
+    ];
+    const HIGH_SHAPE: [ShapeRule; 1] = [ShapeRule {
+        key: 0xF0,
+        on: RootVowel::A,
+        shape: Shape::Breve,
+    }];
 
-#[test]
-fn built_in_layouts_pass_validation() {
-    // All three shipped layouts must validate without panicking.
-    let _ = DefaultKeymap::telex();
-    let _ = DefaultKeymap::vni();
-    let _ = DefaultKeymap::viqr();
+    for rules in &HIGH_TONES {
+        assert_invalid(|| Rules::new(std::slice::from_ref(rules), &[], &[]));
+    }
+    assert_invalid(|| Rules::new(&[], &HIGH_SHAPE, &[]));
+    assert_invalid(|| Rules::new(&[], &[], &[0x80]));
 }

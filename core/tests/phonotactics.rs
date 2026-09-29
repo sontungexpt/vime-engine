@@ -16,14 +16,6 @@ use vime_engine::phonology::{BaseVowel, Coda, Onset, Tone};
 use vime_engine::phonology::{DefaultPhonotacticValidator, PhonotacticError, PhonotacticValidator};
 use BaseVowel::{ABreve, ACircumflex, ECircumflex, OCircumflex, OHorn, UHorn, A, E, I, O, U, Y};
 
-fn ok(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone) {
-    assert_eq!(
-        DefaultPhonotacticValidator.validate(onset, vowels, coda, tone),
-        Ok(()),
-        "expected valid: {onset:?} {vowels:?} {coda:?} {tone:?}"
-    );
-}
-
 fn err(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone, expected: PhonotacticError) {
     assert_eq!(
         DefaultPhonotacticValidator.validate(onset, vowels, coda, tone),
@@ -32,133 +24,208 @@ fn err(onset: Onset, vowels: &[BaseVowel], coda: Coda, tone: Tone, expected: Pho
     );
 }
 
+/// One accepted syllable, labelled with its Vietnamese spelling so a failure
+/// names the word instead of making the reader decode a tuple.
+struct Valid(&'static str, Onset, &'static [BaseVowel], Coda, Tone);
+
+/// Runs every accepted case and reports all failures together, rather than
+/// stopping at the first of ~110.
+fn assert_all_valid(cases: &[Valid]) {
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|Valid(name, onset, vowels, coda, tone)| {
+            let got = DefaultPhonotacticValidator.validate(*onset, *vowels, *coda, *tone);
+            (got != Ok(())).then(|| {
+                format!("{name}: expected Ok, got {got:?} ({onset:?} {vowels:?} {coda:?} {tone:?})")
+            })
+        })
+        .collect();
+
+    assert!(
+        failures.is_empty(),
+        "{} invalid syllable(s):\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
 // ──────────────────────────────────────────────────────────── valid syllables
 
 #[test]
 fn accepts_common_syllables() {
-    // c/g/ng with non-front nuclei ("cây", gà, ngủ, ...) — rule 1 negative side
-    ok(Onset::C, &[A], Coda::None, Tone::Flat); // ca
-    ok(Onset::C, &[O, I], Coda::None, Tone::Flat); // coi
-    ok(Onset::C, &[OCircumflex], Coda::Ng, Tone::Dot); // cộng
-    ok(Onset::C, &[U, A], Coda::None, Tone::Flat); // cua
-    ok(Onset::C, &[A, I], Coda::None, Tone::Flat); // cai
-    ok(Onset::C, &[A], Coda::Nh, Tone::Flat); // canh
-    ok(Onset::C, &[UHorn, U], Coda::None, Tone::Acute); // cứu
-    ok(Onset::C, &[ACircumflex, Y], Coda::None, Tone::Flat); // cây
-    ok(Onset::G, &[A], Coda::None, Tone::Grave); // gà
-    ok(Onset::G, &[ACircumflex, U], Coda::None, Tone::Acute); // gấu
-    ok(Onset::G, &[OHorn], Coda::None, Tone::Grave); // gờ
-    ok(Onset::Ng, &[U], Coda::None, Tone::Hook); // ngủ
-    ok(Onset::Ng, &[ACircumflex, Y], Coda::None, Tone::Grave); // ngày
-    ok(Onset::Ng, &[UHorn, OHorn, I], Coda::None, Tone::Grave); // người
-    ok(Onset::Ng, &[O], Coda::T, Tone::Dot); // ngọt
-    ok(Onset::Ng, &[A], Coda::None, Tone::Flat); // nga
-
-    // k/gh/ngh with front nuclei — rule 1 positive side
-    ok(Onset::K, &[ECircumflex, U], Coda::None, Tone::Flat); // kêu
-    ok(Onset::K, &[E, O], Coda::None, Tone::Dot); // kẹo
-    ok(Onset::K, &[Y], Coda::None, Tone::Acute); // ký
-    ok(Onset::K, &[I, ECircumflex], Coda::N, Tone::Flat); // kiên
-    ok(Onset::Gh, &[E], Coda::None, Tone::Flat); // ghe
-    ok(Onset::Gh, &[ECircumflex], Coda::None, Tone::Flat); // ghê
-    ok(Onset::Gh, &[I], Coda::None, Tone::Flat); // ghi
-    ok(Onset::Ngh, &[E], Coda::None, Tone::Flat); // nghe
-    ok(Onset::Ngh, &[I], Coda::None, Tone::Tilde); // nghĩ
-    ok(Onset::Ngh, &[I, ECircumflex], Coda::Ng, Tone::Flat); // nghiêng
-
-    // Qu + non-u nuclei — rule 2
-    ok(Onset::Qu, &[A], Coda::None, Tone::Grave); // quà
-    ok(Onset::Qu, &[ECircumflex], Coda::None, Tone::Flat); // quê
-    ok(Onset::Qu, &[E], Coda::N, Tone::Flat); // quen
-    ok(Onset::Qu, &[ACircumflex], Coda::N, Tone::Flat); // quân
-    ok(Onset::Qu, &[ACircumflex], Coda::N, Tone::Grave); // quần
-    ok(Onset::Qu, &[OCircumflex], Coda::C, Tone::Acute); // quốc
-    ok(Onset::Qu, &[Y], Coda::None, Tone::Acute); // quý
-    ok(Onset::Qu, &[Y, ECircumflex], Coda::T, Tone::Acute); // quyết
-    ok(Onset::Qu, &[Y, ECircumflex], Coda::N, Tone::Grave); // quyền
-    ok(Onset::Qu, &[Y], Coda::Nh, Tone::Grave); // quỳnh
-    ok(Onset::Qu, &[A], Coda::T, Tone::Dot); // quạt
-    ok(Onset::Qu, &[ABreve], Coda::Ng, Tone::Flat); // quăng
-
-    // stop codas carrying an entering tone — rule 3
-    ok(Onset::C, &[A], Coda::P, Tone::Acute); // cáp
-    ok(Onset::C, &[A], Coda::P, Tone::Dot); // cạp
-    ok(Onset::C, &[A], Coda::C, Tone::Acute); // các
-    ok(Onset::None, &[OCircumflex], Coda::C, Tone::Acute); // ốc
-    ok(Onset::N, &[ECircumflex], Coda::P, Tone::Dot); // nếp
-    ok(Onset::B, &[ECircumflex], Coda::P, Tone::Dot); // bếp
-    ok(Onset::DStroke, &[E], Coda::P, Tone::Dot); // đẹp
-    ok(Onset::DStroke, &[O], Coda::C, Tone::Dot); // đọc
-    ok(Onset::DStroke, &[U, OCircumflex], Coda::C, Tone::Dot); // được
-    ok(Onset::M, &[UHorn], Coda::C, Tone::Dot); // mực
-    ok(Onset::S, &[UHorn], Coda::C, Tone::Acute); // sức
-    ok(Onset::T, &[O], Coda::T, Tone::Acute); // tốt
-    ok(Onset::B, &[I, ECircumflex], Coda::T, Tone::Acute); // biết
-    ok(Onset::Th, &[ACircumflex], Coda::T, Tone::Dot); // thật
-    ok(Onset::M, &[A], Coda::T, Tone::Acute); // mát
-    ok(Onset::D, &[ACircumflex], Coda::T, Tone::Dot); // đất
-    ok(Onset::V, &[I, ECircumflex], Coda::T, Tone::Dot); // việt
-    ok(Onset::C, &[UHorn, OHorn], Coda::C, Tone::Dot); // cược
-    ok(Onset::M, &[U, OHorn], Coda::N, Tone::Acute); // muốn
-
-    // palatal codas after a front vowel or plain a — rule 4
-    ok(Onset::None, &[A], Coda::Nh, Tone::Flat); // anh
-    ok(Onset::None, &[A], Coda::Ch, Tone::Acute); // ách
-    ok(Onset::C, &[A], Coda::Nh, Tone::Flat); // canh
-    ok(Onset::X, &[I], Coda::Nh, Tone::Flat); // xinh
-    ok(Onset::M, &[I], Coda::Nh, Tone::Grave); // mình
-    ok(Onset::S, &[A], Coda::Ch, Tone::Acute); // sách
-    ok(Onset::M, &[A], Coda::Ch, Tone::Dot); // mạch
-    ok(Onset::None, &[ECircumflex], Coda::Ch, Tone::Acute); // ếch
-    ok(Onset::None, &[I], Coda::Ch, Tone::Acute); // ích
-    ok(Onset::B, &[ECircumflex], Coda::Nh, Tone::Dot); // bệnh
-    ok(Onset::L, &[ECircumflex], Coda::Nh, Tone::Dot); // lệnh
-    ok(Onset::H, &[U, Y], Coda::Nh, Tone::Flat); // huynh
-    ok(Onset::H, &[O, A], Coda::Ch, Tone::Dot); // hoạch
-    ok(Onset::H, &[O, A], Coda::Nh, Tone::Flat); // hoành
-    ok(Onset::None, &[O, A], Coda::Nh, Tone::Flat); // oanh
-    ok(Onset::K, &[I], Coda::Nh, Tone::Acute); // kính
-
-    // short vowels with a closing sound — rule 5
-    ok(Onset::None, &[ABreve], Coda::N, Tone::Flat); // ăn
-    ok(Onset::S, &[ABreve], Coda::N, Tone::Flat); // săn
-    ok(Onset::M, &[ABreve], Coda::N, Tone::Dot); // mặn
-    ok(Onset::T, &[ABreve], Coda::M, Tone::Acute); // tắm
-    ok(Onset::H, &[ABreve], Coda::N, Tone::Acute); // hắn
-    ok(Onset::C, &[ACircumflex], Coda::N, Tone::Flat); // cân
-    ok(Onset::S, &[ACircumflex], Coda::N, Tone::Flat); // sân
-    ok(Onset::N, &[ACircumflex, U], Coda::None, Tone::Acute); // nấu
-    ok(Onset::T, &[ACircumflex], Coda::T, Tone::Dot); // tất
-    ok(Onset::DStroke, &[ACircumflex], Coda::T, Tone::Dot); // đất
-
-    // assorted real syllables across other onsets
-    ok(Onset::None, &[Y, ECircumflex, U], Coda::None, Tone::Flat); // yêu
-    ok(Onset::None, &[A, I], Coda::None, Tone::Flat); // ai
-    ok(Onset::None, &[A, Y], Coda::None, Tone::Flat); // ay
-    ok(Onset::None, &[A, O], Coda::None, Tone::Flat); // ao
-    ok(Onset::None, &[O, A], Coda::None, Tone::Flat); // oa
-    ok(Onset::None, &[O, A, I], Coda::None, Tone::Flat); // oai
-    ok(Onset::None, &[U, Y], Coda::None, Tone::Flat); // uy
-    ok(Onset::None, &[U, Y, ECircumflex], Coda::N, Tone::Flat); // uyên
-    ok(Onset::None, &[U, OCircumflex, I], Coda::None, Tone::Flat); // uôi
-    ok(Onset::None, &[UHorn, U], Coda::None, Tone::Flat); // ưu
-    ok(Onset::None, &[UHorn, I], Coda::None, Tone::Flat); // ơi
-    ok(Onset::None, &[UHorn], Coda::None, Tone::Tilde); // ở
-    ok(Onset::Ch, &[UHorn], Coda::None, Tone::Dot); // chợ
-    ok(Onset::Th, &[UHorn], Coda::None, Tone::Flat); // thơ
-    ok(Onset::Ch, &[UHorn], Coda::Ng, Tone::Tilde); // những
-    ok(Onset::Ch, &[U, OCircumflex], Coda::Ng, Tone::Grave); // chuồng
-    ok(Onset::Ch, &[I], Coda::M, Tone::Flat); // chim
-    ok(Onset::Ph, &[O], Coda::Ng, Tone::Flat); // phong
-    ok(Onset::Kh, &[U, Y, A], Coda::None, Tone::Flat); // khuya
-    ok(Onset::Tr, &[OHorn, I], Coda::None, Tone::Grave); // trời
-    ok(Onset::Gi, &[UHorn], Coda::None, Tone::Tilde); // giữ
-    ok(Onset::Gi, &[A], Coda::None, Tone::Flat); // gia
-    ok(Onset::Gi, &[ECircumflex], Coda::Ng, Tone::Flat); // giêng
-    ok(Onset::Th, &[U, ECircumflex], Coda::None, Tone::Flat); // thuê
-    ok(Onset::X, &[O, A, Y], Coda::None, Tone::Flat); // xoay
-    ok(Onset::N, &[U, OCircumflex, I], Coda::None, Tone::Flat); // nuôi
-    ok(Onset::T, &[U, Y, ECircumflex], Coda::T, Tone::Dot); // tuyệt
+    assert_all_valid(&[
+        // c/g/ng with non-front nuclei ("cây", gà, ngủ, ...) — rule 1 negative side
+        Valid("ca", Onset::C, &[A], Coda::None, Tone::Flat),
+        Valid("coi", Onset::C, &[O, I], Coda::None, Tone::Flat),
+        Valid("cộng", Onset::C, &[OCircumflex], Coda::Ng, Tone::Dot),
+        Valid("cua", Onset::C, &[U, A], Coda::None, Tone::Flat),
+        Valid("cai", Onset::C, &[A, I], Coda::None, Tone::Flat),
+        Valid("canh", Onset::C, &[A], Coda::Nh, Tone::Flat),
+        Valid("cứu", Onset::C, &[UHorn, U], Coda::None, Tone::Acute),
+        Valid("cây", Onset::C, &[ACircumflex, Y], Coda::None, Tone::Flat),
+        Valid("gà", Onset::G, &[A], Coda::None, Tone::Grave),
+        Valid("gấu", Onset::G, &[ACircumflex, U], Coda::None, Tone::Acute),
+        Valid("gờ", Onset::G, &[OHorn], Coda::None, Tone::Grave),
+        Valid("ngủ", Onset::Ng, &[U], Coda::None, Tone::Hook),
+        Valid(
+            "ngày",
+            Onset::Ng,
+            &[ACircumflex, Y],
+            Coda::None,
+            Tone::Grave,
+        ),
+        Valid(
+            "người",
+            Onset::Ng,
+            &[UHorn, OHorn, I],
+            Coda::None,
+            Tone::Grave,
+        ),
+        Valid("ngọt", Onset::Ng, &[O], Coda::T, Tone::Dot),
+        Valid("nga", Onset::Ng, &[A], Coda::None, Tone::Flat),
+        // k/gh/ngh with front nuclei — rule 1 positive side
+        Valid("kêu", Onset::K, &[ECircumflex, U], Coda::None, Tone::Flat),
+        Valid("kẹo", Onset::K, &[E, O], Coda::None, Tone::Dot),
+        Valid("ký", Onset::K, &[Y], Coda::None, Tone::Acute),
+        Valid("kiên", Onset::K, &[I, ECircumflex], Coda::N, Tone::Flat),
+        Valid("ghe", Onset::Gh, &[E], Coda::None, Tone::Flat),
+        Valid("ghê", Onset::Gh, &[ECircumflex], Coda::None, Tone::Flat),
+        Valid("ghi", Onset::Gh, &[I], Coda::None, Tone::Flat),
+        Valid("nghe", Onset::Ngh, &[E], Coda::None, Tone::Flat),
+        Valid("nghĩ", Onset::Ngh, &[I], Coda::None, Tone::Tilde),
+        Valid(
+            "nghiêng",
+            Onset::Ngh,
+            &[I, ECircumflex],
+            Coda::Ng,
+            Tone::Flat,
+        ),
+        // Qu + non-u nuclei — rule 2
+        Valid("quà", Onset::Qu, &[A], Coda::None, Tone::Grave),
+        Valid("quê", Onset::Qu, &[ECircumflex], Coda::None, Tone::Flat),
+        Valid("quen", Onset::Qu, &[E], Coda::N, Tone::Flat),
+        Valid("quân", Onset::Qu, &[ACircumflex], Coda::N, Tone::Flat),
+        Valid("quần", Onset::Qu, &[ACircumflex], Coda::N, Tone::Grave),
+        Valid("quốc", Onset::Qu, &[OCircumflex], Coda::C, Tone::Acute),
+        Valid("quý", Onset::Qu, &[Y], Coda::None, Tone::Acute),
+        Valid("quyết", Onset::Qu, &[Y, ECircumflex], Coda::T, Tone::Acute),
+        Valid("quyền", Onset::Qu, &[Y, ECircumflex], Coda::N, Tone::Grave),
+        Valid("quỳnh", Onset::Qu, &[Y], Coda::Nh, Tone::Grave),
+        Valid("quạt", Onset::Qu, &[A], Coda::T, Tone::Dot),
+        Valid("quăng", Onset::Qu, &[ABreve], Coda::Ng, Tone::Flat),
+        // stop codas carrying an entering tone — rule 3
+        Valid("cáp", Onset::C, &[A], Coda::P, Tone::Acute),
+        Valid("cạp", Onset::C, &[A], Coda::P, Tone::Dot),
+        Valid("các", Onset::C, &[A], Coda::C, Tone::Acute),
+        Valid("ốc", Onset::None, &[OCircumflex], Coda::C, Tone::Acute),
+        Valid("nếp", Onset::N, &[ECircumflex], Coda::P, Tone::Dot),
+        Valid("bếp", Onset::B, &[ECircumflex], Coda::P, Tone::Dot),
+        Valid("đẹp", Onset::DStroke, &[E], Coda::P, Tone::Dot),
+        Valid("đọc", Onset::DStroke, &[O], Coda::C, Tone::Dot),
+        Valid(
+            "được",
+            Onset::DStroke,
+            &[U, OCircumflex],
+            Coda::C,
+            Tone::Dot,
+        ),
+        Valid("mực", Onset::M, &[UHorn], Coda::C, Tone::Dot),
+        Valid("sức", Onset::S, &[UHorn], Coda::C, Tone::Acute),
+        Valid("tốt", Onset::T, &[O], Coda::T, Tone::Acute),
+        Valid("biết", Onset::B, &[I, ECircumflex], Coda::T, Tone::Acute),
+        Valid("thật", Onset::Th, &[ACircumflex], Coda::T, Tone::Dot),
+        Valid("mát", Onset::M, &[A], Coda::T, Tone::Acute),
+        Valid("đất", Onset::D, &[ACircumflex], Coda::T, Tone::Dot),
+        Valid("việt", Onset::V, &[I, ECircumflex], Coda::T, Tone::Dot),
+        Valid("cược", Onset::C, &[UHorn, OHorn], Coda::C, Tone::Dot),
+        Valid("muốn", Onset::M, &[U, OHorn], Coda::N, Tone::Acute),
+        // palatal codas after a front vowel or plain a — rule 4
+        Valid("anh", Onset::None, &[A], Coda::Nh, Tone::Flat),
+        Valid("ách", Onset::None, &[A], Coda::Ch, Tone::Acute),
+        Valid("canh", Onset::C, &[A], Coda::Nh, Tone::Flat),
+        Valid("xinh", Onset::X, &[I], Coda::Nh, Tone::Flat),
+        Valid("mình", Onset::M, &[I], Coda::Nh, Tone::Grave),
+        Valid("sách", Onset::S, &[A], Coda::Ch, Tone::Acute),
+        Valid("mạch", Onset::M, &[A], Coda::Ch, Tone::Dot),
+        Valid("ếch", Onset::None, &[ECircumflex], Coda::Ch, Tone::Acute),
+        Valid("ích", Onset::None, &[I], Coda::Ch, Tone::Acute),
+        Valid("bệnh", Onset::B, &[ECircumflex], Coda::Nh, Tone::Dot),
+        Valid("lệnh", Onset::L, &[ECircumflex], Coda::Nh, Tone::Dot),
+        Valid("huynh", Onset::H, &[U, Y], Coda::Nh, Tone::Flat),
+        Valid("hoạch", Onset::H, &[O, A], Coda::Ch, Tone::Dot),
+        Valid("hoành", Onset::H, &[O, A], Coda::Nh, Tone::Flat),
+        Valid("oanh", Onset::None, &[O, A], Coda::Nh, Tone::Flat),
+        Valid("kính", Onset::K, &[I], Coda::Nh, Tone::Acute),
+        // short vowels with a closing sound — rule 5
+        Valid("ăn", Onset::None, &[ABreve], Coda::N, Tone::Flat),
+        Valid("săn", Onset::S, &[ABreve], Coda::N, Tone::Flat),
+        Valid("mặn", Onset::M, &[ABreve], Coda::N, Tone::Dot),
+        Valid("tắm", Onset::T, &[ABreve], Coda::M, Tone::Acute),
+        Valid("hắn", Onset::H, &[ABreve], Coda::N, Tone::Acute),
+        Valid("cân", Onset::C, &[ACircumflex], Coda::N, Tone::Flat),
+        Valid("sân", Onset::S, &[ACircumflex], Coda::N, Tone::Flat),
+        Valid("nấu", Onset::N, &[ACircumflex, U], Coda::None, Tone::Acute),
+        Valid("tất", Onset::T, &[ACircumflex], Coda::T, Tone::Dot),
+        Valid("đất", Onset::DStroke, &[ACircumflex], Coda::T, Tone::Dot),
+        // assorted real syllables across other onsets
+        Valid(
+            "yêu",
+            Onset::None,
+            &[Y, ECircumflex, U],
+            Coda::None,
+            Tone::Flat,
+        ),
+        Valid("ai", Onset::None, &[A, I], Coda::None, Tone::Flat),
+        Valid("ay", Onset::None, &[A, Y], Coda::None, Tone::Flat),
+        Valid("ao", Onset::None, &[A, O], Coda::None, Tone::Flat),
+        Valid("oa", Onset::None, &[O, A], Coda::None, Tone::Flat),
+        Valid("oai", Onset::None, &[O, A, I], Coda::None, Tone::Flat),
+        Valid("uy", Onset::None, &[U, Y], Coda::None, Tone::Flat),
+        Valid(
+            "uyên",
+            Onset::None,
+            &[U, Y, ECircumflex],
+            Coda::N,
+            Tone::Flat,
+        ),
+        Valid(
+            "uôi",
+            Onset::None,
+            &[U, OCircumflex, I],
+            Coda::None,
+            Tone::Flat,
+        ),
+        Valid("ưu", Onset::None, &[UHorn, U], Coda::None, Tone::Flat),
+        Valid("ơi", Onset::None, &[UHorn, I], Coda::None, Tone::Flat),
+        Valid("ở", Onset::None, &[UHorn], Coda::None, Tone::Tilde),
+        Valid("chợ", Onset::Ch, &[UHorn], Coda::None, Tone::Dot),
+        Valid("thơ", Onset::Th, &[UHorn], Coda::None, Tone::Flat),
+        Valid("những", Onset::Ch, &[UHorn], Coda::Ng, Tone::Tilde),
+        Valid(
+            "chuồng",
+            Onset::Ch,
+            &[U, OCircumflex],
+            Coda::Ng,
+            Tone::Grave,
+        ),
+        Valid("chim", Onset::Ch, &[I], Coda::M, Tone::Flat),
+        Valid("phong", Onset::Ph, &[O], Coda::Ng, Tone::Flat),
+        Valid("khuya", Onset::Kh, &[U, Y, A], Coda::None, Tone::Flat),
+        Valid("trời", Onset::Tr, &[OHorn, I], Coda::None, Tone::Grave),
+        Valid("giữ", Onset::Gi, &[UHorn], Coda::None, Tone::Tilde),
+        Valid("gia", Onset::Gi, &[A], Coda::None, Tone::Flat),
+        Valid("giêng", Onset::Gi, &[ECircumflex], Coda::Ng, Tone::Flat),
+        Valid("thuê", Onset::Th, &[U, ECircumflex], Coda::None, Tone::Flat),
+        Valid("xoay", Onset::X, &[O, A, Y], Coda::None, Tone::Flat),
+        Valid(
+            "nuôi",
+            Onset::N,
+            &[U, OCircumflex, I],
+            Coda::None,
+            Tone::Flat,
+        ),
+        Valid("tuyệt", Onset::T, &[U, Y, ECircumflex], Coda::T, Tone::Dot),
+    ]);
 }
 
 // ──────────────────────────────────────────────── rule 1: k/gh/ngh (front-only)

@@ -88,13 +88,27 @@ fn ramp(n: usize) -> InlineVec<u32, 8> {
     v
 }
 
+/// Every fill level from empty to full. A property that must hold at any fill
+/// level is stated once and swept over this, so the levels cannot drift apart
+/// between tests.
+const FILL_LEVELS: std::ops::RangeInclusive<usize> = 0..=8;
+
 /// Yields in push order, and only the pushed elements: the uninitialized tail
 /// past `len` must never appear, at any fill level.
 #[test]
 fn into_iter_yields_every_element_in_order() {
-    for n in 0..=8usize {
+    for n in FILL_LEVELS {
         let got: Vec<u32> = ramp(n).into_iter().collect();
         assert_eq!(got, (0..n as u32).collect::<Vec<_>>(), "n={n}");
+    }
+}
+
+/// `count()` is a length read, not a walk, and must agree with the number of
+/// elements actually yielded at each fill level.
+#[test]
+fn count_reports_the_length() {
+    for n in FILL_LEVELS {
+        assert_eq!(ramp(n).into_iter().count(), n, "n={n}");
     }
 }
 
@@ -168,14 +182,6 @@ fn next_back_walks_backwards() {
     );
     assert_eq!(ramp(0).into_iter().rev().count(), 0);
     assert_eq!(ramp(1).into_iter().rev().collect::<Vec<u32>>(), vec![0]);
-}
-
-/// `count()` is a length read, not a walk.
-#[test]
-fn count_reports_the_length() {
-    for n in 0..=8usize {
-        assert_eq!(ramp(n).into_iter().count(), n, "n={n}");
-    }
 }
 
 /// Exhausted means exhausted: `next` keeps returning `None` afterwards, which

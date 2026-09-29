@@ -11,7 +11,8 @@
 //! report every mismatch through [`check_syllable_eq`], so a failure prints
 //! the expected and actual onset / vowels / tone / coda side by side.
 
-use crate::composition::syllable::building::BuildingSyllable;
+use crate::composition::syllable::building::{BuildingSyllable, SyllableBuildError};
+use crate::composition::syllable::InputEffect;
 use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
@@ -132,6 +133,32 @@ impl ExpectedSyllable {
             coda_kind,
             coda,
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Edit effects
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The result an `insert` / `remove` case must produce, tagged so a case table
+/// can state success and failure with the same field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    Ok(InputEffect),
+    Err(SyllableBuildError),
+}
+
+/// Compares a case's expected [`Effect`] against the builder's actual result,
+/// reporting both on a mismatch.
+pub fn check_effect(
+    expected: &Effect,
+    got: Result<InputEffect, SyllableBuildError>,
+    label: &str,
+) -> Result<(), String> {
+    match (expected, got) {
+        (Effect::Ok(want), Ok(actual)) if want == &actual => Ok(()),
+        (Effect::Err(want), Err(actual)) if want == &actual => Ok(()),
+        (expected, got) => Err(format!("{label}: expected {expected:?}, got {got:?}")),
     }
 }
 

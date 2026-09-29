@@ -135,15 +135,7 @@ impl Engine {
     pub fn reset(&mut self) -> Outcome {
         // SAFETY: `self.0` is live.
         let ok = unsafe { vime::vime_reset(self.0) };
-        let out = if ok {
-            VimeOutput {
-                action: VimeAction::Changed,
-                commit: std::ptr::null(),
-            }
-        } else {
-            VimeOutput::empty(VimeAction::Forward)
-        };
-        unsafe { read_output(self.0, out) }
+        self.read_flag_output(ok)
     }
 
     /// Switches the input method, returning the new word.
@@ -154,6 +146,21 @@ impl Engine {
     pub fn set_input_method(&mut self, method: VimeInputMethod) -> Outcome {
         // SAFETY: `self.0` is live.
         let ok = unsafe { vime::vime_set_input_method(self.0, method) };
+        self.read_flag_output(ok)
+    }
+
+    /// The raw handle, for tests that need to drive the C ABI directly.
+    pub fn raw(&self) -> *mut VimeEngineHandle {
+        self.0
+    }
+
+    /// The synthetic `VimeOutput` for a status-only entry point.
+    ///
+    /// `vime_reset` and the two config setters report just a success flag, but
+    /// each of them also clears or re-renders the buffer — so the caller still
+    /// has to see the word, exactly as a frontend would. A failure keeps the
+    /// neutral `Forward`/NULL output.
+    fn read_flag_output(&mut self, ok: bool) -> Outcome {
         let out = if ok {
             VimeOutput {
                 action: VimeAction::Changed,
@@ -162,12 +169,8 @@ impl Engine {
         } else {
             VimeOutput::empty(VimeAction::Forward)
         };
+        // SAFETY: `self.0` is live.
         unsafe { read_output(self.0, out) }
-    }
-
-    /// The raw handle, for tests that need to drive the C ABI directly.
-    pub fn raw(&self) -> *mut VimeEngineHandle {
-        self.0
     }
 
     /// The word the engine currently holds, read through `vime_parsed`.
@@ -192,15 +195,7 @@ impl Engine {
     pub fn set_tone_placement(&mut self, tone: VimeTonePlacement) -> Outcome {
         // SAFETY: `self.0` is live.
         let ok = unsafe { vime::vime_set_tone_placement(self.0, tone) };
-        let out = if ok {
-            VimeOutput {
-                action: VimeAction::Changed,
-                commit: std::ptr::null(),
-            }
-        } else {
-            VimeOutput::empty(VimeAction::Forward)
-        };
-        unsafe { read_output(self.0, out) }
+        self.read_flag_output(ok)
     }
 }
 

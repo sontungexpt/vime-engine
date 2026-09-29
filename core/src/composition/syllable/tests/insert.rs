@@ -20,18 +20,12 @@
 //! the returned `InputEffect`/`SyllableBuildError` **and** the final syllable
 //! (transform side-effects that survive an `Err` are asserted exactly).
 
-use super::common::{check_syllable_eq, ExpectedSyllable, C, V};
+use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
 
 use crate::composition::syllable::building::{BuildingSyllable, SyllableBuildError};
 use crate::composition::syllable::InputEffect;
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Effect {
-    Ok(InputEffect),
-    Err(SyllableBuildError),
-}
 
 struct InsertCase {
     base: &'static [char],
@@ -538,17 +532,7 @@ fn run_case(keymap: &DefaultKeymap, case: &InsertCase) -> Result<(), String> {
         case.base, case.at, case.key
     );
 
-    match (&case.effect, effect) {
-        (Effect::Ok(expected), Ok(got)) if expected == &got => {}
-        (Effect::Err(expected), Err(got)) if expected == &got => {}
-        (Effect::Ok(expected), got) => {
-            return Err(format!("{label}: expected Ok({expected:?}), got {got:?}"));
-        }
-        (Effect::Err(expected), got) => {
-            return Err(format!("{label}: expected Err({expected:?}), got {got:?}"));
-        }
-    }
-
+    check_effect(&case.effect, effect, &label)?;
     check_syllable_eq(&builder, &case.expected, case.base)
 }
 
@@ -561,6 +545,12 @@ fn insert_cases() {
         .filter_map(|case| run_case(&telex, case).err())
         .collect();
 
+    assert!(
+        CASES.len() >= 45,
+        "expected the insert corpus to stay sizable; got {}",
+        CASES.len()
+    );
+
     if !failures.is_empty() {
         panic!(
             "{} failing insert case(s):\n\n{}",
@@ -568,10 +558,4 @@ fn insert_cases() {
             failures.join("\n\n")
         );
     }
-
-    assert!(
-        CASES.len() >= 45,
-        "expected the insert corpus to stay sizable; got {}",
-        CASES.len()
-    );
 }

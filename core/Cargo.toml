@@ -7,39 +7,48 @@ license = "MIT"
 
 [dependencies]
 
-[dev-dependencies]
-arrayvec = "0.7"
-criterion = "0.8.2"
+# The benches in this package are `harness = false` and drive their own
+# best-of-N loop (see benches/support/mod.rs), so there are no benchmark
+# dev-dependencies.
 
-[[bench]]
-name = "bench_coda"
-harness = false
+# Integration tests (tests/*.rs). Declared explicitly so helper
+# subdirectories (e.g. tests/common/) never become targets.
+[[test]]
+name = "config"
+path = "tests/config.rs"
 
-[[bench]]
-name = "bench_composition_insert"
-harness = false
+[[test]]
+name = "discriminants"
+path = "tests/discriminants.rs"
 
+[[test]]
+name = "inline_vec"
+path = "tests/inline_vec.rs"
+
+[[test]]
+name = "keymap"
+path = "tests/keymap.rs"
+
+[[test]]
+name = "nucleus"
+path = "tests/nucleus.rs"
+
+[[test]]
+name = "phonotactics"
+path = "tests/phonotactics.rs"
+
+[[test]]
+name = "vowel"
+path = "tests/vowel.rs"
+
+# Benches (benches/*.rs). Declared explicitly, for the same reason as the
+# tests: benches/support/ must not become a target.
 [[bench]]
-name = "bench_composition_push"
+name = "bench_composition"
+path = "benches/bench_composition.rs"
 harness = false
 
 [[bench]]
 name = "bench_inline_vec"
+path = "benches/bench_inline_vec.rs"
 harness = false
-
-[[bench]]
-name = "bench_has_key"
-harness = false
-
-[[bench]]
-name = "bench_keylookup"
-harness = false
-
-[[bench]]
-name = "bench_nucleus_state"
-harness = false
-
-[[bench]]
-name = "bench_onset"
-harness = false
-

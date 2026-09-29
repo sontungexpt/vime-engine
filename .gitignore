@@ -1,2 +1,7 @@
 /target
 target/
+core/target/
+ffi/target/
+*.rs.bk
+*.rlib
+Cargo.lock.bak

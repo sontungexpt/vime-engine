@@ -46,37 +46,76 @@ fn output_layout() {
     assert_eq!(offset_of!(VimeOutput, commit), 8);
 }
 
+/// The discriminant tables the C header declares. Adding a variant to any of
+/// these enums means adding a row here, so a renumbering cannot slip through.
+const ACTIONS: [(VimeAction, u32); 5] = [
+    (VimeAction::Forward, 0),
+    (VimeAction::Noop, 1),
+    (VimeAction::Changed, 2),
+    (VimeAction::Commit, 3),
+    (VimeAction::CursorMoved, 4),
+];
+
+const INPUT_METHODS: [(VimeInputMethod, u32); 3] = [
+    (VimeInputMethod::Telex, 1),
+    (VimeInputMethod::Vni, 2),
+    (VimeInputMethod::Viqr, 3),
+];
+
+const TONE_PLACEMENTS: [(VimeTonePlacement, u32); 2] =
+    [(VimeTonePlacement::Modern, 1), (VimeTonePlacement::Old, 2)];
+
+const KEYS: [(VimeKey, u32); 9] = [
+    (VimeKey::Character, 0),
+    (VimeKey::Backspace, 1),
+    (VimeKey::Delete, 2),
+    (VimeKey::Left, 3),
+    (VimeKey::Right, 4),
+    (VimeKey::Enter, 5),
+    (VimeKey::Escape, 6),
+    (VimeKey::Tab, 7),
+    (VimeKey::Space, 8),
+];
+
+/// Every C-visible enum is `repr(u32)` and the header's `#define`s must match.
 #[test]
-fn action_discriminants() {
-    assert_eq!(VimeAction::Forward as u32, 0);
-    assert_eq!(VimeAction::Noop as u32, 1);
-    assert_eq!(VimeAction::Changed as u32, 2);
-    assert_eq!(VimeAction::Commit as u32, 3);
-    assert_eq!(VimeAction::CursorMoved as u32, 4);
+fn c_enum_discriminants_match_the_header() {
+    for (value, expected) in ACTIONS {
+        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
+    }
+    for (value, expected) in INPUT_METHODS {
+        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
+    }
+    for (value, expected) in TONE_PLACEMENTS {
+        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
+    }
+    for (value, expected) in KEYS {
+        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
+    }
 }
 
+/// The discriminant tables are dense and gap-free, so the first row cannot
+/// drift away from the rest.
 #[test]
-fn input_method_discriminants() {
-    assert_eq!(VimeInputMethod::Telex as u32, 1);
-    assert_eq!(VimeInputMethod::Vni as u32, 2);
-    assert_eq!(VimeInputMethod::Viqr as u32, 3);
+fn c_enum_discriminants_are_dense() {
+    // `VimeInputMethod` and `VimeTonePlacement` deliberately start at 1 (0 is
+    // reserved as "unset" in the C header), so only those two are offset.
+    assert_dense("VimeAction", ACTIONS.iter().map(|(_, v)| *v), 0);
+    assert_dense("VimeKey", KEYS.iter().map(|(_, v)| *v), 0);
+    assert_dense("VimeInputMethod", INPUT_METHODS.iter().map(|(_, v)| *v), 1);
+    assert_dense(
+        "VimeTonePlacement",
+        TONE_PLACEMENTS.iter().map(|(_, v)| *v),
+        1,
+    );
 }
 
-#[test]
-fn tone_placement_discriminants() {
-    assert_eq!(VimeTonePlacement::Modern as u32, 1);
-    assert_eq!(VimeTonePlacement::Old as u32, 2);
-}
-
-#[test]
-fn key_discriminants() {
-    assert_eq!(VimeKey::Character as u32, 0);
-    assert_eq!(VimeKey::Backspace as u32, 1);
-    assert_eq!(VimeKey::Delete as u32, 2);
-    assert_eq!(VimeKey::Left as u32, 3);
-    assert_eq!(VimeKey::Right as u32, 4);
-    assert_eq!(VimeKey::Enter as u32, 5);
-    assert_eq!(VimeKey::Escape as u32, 6);
-    assert_eq!(VimeKey::Tab as u32, 7);
-    assert_eq!(VimeKey::Space as u32, 8);
+/// Asserts `values` are exactly `base..base + len`, in order.
+fn assert_dense(name: &str, values: impl Iterator<Item = u32>, base: u32) {
+    let values: Vec<u32> = values.collect();
+    let expected: Vec<u32> = (base..base + values.len() as u32).collect();
+    assert_eq!(
+        values, expected,
+        "{name} discriminants must stay dense from {base}"
+    );
 }

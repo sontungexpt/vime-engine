@@ -71,9 +71,8 @@ fn press(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, key: Key) -> 
 fn caret_predicates_track_the_raw_buffer() {
     let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
 
-    // An empty buffer has nowhere to go in either direction.
-    type_str(&mut engine, "toa");
     // Type "toa": the caret sits after the final character.
+    type_str(&mut engine, "toa");
     assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
     assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
     assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
@@ -97,31 +96,11 @@ fn caret_moves_leave_the_render_unchanged() {
     let before = engine.parsed();
 
     for key in [Key::Left, Key::Left, Key::Right] {
-        engine.process_key(KeyEvent {
-            key,
-            states: KeyStates::empty(),
-        });
+        press(&mut engine, key);
     }
     assert_eq!(engine.parsed(), before);
 
     // After a reset the buffer is empty, so there is nowhere to move.
     engine.reset();
     assert_eq!(engine.parsed(), "");
-}
-
-/// Left at position 0 is forwarded, right at the end is forwarded, and both are
-/// consumed from inside the buffer.
-#[test]
-fn arrow_keys_are_forwarded_at_the_buffer_edges() {
-    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
-    type_str(&mut engine, "toa");
-
-    // Right at the end: forwarded.
-    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::Forward);
-
-    // Walk to the start, where left is forwarded.
-    for _ in 0..3 {
-        assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
-    }
-    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::Forward);
 }
