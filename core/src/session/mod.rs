@@ -23,9 +23,9 @@
 //! the word.
 
 mod config;
-pub mod factory;
+mod factory;
 mod session;
 
-pub use config::{Config, SharedConfig, Settings};
+pub use config::{Config, Settings, SharedConfig};
 pub use factory::SessionFactory;
 pub use session::Session;

@@ -6,8 +6,25 @@ pub use cursor::Cursor;
 use crate::{
     composition::syllable::{InputEffect, SyllableBuilder, SyllableContext},
     keymap::Keymap,
-    phonology::TonePlacement,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Parallel<T> {
+    rendered: T,
+    raw: T,
+}
+
+impl<T> Parallel<T> {
+    #[inline(always)]
+    pub const fn rendered(&self) -> &T {
+        &self.rendered
+    }
+
+    #[inline(always)]
+    pub const fn raw(&self) -> &T {
+        &self.raw
+    }
+}
 
 /// Incremental syllable composition driven by a [`Keymap`].
 ///
@@ -32,8 +49,8 @@ pub struct Composition<KM: Keymap> {
     // `raw_cursor` is used to modify the raw keystroke buffer.
     raw_cursor: Cursor,
 
-    parsed: SyllableBuilder<KM>,
-    parsed_cursor: Cursor,
+    rendered: SyllableBuilder<KM>,
+    rendered_cursor: Cursor,
 }
 
 impl<KM: Keymap> Composition<KM> {
@@ -49,8 +66,8 @@ impl<KM: Keymap> Composition<KM> {
         Self {
             raw: Vec::new(),
             raw_cursor: Cursor::zero(),
-            parsed: syllable_builder,
-            parsed_cursor: Cursor::zero(),
+            rendered: syllable_builder,
+            rendered_cursor: Cursor::zero(),
         }
     }
 
@@ -63,21 +80,7 @@ impl<KM: Keymap> Composition<KM> {
     /// and rendering.
     #[inline]
     pub fn set_context(&mut self, context: SyllableContext<KM>) {
-        self.parsed.set_context(context);
-    }
-
-    /// Replaces the active keymap without modifying the buffered composition.
-    #[inline]
-    pub fn set_keymap(&mut self, keymap: KM) {
-        self.parsed.set_keymap(keymap);
-    }
-
-    /// Replaces the tone-placement scheme without modifying the buffered
-    /// composition. The existing parsed syllable is rendered using the new
-    /// scheme.
-    #[inline]
-    pub fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
-        self.parsed.set_tone_placement(tone_placement);
+        self.rendered.set_context(context);
     }
 
     // ------------------------------------------------------------ state
@@ -92,24 +95,8 @@ impl<KM: Keymap> Composition<KM> {
         self.raw.clear();
         self.raw_cursor.reset();
 
-        self.parsed.reset();
-        self.parsed_cursor.reset();
-    }
-
-    /// Returns `true` when no raw keystrokes are buffered.
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.raw.is_empty()
-    }
-
-    /// Returns the current composition cursor position in Unicode characters.
-    pub fn cursor_pos(&self) -> usize {
-        self.parsed_cursor.get()
-    }
-
-    /// Returns the rendered composition length in Unicode characters.
-    pub fn length(&self) -> usize {
-        self.parsed.len()
+        self.rendered.reset();
+        self.rendered_cursor.reset();
     }
 
     // --------------------------------------------------------- cursor move
@@ -119,8 +106,11 @@ impl<KM: Keymap> Composition<KM> {
     /// This checks the parsed cursor because navigation follows the parsed
     /// composition rather than the raw keystroke count.
     #[inline(always)]
-    pub fn can_move_left(&self) -> bool {
-        !self.parsed_cursor.is_at_start()
+    pub fn can_move_left(&self) -> Parallel<bool> {
+        Parallel {
+            rendered: self.rendered_cursor.is_at_start(),
+            raw: self.raw_cursor.is_at_start(),
+        }
     }
 
     /// Returns `true` if the cursor can move one position to the right.
@@ -128,18 +118,25 @@ impl<KM: Keymap> Composition<KM> {
     /// This checks the parsed cursor against the parsed buffer length because
     /// the parsed and raw buffers may contain different numbers of characters.
     #[inline(always)]
-    pub fn can_move_right(&self) -> bool {
-        !self.parsed_cursor.is_at_end(self.parsed.len())
+    pub fn can_move_right(&self) -> Parallel<bool> {
+        Parallel {
+            rendered: !self.rendered_cursor.is_at_end(self.rendered.len()),
+            raw: !self.raw_cursor.is_at_end(self.raw.len()),
+        }
     }
 
     /// Moves both cursors one position to the left.
     ///
     /// Each cursor is clamped independently at position 0 because the raw and
     /// parsed buffers may have different lengths.
+    /// Returns `true` if the parsed cursor moved.
     #[inline]
-    pub fn move_left(&mut self) {
-        self.raw_cursor.move_left();
-        self.parsed_cursor.move_left();
+    pub fn move_cursor_left(&mut self) -> Parallel<bool> {
+        // Raw cursor always true if parsed_cursor is true so do not need to check
+        Parallel {
+            rendered: self.rendered_cursor.move_left(),
+            raw: self.raw_cursor.move_left(),
+        }
     }
 
     /// Moves both cursors one position to the right.
@@ -147,9 +144,11 @@ impl<KM: Keymap> Composition<KM> {
     /// Each cursor is bounded by its own buffer length because raw and parsed
     /// positions are not necessarily one-to-one.
     #[inline]
-    pub fn move_right(&mut self) {
-        self.raw_cursor.move_right(self.raw.len());
-        self.parsed_cursor.move_right(self.parsed.len());
+    pub fn move_cursor_right(&mut self) -> Parallel<bool> {
+        Parallel {
+            rendered: self.rendered_cursor.move_right(self.rendered.len()),
+            raw: self.raw_cursor.move_right(self.raw.len()),
+        }
     }
 
     // ----------------------------------------------------------- mutation
@@ -168,14 +167,14 @@ impl<KM: Keymap> Composition<KM> {
             self.raw_cursor.move_right_unchecked();
         }
 
-        match self.parsed.insert(self.parsed_cursor.get(), input) {
+        match self.rendered.insert(self.rendered_cursor.get(), input) {
             InputEffect::StructurallyChanged => {
                 // SAFETY: a structural insertion increases the parsed buffer
                 // length by one, making the next cursor position valid. A
                 // transformed key consumes the input without lengthening the
                 // buffer, which is why this arm is the only one that moves.
                 unsafe {
-                    self.parsed_cursor.move_right_unchecked();
+                    self.rendered_cursor.move_right_unchecked();
                 }
             }
             InputEffect::Transformed => {}
@@ -187,37 +186,46 @@ impl<KM: Keymap> Composition<KM> {
     /// The raw buffer removes one keystroke, while the parsed buffer removes
     /// the corresponding parsed character. A transformed input may therefore
     /// affect the parsed buffer differently from the raw buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if either cursor is already at the beginning of its buffer.
-    /// Callers should check the appropriate cursor before calling this method.
     #[inline]
-    pub fn backspace(&mut self) {
-        self.raw.remove(self.raw_cursor.move_left());
+    pub fn backspace(&mut self) -> Parallel<bool> {
+        let mut result = Parallel {
+            rendered: false,
+            raw: false,
+        };
 
-        match self.parsed.remove(self.parsed_cursor.move_left()) {
-            InputEffect::StructurallyChanged => {}
-            InputEffect::Transformed => {}
+        if self.raw_cursor.move_left() {
+            self.raw.remove(self.raw_cursor.get());
+            result.raw = true;
         }
+
+        if self.rendered_cursor.move_left() {
+            self.rendered.remove(self.rendered_cursor.get());
+            result.rendered = true;
+        }
+        result
     }
 
     /// Removes the character at each cursor without moving either cursor.
     ///
     /// The character immediately following the cursor is removed, so the
     /// cursor remains at the same position.
-    ///
-    /// # Panics
-    ///
-    /// Panics if either cursor is at the end of its buffer.
     #[inline]
-    pub fn delete(&mut self) {
-        self.raw.remove(self.raw_cursor.get());
+    pub fn delete(&mut self) -> Parallel<bool> {
+        let mut result = Parallel {
+            rendered: false,
+            raw: false,
+        };
 
-        match self.parsed.remove(self.parsed_cursor.get()) {
-            InputEffect::StructurallyChanged => {}
-            InputEffect::Transformed => {}
+        if !self.raw_cursor.is_at_end(self.raw.len()) {
+            self.raw.remove(self.raw_cursor.get());
+            result.raw = true;
         }
+
+        if !self.rendered_cursor.is_at_end(self.rendered.len()) {
+            self.rendered.remove(self.rendered_cursor.get());
+            result.rendered = true;
+        }
+        result
     }
 
     // ----------------------------------------------------------- rendering
@@ -232,10 +240,8 @@ impl<KM: Keymap> Composition<KM> {
     /// While the parse succeeds this is the spelled-out syllable; once it has
     /// failed the raw buffer comes back verbatim.
     #[inline]
-    pub fn parsed(&self) -> String {
-        let mut output = String::new();
-        self.write_parsed_to(&mut output);
-        output
+    pub fn rendered(&self) -> Vec<char> {
+        self.rendered.to_chars()
     }
 
     /// Writes the parsed word into `output`, replacing its contents: the
@@ -244,7 +250,17 @@ impl<KM: Keymap> Composition<KM> {
     /// The allocation-free counterpart to [`Self::parsed`], for a caller that
     /// writes on every keystroke and can reuse one buffer.
     #[inline]
-    pub fn write_parsed_to(&self, output: &mut String) {
-        self.parsed.write_to(output);
+    pub fn write_rendered_to(&self, output: &mut String) {
+        self.rendered.write_to(output);
+    }
+
+    #[inline]
+    pub fn raw(&self) -> &[char] {
+        &self.raw
+    }
+
+    #[inline]
+    pub fn write_raw_to(&self, output: &mut String) {
+        self.raw.iter().for_each(|c| output.push(*c));
     }
 }

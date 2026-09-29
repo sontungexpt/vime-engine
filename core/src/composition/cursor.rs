@@ -58,23 +58,29 @@ impl Cursor {
         self.0 = 0;
     }
 
-    /// Moves the cursor one position to the left (saturates at 0).
+    /// Moves the cursor one position to the left.
+    /// Returns the new cursor position.
     #[inline(always)]
-    pub const fn move_left(&mut self) -> usize {
-        self.0 = self.0.saturating_sub(1);
-        self.0
+    pub const fn move_left(&mut self) -> bool {
+        if self.is_at_start() {
+            return false;
+        }
+        self.0 -= 1;
+        true
     }
 
     /// Moves the cursor one position to the right, bounded by `len`.
     ///
     /// A no-op once the cursor has reached `len`, so this never moves past the
     /// end of the sequence.
+    /// Returns the new cursor position.
     #[inline(always)]
-    pub const fn move_right(&mut self, len: usize) -> usize {
-        if self.0 < len {
-            self.0 += 1;
+    pub const fn move_right(&mut self, len: usize) -> bool {
+        if self.is_at_end(len) {
+            return false;
         }
-        self.0
+        self.0 += 1;
+        true
     }
 
     /// Moves the cursor one position to the right, skipping the bound check

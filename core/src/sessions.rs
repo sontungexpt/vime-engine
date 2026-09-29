@@ -37,7 +37,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::keymap::Keymap;
-use crate::session::{Session, Config, SharedConfig, Settings};
+use crate::session::{Config, Session, Settings, SharedConfig};
 
 /// Names one registered session.
 ///
@@ -120,7 +120,7 @@ where
     /// special one; only the registry itself is this set's own.
     pub fn from_engine(engine: &crate::SessionFactory<KM>) -> Self {
         Self {
-            shared: engine.shared().clone(),
+            shared: engine.config().clone(),
             open: Arc::new(Mutex::new(Entries {
                 next_id: 0,
                 live: Vec::new(),
@@ -223,7 +223,6 @@ impl<KM: Keymap> Sessions<KM> {
     pub fn set_keymap(&self, config: Settings, keymap: KM) -> u64 {
         self.set_config(Config::from_keymap(config, keymap))
     }
-
 
     // ------------------------------------------------------------------ ids
 

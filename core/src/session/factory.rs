@@ -24,7 +24,7 @@
 //! }
 //! ```
 use crate::keymap::{DefaultKeymap, Keymap};
-use crate::session::{Session, Config, SharedConfig, Settings};
+use crate::session::{Config, Session, Settings, SharedConfig};
 
 /// Creates sessions from a shared config.
 ///
@@ -32,7 +32,7 @@ use crate::session::{Session, Config, SharedConfig, Settings};
 /// subsequently created sessions (and existing ones following the shared config)
 /// will use.
 pub struct SessionFactory<KM: Keymap> {
-    shared: SharedConfig<KM>,
+    config: SharedConfig<KM>,
 }
 
 impl<KM: Keymap> SessionFactory<KM>
@@ -43,7 +43,7 @@ where
     #[inline]
     pub fn new(config: Config<KM>) -> Self {
         Self {
-            shared: SharedConfig::new(config),
+            config: SharedConfig::new(config),
         }
     }
 
@@ -56,8 +56,8 @@ where
 
     /// The config every session follows unless it has taken a private one.
     #[inline]
-    pub fn shared(&self) -> &SharedConfig<KM> {
-        &self.shared
+    pub fn config(&self) -> Config<KM> {
+        self.config.snapshot()
     }
 
     /// Replaces the config shared by every session, and returns the new
@@ -69,13 +69,13 @@ where
     /// its own settings.
     #[inline]
     pub fn set_config(&self, config: Config<KM>) -> u64 {
-        self.shared.replace(config)
+        self.config.replace(config)
     }
 
     /// Creates an empty session that follows the shared config.
     #[inline]
     pub fn new_session(&self) -> Session<KM> {
-        Session::new(self.shared.clone())
+        Session::new(self.config.clone())
     }
 
     /// Creates an empty session with its own settings, which do not change when
@@ -86,7 +86,7 @@ where
     /// stands by then.
     #[inline]
     pub fn new_session_with(&self, config: Config<KM>) -> Session<KM> {
-        Session::with_config_on_shared(self.shared.clone(), config)
+        Session::with_config_on_shared(self.config.clone(), config)
     }
 }
 

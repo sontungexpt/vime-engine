@@ -131,20 +131,6 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         self.context = context;
     }
 
-    /// Swaps the keymap, leaving the tone-placement scheme and the buffered
-    /// syllable alone.
-    #[inline]
-    pub fn set_keymap(&mut self, keymap: KM) {
-        self.context.keymap = keymap;
-    }
-
-    /// Replaces the tone-placement scheme, leaving the keymap and the buffered
-    /// syllable alone.
-    #[inline]
-    pub const fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
-        self.context.tone_placement = tone_placement;
-    }
-
     // ---------------------------------------------------------- state
 
     /// Whether the syllable is still in the parsing (building) phase.

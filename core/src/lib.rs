@@ -40,9 +40,5 @@ pub mod util;
 pub mod composition;
 pub mod phonology;
 
-pub use session::factory::SessionFactory;
-pub use event::{Key, KeyEvent, KeyStates};
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
-pub use result::Result;
-pub use session::{Session, Config, SharedConfig, Settings};
-pub use sessions::{SessionId, SessionRef, Sessions};
+pub use session::{Config, Session, SessionFactory, Settings, SharedConfig};

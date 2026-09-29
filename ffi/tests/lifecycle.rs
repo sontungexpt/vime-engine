@@ -71,7 +71,7 @@ fn reset_invalidates_the_cached_word() {
     let before = session.word().unwrap();
     assert_eq!(before, "viet");
 
-    assert!(session.reset(), "reset must report success");
+    assert!(session.reset_flag(), "reset must report success");
 
     // The word must now be empty, not the cached "viet".
     let after = session.word().unwrap();

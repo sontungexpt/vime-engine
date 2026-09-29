@@ -3,7 +3,7 @@ use std::ptr;
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{DefaultKeymap, Result, Session, SessionFactory, Config, Settings};
+use vime_engine::{Config, DefaultKeymap, Result, Session, SessionFactory, Settings};
 
 /// A reusable, NUL-terminated UTF-8 buffer handed to C.
 ///
@@ -171,7 +171,7 @@ impl VimeSessionHandle {
     pub(crate) fn parsed_ptr(&mut self) -> *const c_char {
         if !self.parsed.fresh {
             self.scratch.clear();
-            self.session.write_parsed_to(&mut self.scratch);
+            self.session.write_rendered_to(&mut self.scratch);
             self.parsed.set(&self.scratch);
         }
         self.parsed.ptr()
@@ -262,6 +262,34 @@ pub struct VimeInputContextProperties {
     pub ascii_only: bool,
 }
 
+/// Detailed render state snapshot for UI, uinput, and IME frameworks.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VimeRenderState {
+    /// Transformed Vietnamese UTF-8 text (e.g., "viê")
+    pub text: *const c_char,
+    /// Raw UTF-8 key sequence entered by user (e.g., "viee")
+    pub raw_text: *const c_char,
+
+    /// Rendered cursor index in Bytes
+    pub cursor_byte_idx: usize,
+    /// Rendered cursor index in CodePoints (Chars)
+    pub cursor_char_idx: usize,
+
+    /// Raw cursor index in Bytes
+    pub raw_cursor_byte_idx: usize,
+    /// Raw cursor index in CodePoints (Chars)
+    pub raw_cursor_char_idx: usize,
+
+    /// Number of UTF-8 bytes to remove from previous render
+    pub bytes_to_delete: usize,
+    /// Number of CodePoints (Backspaces) to delete from host buffer
+    pub chars_to_delete: usize,
+
+    /// True if current buffer forms a valid Vietnamese word
+    pub is_valid_vietnamese: bool,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct VimeKeyEvent {
@@ -304,5 +332,4 @@ impl Default for VimeOutput {
     }
 }
 
-impl VimeConfig {
-}
+impl VimeConfig {}

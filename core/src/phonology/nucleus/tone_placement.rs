@@ -56,14 +56,14 @@ impl TonePlacement {
     where
         V: BaseVowelSlice + ?Sized,
     {
-        let v1 = unsafe { vowels.at(1) };
+        let v1 = unsafe { vowels.at_unchecked(1) };
 
         // Rule 1: Diacritic/shaped vowel always takes the tone (e.g., "thuế" -> ê, "cuối" -> ô).
         if v1.is_shaped() {
             return 1;
         }
 
-        let v0 = unsafe { vowels.at(0) };
+        let v0 = unsafe { vowels.at_unchecked(0) };
 
         if v0.is_shaped() {
             return 0;
@@ -84,12 +84,12 @@ impl TonePlacement {
         V: BaseVowelSlice + ?Sized,
     {
         // Rule 1: Diacritic/shaped vowel always takes the tone ("thuế" -> ê, "cuối" -> ô).
-        let v1 = unsafe { vowels.at(1) };
+        let v1 = unsafe { vowels.at_unchecked(1) };
         if v1.is_shaped() {
             return 1;
         }
 
-        let v0 = unsafe { vowels.at(0) };
+        let v0 = unsafe { vowels.at_unchecked(0) };
         if v0.is_shaped() {
             return 0;
         }
@@ -109,11 +109,11 @@ impl TonePlacement {
         V: BaseVowelSlice + ?Sized,
     {
         // Rightmost shaped vowel wins (e.g., "uôi" -> index 1 'ô')
-        if unsafe { vowels.at(2).is_shaped() } {
+        if unsafe { vowels.at_unchecked(2).is_shaped() } {
             2
-        } else if unsafe { vowels.at(1).is_shaped() } {
+        } else if unsafe { vowels.at_unchecked(1).is_shaped() } {
             1
-        } else if unsafe { vowels.at(0).is_shaped() } {
+        } else if unsafe { vowels.at_unchecked(0).is_shaped() } {
             0
         } else {
             // Unshaped triphthong (e.g., "oai", "uye") -> center vowel
@@ -128,11 +128,11 @@ impl TonePlacement {
     where
         V: BaseVowelSlice + ?Sized,
     {
-        let mut best = unsafe { vowels.at(0) };
+        let mut best = unsafe { vowels.at_unchecked(0) };
         let mut at = 0;
 
         for index in 1..vowels.len() {
-            let v = unsafe { vowels.at(index) };
+            let v = unsafe { vowels.at_unchecked(index) };
 
             if v > best {
                 best = v;

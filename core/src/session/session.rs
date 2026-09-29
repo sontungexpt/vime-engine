@@ -1,14 +1,10 @@
 //! Session: one typing buffer with config propagation.
 
 use crate::composition::syllable::SyllableBuilder;
-use crate::composition::Composition;
-use crate::event::{Key, KeyEvent};
+use crate::composition::{Composition, Parallel};
 use crate::keymap::Keymap;
-use crate::result::Result;
 
 use super::config::{Config, SharedConfig, UNRESOLVED};
-
-const SUFFIX_SPACE: &str = " ";
 
 /// One typing buffer: the settings in force, and the composition they apply to.
 ///
@@ -43,7 +39,7 @@ pub struct Session<KM: Keymap> {
     generation: u64,
 
     /// The composition being parsed by this session.
-    pub composition: Composition<KM>,
+    composition: Composition<KM>,
 }
 
 impl<KM: Keymap> Session<KM>
@@ -159,31 +155,33 @@ where
     /// The only place that writes `active_config` or the composition's context, so
     /// those two cannot disagree about what this session is parsing under.
     fn adopt_config(&mut self, next: Config<KM>) -> bool {
-        if next.context == self.active_config.context {
-            // Nothing the parser or the renderer reads has changed. The engine
-            // `Config` may still be new, so record it without disturbing the
-            // buffer.
-            self.active_config = next;
-            return false;
-        }
+        //         if next.context == self.active_config.context {
+        //             // Nothing the parser or the renderer reads has changed. The engine
+        //             // `Config` may still be new, so record it without disturbing the
+        //             // buffer.
+        //             self.active_config = next;
+        //             return false;
+        //         }
+        //
+        //         let old_keymap = self.active_config.context.keymap();
+        //         let new_keymap = next.context.keymap();
+        //         let old_tone = self.active_config.context.tone_placement();
+        //         let new_tone = next.context.tone_placement();
+        //
+        //         let keymap_changed = *old_keymap != *new_keymap;
+        //         let tone_changed = old_tone != new_tone;
+        //
+        //         if keymap_changed {
+        //             // Keymap change: keystrokes mean different things → reset buffer
+        //             self.composition.set_keymap(new_keymap.clone());
+        //             self.composition.reset();
+        //         } else if tone_changed {
+        //             // Tone placement only affects rendering → preserve buffer, update renderer
+        //             self.composition.set_tone_placement(new_tone);
+        //         }
+        //
 
-        let old_keymap = self.active_config.context.keymap();
-        let new_keymap = next.context.keymap();
-        let old_tone = self.active_config.context.tone_placement();
-        let new_tone = next.context.tone_placement();
-
-        let keymap_changed = *old_keymap != *new_keymap;
-        let tone_changed = old_tone != new_tone;
-
-        if keymap_changed {
-            // Keymap change: keystrokes mean different things → reset buffer
-            self.composition.set_keymap(new_keymap.clone());
-            self.composition.reset();
-        } else if tone_changed {
-            // Tone placement only affects rendering → preserve buffer, update renderer
-            self.composition.set_tone_placement(new_tone);
-        }
-
+        // Just keep it simple for now
         self.active_config = next;
         true
     }
@@ -199,10 +197,8 @@ where
     ///
     /// See [`Self::write_parsed_to`] for the version that does not allocate.
     #[inline]
-    pub fn parsed(&self) -> String {
-        let mut output = String::new();
-        self.write_parsed_to(&mut output);
-        output
+    pub fn rendered(&self) -> Vec<char> {
+        self.composition.rendered()
     }
 
     /// Writes the parsed word into `output`, replacing its contents.
@@ -211,119 +207,72 @@ where
     /// on every keystroke can keep one `String` and reuse its capacity instead
     /// of building a new one each time.
     #[inline]
-    pub fn write_parsed_to(&self, output: &mut String) {
-        self.composition.write_parsed_to(output);
+    pub fn write_rendered_to(&self, output: &mut String) {
+        self.composition.write_rendered_to(output);
+    }
+
+    #[inline]
+    pub fn raw(&self) -> &[char] {
+        self.composition.raw()
+    }
+
+    /// Writes the parsed word into `output`, replacing its contents.
+    ///
+    /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
+    /// on every keystroke can keep one `String` and reuse its capacity instead
+    /// of building a new one each time.
+    #[inline]
+    pub fn write_raw_to(&self, output: &mut String) {
+        self.composition.write_raw_to(output);
     }
 
     // ----------------------------------------------------------- key event
 
-    /// Processes a full keyboard event and dispatches it to the session.
-    ///
-    /// Picks up a shared-config change first, so a session never renders a
-    /// keystroke under settings that have already been replaced.
-    pub fn process_key(&mut self, event: KeyEvent) -> Result {
-        let reconfigured = self.refresh_config();
-        let result = self.dispatch(event);
-
-        // A settings change can move the rendered word even when the key itself
-        // did nothing, and `Forward` would tell the frontend to leave the
-        // screen alone.
-        if reconfigured && matches!(result, Result::Forward | Result::CursorMoved) {
-            return Result::Changed;
-        }
-        result
-    }
-
-    fn dispatch(&mut self, event: KeyEvent) -> Result {
-        match event.key {
-            Key::Character(character) => self.insert(character),
-            Key::Backspace => self.backspace(),
-            Key::Delete => self.delete(),
-            Key::Left => self.move_left(),
-            Key::Right => self.move_right(),
-            Key::Space => self.commit_with_suffix(SUFFIX_SPACE),
-            Key::Enter | Key::Tab | Key::Escape => self.commit(),
-        }
-    }
-
     /// Resets the session's composition to its initial empty state.
-    pub fn reset(&mut self) -> Result {
+    #[inline]
+    pub fn reset(&mut self) {
         self.composition.reset();
-        Result::Changed
     }
 
-    /// Returns the current composition cursor position in Unicode characters.
-    pub fn cursor_pos(&self) -> usize {
-        self.composition.cursor_pos()
-    }
+    // /// Returns the current composition cursor position in Unicode characters.
+    // pub fn cursor_pos(&self) -> usize {
+    //     self.composition.cursor_pos()
+    // }
 
     /// Returns the rendered composition length in Unicode characters.
-    pub fn length(&self) -> usize {
-        self.composition.length()
-    }
-
-    /// Commits the current buffer and returns the resulting text.
-    pub fn commit(&mut self) -> Result {
-        self.commit_with_suffix("")
-    }
-
-    fn commit_with_suffix(&mut self, suffix: &str) -> Result {
-        if self.composition.is_empty() {
-            return Result::Forward;
-        }
-
-        let mut text = self.parsed();
-        text.push_str(suffix);
-
-        self.composition.reset();
-        Result::Commit(text)
-    }
+    // pub fn length(&self) -> usize {
+    //     self.composition.length()
+    // }
 
     // ------------------------------------------------------------- editing
 
     #[inline]
-    fn insert(&mut self, character: char) -> Result {
+    pub fn insert(&mut self, character: char) {
+        self.refresh_config();
         self.composition.insert(character);
-        Result::Changed
     }
 
     #[inline]
-    fn backspace(&mut self) -> Result {
-        if !self.composition.can_move_left() {
-            return Result::Forward;
-        }
-
-        self.composition.backspace();
-        Result::Changed
+    pub fn backspace(&mut self) -> Parallel<bool> {
+        self.refresh_config();
+        self.composition.backspace()
     }
 
     #[inline]
-    fn delete(&mut self) -> Result {
-        if !self.composition.can_move_right() {
-            return Result::Forward;
-        }
-
-        self.composition.delete();
-        Result::Changed
+    pub fn delete(&mut self) -> Parallel<bool> {
+        self.refresh_config();
+        self.composition.delete()
     }
 
     #[inline]
-    fn move_left(&mut self) -> Result {
-        if !self.composition.can_move_left() {
-            return Result::Forward;
-        }
-
-        self.composition.move_left();
-        Result::CursorMoved
+    pub fn move_cursor_left(&mut self) -> Parallel<bool> {
+        self.refresh_config();
+        self.composition.move_cursor_left()
     }
 
     #[inline]
-    fn move_right(&mut self) -> Result {
-        if !self.composition.can_move_right() {
-            return Result::Forward;
-        }
-
-        self.composition.move_right();
-        Result::CursorMoved
+    pub fn move_cursor_right(&mut self) -> Parallel<bool> {
+        self.refresh_config();
+        self.composition.move_cursor_right()
     }
 }

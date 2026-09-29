@@ -50,7 +50,10 @@ impl<KM: Keymap> Config<KM> {
     /// tone-placement convention.
     #[inline]
     pub fn from_keymap(settings: Settings, keymap: KM) -> Self {
-        Self::new(settings, SyllableContext::new(keymap, TonePlacement::Modern))
+        Self::new(
+            settings,
+            SyllableContext::new(keymap, TonePlacement::Modern),
+        )
     }
 }
 

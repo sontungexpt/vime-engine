@@ -9,7 +9,7 @@
 //! Khi kiểm tra quy tắc chính tả, validator chỉ thực hiện các phép toán bitwise (`&`, `|`)
 //! giúp CPU thực thi không rẽ nhánh (branchless execution) và hoàn toàn tương thích `const fn`.
 
-use crate::phonology::{BaseVowel, Coda, BaseVowelSlice, Onset, Tone};
+use crate::phonology::{BaseVowel, BaseVowelSlice, Coda, Onset, Tone};
 
 /// Bitmask mã hóa các thuộc tính ÂM VỊ HỌC (phonotactic attributes) của vần.
 ///
@@ -285,8 +285,8 @@ impl PhonotacticValidator for DefaultPhonotacticValidator {
             return Ok(());
         }
 
-        let first = unsafe { nucleus.at(0) };
-        let last = unsafe { nucleus.at(len - 1) };
+        let first = unsafe { nucleus.at_unchecked(0) };
+        let last = unsafe { nucleus.at_unchecked(len - 1) };
 
         // SAFETY: `at` requires `index < len()`. The early return above rules
         // out `len == 0`, so both `0` and `len - 1` are in bounds.
