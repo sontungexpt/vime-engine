@@ -1,204 +1,120 @@
-use crate::{
-    composition::syllable::{SyllableBuilder, SyllableContext},
-    composition::Composition,
-    config::Config,
-    event::{Key, KeyEvent},
-    keymap::{DefaultKeymap, Keymap},
-    phonology::TonePlacement,
-    result::Result,
-};
+//! The engine: a shared configuration, and the sessions created from it.
 
-const SUFFIX_SPACE: &str = " ";
+use crate::config::Config;
+use crate::keymap::{DefaultKeymap, Keymap};
+use crate::session::{Session, SessionConfig, SharedConfig};
 
-/// The core input method state machine: buffers raw keystrokes and renders
-/// them into Vietnamese text.
+/// Holds the [`SharedConfig`] that sessions are created from, and mints them.
+///
+/// This is not a typing buffer. A keystroke belongs to a [`Session`], and an
+/// application with one buffer needs one session, while an application with
+/// several — a window per conversation, a per-app setting, a test fixture per
+/// case — creates one session per buffer. Nothing here changes with the number:
+/// creating a single session and creating a hundred are the same call.
+///
+/// The engine exists to own the settings those sessions have in common. Holding
+/// them here rather than in each session is what lets one
+/// [`Engine::set_config`] reach every session at once; see [`SharedConfig`] for
+/// how a session notices.
+///
+/// ```
+/// use vime_engine::{Config, DefaultKeymap, Engine, Key, KeyEvent, KeyStates, SessionConfig};
+///
+/// let engine = Engine::from_keymap(Config::default(), DefaultKeymap::telex());
+///
+/// let mut first = engine.new_session();
+/// let mut second = engine.new_session();
+///
+/// // Both were typed under Telex, so both see this.
+/// engine.set_config(SessionConfig::from_keymap(
+///     Config::default(),
+///     DefaultKeymap::vni(),
+/// ));
+///
+/// for session in [&mut first, &mut second] {
+///     session.process_key(KeyEvent { key: Key::Character('a'), states: KeyStates::empty() });
+/// }
+/// ```
 pub struct Engine<KM: Keymap> {
-    config: Config,
-    composition: Composition<KM>,
+    shared: SharedConfig<KM>,
 }
 
-impl<KM: Keymap> Engine<KM> {
-    // ------------------------------------------------------------- constructor
-
-    /// Creates an engine with the given configuration and `keymap`, using the
-    /// modern tone-placement convention.
+impl<KM: Keymap> Engine<KM>
+where
+    KM: Clone + PartialEq,
+{
+    /// Creates an engine whose sessions all start from `config`.
     #[inline]
-    pub fn new(config: Config, keymap: KM) -> Self {
-        Self::with_context(config, SyllableContext::new(keymap, TonePlacement::Modern))
-    }
-
-    /// Creates an engine with the given configuration and parse `context`,
-    /// which supplies the keymap and the tone-placement scheme.
-    #[inline]
-    pub fn with_context(config: Config, context: SyllableContext<KM>) -> Self {
+    pub fn new(config: SessionConfig<KM>) -> Self {
         Self {
-            config,
-            composition: Composition::new(SyllableBuilder::new(context)),
+            shared: SharedConfig::new(config),
         }
     }
 
-    // ------------------------------------------------------------- config
-
-    /// The engine configuration.
-    #[inline(always)]
-    pub fn config(&self) -> &Config {
-        &self.config
-    }
-
-    /// Replaces the tone-placement scheme, re-rendering the live composition
-    /// without discarding the current buffer.
+    /// Creates an engine whose sessions all start from `config` and `keymap`,
+    /// using the modern tone-placement convention.
     #[inline]
-    pub fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
-        self.composition.set_tone_placement(tone_placement);
+    pub fn from_keymap(config: Config, keymap: KM) -> Self {
+        Self::new(SessionConfig::from_keymap(config, keymap))
     }
 
-    /// Switches the active keymap, resetting the composition to its initial
-    /// empty state.
+    /// The config every session follows unless it has taken a private one.
     #[inline]
-    pub fn set_keymap(&mut self, keymap: KM) {
-        self.composition.set_keymap(keymap);
-        self.composition.reset();
+    pub fn shared(&self) -> &SharedConfig<KM> {
+        &self.shared
     }
 
-    // --------------------------------------------------------------- state
-
-    /// The buffer as this engine parses it, as a fresh [`String`].
+    /// Replaces the config shared by every session, and returns the new
+    /// generation.
     ///
-    /// Parsing is what turns raw keystrokes into a word, so this is the
-    /// spelled-out form: `aw` reads back as `ă`, not `aw`. Once the parse has
-    /// failed there is nothing left to apply, and the raw keystrokes come back
-    /// verbatim.
+    /// Sessions pick the change up at their next [`Session::process_key`] or
+    /// [`Session::refresh`], so there is nothing to call on each of them. A
+    /// session holding a private config is not one of "every session" and keeps
+    /// its own settings.
+    #[inline]
+    pub fn set_config(&self, config: SessionConfig<KM>) -> u64 {
+        self.shared.replace(config)
+    }
+
+    /// Creates an empty session that follows the shared config.
+    #[inline]
+    pub fn new_session(&self) -> Session<KM> {
+        Session::new(self.shared.clone())
+    }
+
+    /// Creates an empty session with its own settings, which do not change when
+    /// the shared config does.
     ///
-    /// See [`Self::write_parsed_to`] for the version that does not allocate.
+    /// The session still knows this engine, so
+    /// [`Session::clear_private_config`] returns it to the shared config as it
+    /// stands by then.
     #[inline]
-    pub fn parsed(&self) -> String {
-        let mut output = String::new();
-        self.write_parsed_to(&mut output);
-        output
-    }
-
-    /// Writes the parsed word into `output`, replacing its contents.
-    ///
-    /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
-    /// on every keystroke can keep one `String` and reuse its capacity instead
-    /// of building a new one each time.
-    #[inline]
-    pub fn write_parsed_to(&self, output: &mut String) {
-        self.composition.write_parsed_to(output);
-    }
-
-    // ------------------------------------------------------------ key event
-
-    /// Processes a full keyboard event and dispatches it to the engine.
-    pub fn process_key(&mut self, event: KeyEvent) -> Result {
-        // if event
-        //     .state
-        //     .intersects(KeyState::CTRL | KeyState::ALT | KeyState::SUPER)
-        // {
-        //     return Result::Forward;
-        // }
-
-        match event.key {
-            Key::Character(character) => self.insert(character),
-            Key::Backspace => self.backspace(),
-            Key::Delete => self.delete(),
-            Key::Left => self.move_left(),
-            Key::Right => self.move_right(),
-            Key::Space => self.commit_with_suffix(SUFFIX_SPACE),
-            Key::Enter | Key::Tab | Key::Escape => self.commit(),
-        }
-    }
-
-    /// Resets the engine's composition to its initial empty state.
-    pub fn reset(&mut self) -> Result {
-        self.composition.reset();
-        Result::Changed
-    }
-
-    /// Commits the current buffer and returns the resulting text.
-    pub fn commit(&mut self) -> Result {
-        self.commit_with_suffix("")
-    }
-
-    fn commit_with_suffix(&mut self, suffix: &str) -> Result {
-        if self.composition.is_empty() {
-            return Result::Forward;
-        }
-
-        let mut text = self.parsed();
-        text.push_str(suffix);
-
-        self.composition.reset();
-        Result::Commit(text)
-    }
-
-    // ------------------------------------------------------------- editing
-
-    #[inline]
-    fn insert(&mut self, character: char) -> Result {
-        self.composition.insert(character);
-        Result::Changed
-    }
-
-    #[inline]
-    fn backspace(&mut self) -> Result {
-        if !self.composition.can_move_left() {
-            return Result::Forward;
-        }
-
-        self.composition.backspace();
-        Result::Changed
-    }
-
-    #[inline]
-    fn delete(&mut self) -> Result {
-        if !self.composition.can_move_right() {
-            return Result::Forward;
-        }
-
-        self.composition.delete();
-        Result::Changed
-    }
-
-    #[inline]
-    fn move_left(&mut self) -> Result {
-        if !self.composition.can_move_left() {
-            return Result::Forward;
-        }
-
-        self.composition.move_left();
-        Result::CursorMoved
-    }
-
-    #[inline]
-    fn move_right(&mut self) -> Result {
-        if !self.composition.can_move_right() {
-            return Result::Forward;
-        }
-
-        self.composition.move_right();
-        Result::CursorMoved
+    pub fn new_session_with(&self, config: SessionConfig<KM>) -> Session<KM> {
+        Session::with_config_on(self.shared.clone(), config)
     }
 }
 
 impl Engine<DefaultKeymap<'static>> {
-    // -------------------------------------------------- convenience ctor
+    // ------------------------------------------------------ convenience ctor
 
-    /// Creates a Telex engine with the given configuration.
+    /// Creates an engine whose sessions start from the given configuration and
+    /// the Telex keymap.
     #[inline]
     pub fn telex(config: Config) -> Self {
-        Self::new(config, DefaultKeymap::telex())
+        Self::from_keymap(config, DefaultKeymap::telex())
     }
 
-    /// Creates a VNI engine with the given configuration.
+    /// Creates an engine whose sessions start from the given configuration and
+    /// the VNI keymap.
     #[inline]
     pub fn vni(config: Config) -> Self {
-        Self::new(config, DefaultKeymap::vni())
+        Self::from_keymap(config, DefaultKeymap::vni())
     }
 
-    /// Creates a VIQR engine with the given configuration.
+    /// Creates an engine whose sessions start from the given configuration and
+    /// the VIQR keymap.
     #[inline]
     pub fn viqr(config: Config) -> Self {
-        Self::new(config, DefaultKeymap::viqr())
+        Self::from_keymap(config, DefaultKeymap::viqr())
     }
 }

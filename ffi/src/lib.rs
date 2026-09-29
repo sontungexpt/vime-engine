@@ -20,7 +20,7 @@ use std::ptr;
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{DefaultKeymap, Engine, KeyEvent};
+use vime_engine::{DefaultKeymap, KeyEvent, Session, SessionConfig};
 
 pub mod convert;
 pub mod types;
@@ -112,12 +112,15 @@ pub unsafe extern "C" fn vime_create_with_config(
     else {
         return ptr::null_mut();
     };
-    let engine = Engine::with_context(
+    // A handle is one typing buffer, so it holds a session. The session gets a
+    // private config because the engine-level config is already fully described
+    // by the three creation arguments.
+    let session = Session::with_config(SessionConfig::new(
         // The one place a C field becomes a `Config` field.
         config.to_engine_config(),
         SyllableContext::new(keymap, tone_placement),
-    );
-    VimeEngineHandle::new(engine).into_raw()
+    ));
+    VimeEngineHandle::new(session).into_raw()
 }
 
 /// Destroys an engine instance, invalidating every pointer it handed out.
@@ -154,7 +157,7 @@ pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> bool {
     let Some(engine) = engine.as_mut() else {
         return false;
     };
-    engine.engine.reset();
+    engine.session.reset();
     // The word and any pending commit are now stale. `output()` normally does
     // this as a side effect, but a reset no longer routes through it, and
     // without it the next `vime_parsed` would serve the pre-reset text.
@@ -200,7 +203,7 @@ pub unsafe extern "C" fn vime_process_key(
         return VimeOutput::default();
     };
 
-    let result = engine.engine.process_key(key_event);
+    let result = engine.session.process_key(key_event);
     engine.output(result)
 }
 
@@ -227,10 +230,12 @@ pub unsafe extern "C" fn vime_set_input_method(
         return false;
     };
 
-    engine.engine.set_keymap(keymap);
-    // `set_keymap` clears the buffer, so the word the frontend last read is
-    // no longer what the engine holds.
-    engine.engine.reset();
+    let tone_placement = engine.session.config().context.tone_placement();
+    engine.set_context(SyllableContext::new(keymap, tone_placement));
+    // A new input method reinterprets the buffered keystrokes, so they are
+    // dropped; the word the frontend last read is no longer what the engine
+    // holds.
+    engine.session.reset();
     engine.invalidate_parsed();
     true
 }
@@ -257,7 +262,8 @@ pub unsafe extern "C" fn vime_set_tone_placement(
         return false;
     };
 
-    engine.engine.set_tone_placement(tone_placement);
+    let keymap = *engine.session.config().context.keymap();
+    engine.set_context(SyllableContext::new(keymap, tone_placement));
     // The pending vowels re-render under the new scheme, so the cached parsed
     // no longer describes the buffer.
     engine.invalidate_parsed();

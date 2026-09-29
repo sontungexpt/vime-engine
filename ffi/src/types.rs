@@ -1,8 +1,9 @@
 use std::ffi::c_char;
 use std::ptr;
 
+use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{DefaultKeymap, Engine, Result};
+use vime_engine::{DefaultKeymap, Result, Session, SessionConfig};
 
 /// A reusable, NUL-terminated UTF-8 buffer handed to C.
 ///
@@ -125,13 +126,17 @@ impl CText {
     }
 }
 
-/// A live Vietnamese input engine plus the text buffers it hands to C.
+/// A live Vietnamese input session plus the text buffers it hands to C.
 ///
-/// The engine owns no C-visible memory; the two text buffers below do, and
+/// The handle owns no C-visible memory; the two text buffers below do, and
 /// outlive every call so a frontend can hold a pointer across one state change.
+///
+/// One handle is one typing buffer, which is why it wraps a [`Session`] rather
+/// than an engine. A frontend with several buffers holds several handles, and
+/// the settings changes here apply to this handle alone.
 #[repr(C)]
 pub struct VimeEngineHandle {
-    pub(crate) engine: Engine<DefaultKeymap<'static>>,
+    pub(crate) session: Session<DefaultKeymap<'static>>,
     /// The word the engine has parsed, rendered lazily and reused across keystrokes.
     parsed: CText,
     /// The text the last commit produced, or empty when none is pending.
@@ -150,14 +155,24 @@ impl VimeEngineHandle {
         Box::into_raw(Box::new(self))
     }
 
-    /// Wraps an engine in a hand-rolled buffer-owning handle.
-    pub(crate) fn new(engine: Engine<DefaultKeymap<'static>>) -> Self {
+    /// Wraps a session in a hand-rolled buffer-owning handle.
+    pub(crate) fn new(session: Session<DefaultKeymap<'static>>) -> Self {
         Self {
-            engine,
+            session,
             parsed: CText::new(),
             committed: CText::new(),
             scratch: String::new(),
         }
+    }
+
+    /// Gives this handle its own parse context, leaving the other engine
+    /// settings alone.
+    ///
+    /// This is the handle's private config, so it does not disturb any other
+    /// handle the frontend holds.
+    pub(crate) fn set_context(&mut self, context: SyllableContext<DefaultKeymap<'static>>) {
+        let config = SessionConfig::new(self.session.config().config, context);
+        self.session.set_private_config(config);
     }
 
     /// Marks the word stale without touching the buffer.
@@ -181,7 +196,7 @@ impl VimeEngineHandle {
             // Render into the reusable scratch, then copy into the buffer we
             // already own: neither step allocates once the handle is warm.
             self.scratch.clear();
-            self.engine.write_parsed_to(&mut self.scratch);
+            self.session.write_parsed_to(&mut self.scratch);
             self.parsed.set(&self.scratch);
         }
         self.parsed.ptr()

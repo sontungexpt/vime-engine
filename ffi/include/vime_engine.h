@@ -13,8 +13,21 @@ extern "C" {
 /* ========================================================================= */
 
 /**
- * Handle to an active Vietnamese input engine instance.
- * Thread-safety: Not thread-safe. Synchronization is the caller's duty.
+ * Handle to one Vietnamese typing buffer, plus the text it hands back.
+ *
+ * A handle is a single session: it owns the keystrokes typed into it and the
+ * word they parse to. A frontend that needs several buffers — one per window,
+ * per conversation, or per test case — holds several handles, and they share
+ * nothing: their buffers are independent even when they hold identical
+ * settings.
+ *
+ * Because of that, vime_set_input_method and vime_set_tone_placement apply to
+ * the handle they are given and to no other. A frontend that wants every
+ * buffer to move together has to call them on each handle; there is no
+ * handle-wide setting, and a handle never picks up a change made to another.
+ *
+ * Thread-safety: Not thread-safe. Synchronization is the caller's duty, and
+ * covers all handles, since they are independent rather than isolated.
  */
 typedef struct VimeEngineHandle VimeEngineHandle;
 

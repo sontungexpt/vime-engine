@@ -1,17 +1,28 @@
-//! Engine construction: tone-placement init and live updates.
+//! Where a session's settings come from: the shared config it is created from,
+//! and the private config it can be given instead.
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, Engine, Key, KeyEvent, KeyStates};
+use vime_engine::{
+    Config, DefaultKeymap, Engine, Key, KeyEvent, KeyStates, Result, Session, SessionConfig,
+};
 
-fn type_str(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, s: &str) -> String {
+type TelexSession = Session<DefaultKeymap<'static>>;
+
+/// A session that never set a private config, so it reports as following the
+/// shared one.
+fn following() -> TelexSession {
+    Engine::telex(Config::default()).new_session()
+}
+
+fn type_str(session: &mut TelexSession, s: &str) -> String {
     for ch in s.chars() {
-        engine.process_key(KeyEvent {
+        session.process_key(KeyEvent {
             key: Key::Character(ch),
             states: KeyStates::empty(),
         });
     }
-    engine.parsed()
+    session.parsed()
 }
 
 // "hoa" + sắc: the two schemes place the mark on different vowels
@@ -20,44 +31,62 @@ const MODERN_HOA: &str = "hoá";
 const OLD_HOA: &str = "hóa";
 
 #[test]
-fn engine_defaults_to_modern_tone_placement() {
-    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
-    assert_eq!(type_str(&mut engine, "hoas"), MODERN_HOA);
+fn a_new_session_follows_the_shared_config() {
+    let mut session = following();
+    assert_eq!(type_str(&mut session, "hoas"), MODERN_HOA);
 }
 
 #[test]
-fn with_context_selects_old_at_construction() {
-    let mut engine = Engine::with_context(
+fn a_session_config_selects_the_tone_placement_at_construction() {
+    let mut session = Session::with_config(SessionConfig::new(
         Config::default(),
-        SyllableContext::new(vime_engine::DefaultKeymap::telex(), TonePlacement::Old),
+        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
+    ));
+    assert_eq!(type_str(&mut session, "hoas"), OLD_HOA);
+}
+
+#[test]
+fn the_engines_keymap_reaches_every_session_it_creates() {
+    let engine = Engine::vni(Config::default());
+    let mut first = engine.new_session();
+    let mut second = engine.new_session();
+
+    assert_eq!(type_str(&mut first, "hoa1"), MODERN_HOA);
+    assert_eq!(type_str(&mut second, "hoa1"), MODERN_HOA);
+}
+
+#[test]
+fn a_private_config_overrides_only_its_own_session() {
+    let engine = Engine::telex(Config::default());
+    let mut following = engine.new_session();
+    let mut private = engine.new_session_with(SessionConfig::new(
+        Config::default(),
+        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
+    ));
+
+    assert_eq!(type_str(&mut following, "hoas"), MODERN_HOA);
+    assert_eq!(type_str(&mut private, "hoas"), OLD_HOA);
+}
+
+#[test]
+fn only_a_session_with_a_private_config_reports_as_private() {
+    let engine = Engine::telex(Config::default());
+    assert!(!engine.new_session().is_private());
+    assert!(
+        engine
+            .new_session_with(SessionConfig::from_keymap(
+                Config::default(),
+                DefaultKeymap::telex()
+            ))
+            .is_private()
     );
-    assert_eq!(type_str(&mut engine, "hoas"), OLD_HOA);
-}
-
-#[test]
-fn set_tone_placement_re_renders_the_live_buffer() {
-    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
-    assert_eq!(type_str(&mut engine, "hoas"), MODERN_HOA);
-
-    // Flip mid-buffer: the pending vowel re-renders under the new scheme.
-    engine.set_tone_placement(TonePlacement::Old);
-    assert_eq!(engine.parsed(), OLD_HOA);
-}
-
-#[test]
-fn convenience_constructors_build_telex_and_vni() {
-    let mut telex = Engine::telex(Config::default());
-    assert_eq!(type_str(&mut telex, "hoas"), MODERN_HOA);
-
-    let mut vni = Engine::vni(Config::default());
-    assert_eq!(type_str(&mut vni, "hoa1"), MODERN_HOA);
 }
 
 // ─────────────────────────── Caret movement ───────────────────────────
 
-/// Presses a non-character key and reports what the engine did with it.
-fn press(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, key: Key) -> vime_engine::Result {
-    engine.process_key(KeyEvent {
+/// Presses a non-character key and reports what the session did with it.
+fn press(session: &mut TelexSession, key: Key) -> Result {
+    session.process_key(KeyEvent {
         key,
         states: KeyStates::empty(),
     })
@@ -69,38 +98,38 @@ fn press(engine: &mut Engine<vime_engine::DefaultKeymap<'static>>, key: Key) -> 
 /// `can_move_right` goes false only once the caret is at the very end.
 #[test]
 fn caret_predicates_track_the_raw_buffer() {
-    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
+    let mut session = following();
 
     // Type "toa": the caret sits after the final character.
-    type_str(&mut engine, "toa");
-    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
-    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
-    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::CursorMoved);
+    type_str(&mut session, "toa");
+    assert_eq!(press(&mut session, Key::Left), Result::CursorMoved);
+    assert_eq!(press(&mut session, Key::Left), Result::CursorMoved);
+    assert_eq!(press(&mut session, Key::Left), Result::CursorMoved);
 
     // Caret now at position 0: further left is forwarded, not consumed.
-    assert_eq!(press(&mut engine, Key::Left), vime_engine::Result::Forward);
+    assert_eq!(press(&mut session, Key::Left), Result::Forward);
 
     // And back to the end, where right is forwarded.
-    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::CursorMoved);
-    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::CursorMoved);
-    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::CursorMoved);
-    assert_eq!(press(&mut engine, Key::Right), vime_engine::Result::Forward);
+    assert_eq!(press(&mut session, Key::Right), Result::CursorMoved);
+    assert_eq!(press(&mut session, Key::Right), Result::CursorMoved);
+    assert_eq!(press(&mut session, Key::Right), Result::CursorMoved);
+    assert_eq!(press(&mut session, Key::Right), Result::Forward);
 }
 
 /// Moving the caret must not alter the rendered text, and resetting must put
 /// the caret back to the start.
 #[test]
 fn caret_moves_leave_the_render_unchanged() {
-    let mut engine = Engine::new(Config::default(), vime_engine::DefaultKeymap::telex());
-    type_str(&mut engine, "hoas");
-    let before = engine.parsed();
+    let mut session = following();
+    type_str(&mut session, "hoas");
+    let before = session.parsed();
 
     for key in [Key::Left, Key::Left, Key::Right] {
-        press(&mut engine, key);
+        press(&mut session, key);
     }
-    assert_eq!(engine.parsed(), before);
+    assert_eq!(session.parsed(), before);
 
     // After a reset the buffer is empty, so there is nowhere to move.
-    engine.reset();
-    assert_eq!(engine.parsed(), "");
+    session.reset();
+    assert_eq!(session.parsed(), "");
 }

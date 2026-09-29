@@ -18,8 +18,10 @@
 //!   (`encode_vowel`/`decode_vowel`), [`NucleusState`](phonology::NucleusState),
 //!   [`PhonotacticValidator`](phonology::PhonotacticValidator) and
 //!   [`TonePlacement`](phonology::TonePlacement).
-//! - [`Engine`]: the frontend-facing state machine, turning each [`KeyEvent`]
-//!   into a [`Result`] (re-render, commit, ignore or forward the key).
+//! - [`Session`]: one typing buffer, turning each [`KeyEvent`] into a
+//!   [`Result`] (re-render, commit, ignore or forward the key).
+//! - [`Engine`]: owns the [`SessionConfig`] shared by its sessions and creates
+//!   them, so one settings change can reach every session.
 
 // The `unsafe fn` bodies in this crate are `const fn`s whose safety contract
 // is a bounds precondition. Requiring an explicit `unsafe` block inside them
@@ -32,6 +34,8 @@ mod engine;
 mod event;
 mod keymap;
 mod result;
+mod session;
+mod sessions;
 
 pub mod util;
 
@@ -44,3 +48,5 @@ pub use engine::Engine;
 pub use event::{Key, KeyEvent, KeyStates};
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
 pub use result::Result;
+pub use session::{Session, SessionConfig, SharedConfig};
+pub use sessions::{SessionId, SessionRef, Sessions};
