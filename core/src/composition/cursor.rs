@@ -17,7 +17,7 @@ impl Cursor {
     ///
     /// Same as [`Default`].
     #[inline(always)]
-    pub const fn zero() -> Self {
+    pub const fn start() -> Self {
         Self(0)
     }
 
@@ -48,14 +48,6 @@ impl Cursor {
     #[inline(always)]
     pub const unsafe fn set_unchecked(&mut self, position: usize) {
         self.0 = position;
-    }
-
-    /// Resets the cursor to position `0`.
-    ///
-    /// Same as [`Self::move_to_start`].
-    #[inline(always)]
-    pub const fn reset(&mut self) {
-        self.0 = 0;
     }
 
     /// Moves the cursor one position to the left.
@@ -136,6 +128,6 @@ impl Cursor {
 impl Default for Cursor {
     #[inline(always)]
     fn default() -> Self {
-        Self::zero()
+        Self::start()
     }
 }

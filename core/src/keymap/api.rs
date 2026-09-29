@@ -5,7 +5,7 @@ use crate::phonology::{RootVowel, Shape, Tone};
 /// Implementations define how raw characters map to Vietnamese tone marks
 /// (e.g., sắc, huyền, hỏi, ngã, nặng), vowel shapes (e.g., circumflex, horn, breve),
 /// and consonant stroke modifications (`d` ↔ `đ`).
-pub trait Keymap {
+pub trait Keymap: Clone {
     /// Returns `true` if `key` is bound to a tone mark transformation in this keymap.
     fn is_tone_key(&self, key: char) -> bool;
 

@@ -65,9 +65,9 @@ impl<KM: Keymap> Composition<KM> {
     pub fn new(syllable_builder: SyllableBuilder<KM>) -> Self {
         Self {
             raw: Vec::new(),
-            raw_cursor: Cursor::zero(),
+            raw_cursor: Cursor::start(),
             rendered: syllable_builder,
-            rendered_cursor: Cursor::zero(),
+            rendered_cursor: Cursor::start(),
         }
     }
 
@@ -93,10 +93,10 @@ impl<KM: Keymap> Composition<KM> {
     #[inline]
     pub fn reset(&mut self) {
         self.raw.clear();
-        self.raw_cursor.reset();
+        self.raw_cursor.move_to_start();
 
         self.rendered.reset();
-        self.rendered_cursor.reset();
+        self.rendered_cursor.move_to_start();
     }
 
     // --------------------------------------------------------- cursor move

@@ -29,11 +29,9 @@
 // the implicit-unsafe that `unsafe fn` used to confer.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-mod event;
 mod keymap;
-mod result;
 mod session;
-mod sessions;
+// mod sessions;
 
 pub mod util;
 

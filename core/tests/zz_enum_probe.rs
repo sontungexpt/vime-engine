@@ -4,14 +4,14 @@ use vime_engine::{Config, DefaultKeymap, Keymap, Session};
 type KM = DefaultKeymap<'static>;
 
 /// Proposal A: both variants hold the same type.
-enum TwoVariant<KM: Keymap> {
+enum TwoVariant<KM: Keymap + Clone> {
     Following(Config<KM>),
     Pinned(Config<KM>),
 }
 
 /// Proposal B: hoist `resolved` into the Following variant, so Pinned
 /// genuinely has no resolved field to carry.
-enum Hoisted<KM: Keymap> {
+enum Hoisted<KM: Keymap + Clone> {
     Following {
         effective: Config<KM>,
         resolved: u64,
@@ -20,7 +20,7 @@ enum Hoisted<KM: Keymap> {
 }
 
 /// What the struct pays today: a config plus a bool, packed by alignment.
-struct Today<KM: Keymap> {
+struct Today<KM: Keymap + Clone> {
     effective: Config<KM>,
     has_private_config: bool,
 }

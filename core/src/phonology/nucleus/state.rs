@@ -177,7 +177,7 @@ macro_rules! state_match {
             1 => Valid,
 
             // Two-vowel nucleus.
-            2 => match unsafe { ($vowels.at(0), $vowels.at(1)) } {
+            2 => match unsafe { ($vowels.at_unchecked(0), $vowels.at_unchecked(1)) } {
                 $($two)*
                 _ => Dead,
             },
@@ -185,9 +185,9 @@ macro_rules! state_match {
             // Three-vowel nucleus.
             3 => match unsafe {
                 (
-                    $vowels.at(0),
-                    $vowels.at(1),
-                    $vowels.at(2),
+                    $vowels.at_unchecked(0),
+                    $vowels.at_unchecked(1),
+                    $vowels.at_unchecked(2),
                 )
             } {
                 $($three)*

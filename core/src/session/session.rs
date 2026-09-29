@@ -155,35 +155,19 @@ where
     /// The only place that writes `active_config` or the composition's context, so
     /// those two cannot disagree about what this session is parsing under.
     fn adopt_config(&mut self, next: Config<KM>) -> bool {
-        //         if next.context == self.active_config.context {
-        //             // Nothing the parser or the renderer reads has changed. The engine
-        //             // `Config` may still be new, so record it without disturbing the
-        //             // buffer.
-        //             self.active_config = next;
-        //             return false;
-        //         }
-        //
-        //         let old_keymap = self.active_config.context.keymap();
-        //         let new_keymap = next.context.keymap();
-        //         let old_tone = self.active_config.context.tone_placement();
-        //         let new_tone = next.context.tone_placement();
-        //
-        //         let keymap_changed = *old_keymap != *new_keymap;
-        //         let tone_changed = old_tone != new_tone;
-        //
-        //         if keymap_changed {
-        //             // Keymap change: keystrokes mean different things → reset buffer
-        //             self.composition.set_keymap(new_keymap.clone());
-        //             self.composition.reset();
-        //         } else if tone_changed {
-        //             // Tone placement only affects rendering → preserve buffer, update renderer
-        //             self.composition.set_tone_placement(new_tone);
-        //         }
-        //
-
-        // Just keep it simple for now
         self.active_config = next;
+        self.composition
+            .set_context(self.active_config.context.clone());
         true
+    }
+
+    #[inline(always)]
+    fn with_refreshed_config<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.refresh_config();
+        f(self)
     }
 
     // ---------------------------------------------------------------- state
@@ -248,31 +232,26 @@ where
 
     #[inline]
     pub fn insert(&mut self, character: char) {
-        self.refresh_config();
-        self.composition.insert(character);
+        self.with_refreshed_config(|c| c.composition.insert(character));
     }
 
     #[inline]
     pub fn backspace(&mut self) -> Parallel<bool> {
-        self.refresh_config();
-        self.composition.backspace()
+        self.with_refreshed_config(|c| c.composition.backspace())
     }
 
     #[inline]
     pub fn delete(&mut self) -> Parallel<bool> {
-        self.refresh_config();
-        self.composition.delete()
+        self.with_refreshed_config(|c| c.composition.delete())
     }
 
     #[inline]
     pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        self.refresh_config();
-        self.composition.move_cursor_left()
+        self.with_refreshed_config(|c| c.composition.move_cursor_left())
     }
 
     #[inline]
     pub fn move_cursor_right(&mut self) -> Parallel<bool> {
-        self.refresh_config();
-        self.composition.move_cursor_right()
+        self.with_refreshed_config(|c| c.composition.move_cursor_right())
     }
 }

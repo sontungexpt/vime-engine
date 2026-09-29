@@ -37,7 +37,7 @@ pub struct SessionFactory<KM: Keymap> {
 
 impl<KM: Keymap> SessionFactory<KM>
 where
-    KM: Clone + PartialEq,
+    KM: PartialEq,
 {
     /// Creates a factory whose sessions all start from `config`.
     #[inline]

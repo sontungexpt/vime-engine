@@ -1,6 +1,8 @@
 mod building;
 mod dead;
 mod input_effect;
+mod iter;
+mod context;
 
 use crate::{
     keymap::Keymap,
@@ -10,6 +12,7 @@ use crate::{
 pub use building::BuildingSyllable;
 pub use dead::DeadSyllable;
 pub use input_effect::InputEffect;
+pub use context::SyllableContext;
 
 #[cfg(test)]
 mod tests;
@@ -26,70 +29,6 @@ enum SyllableState {
 impl Default for SyllableState {
     fn default() -> Self {
         Self::Building(BuildingSyllable::default())
-    }
-}
-
-enum SyllableBuilderIter<I1, I2> {
-    Building(I1),
-    Dead(I2),
-}
-
-impl<I1, I2> Iterator for SyllableBuilderIter<I1, I2>
-where
-    I1: Iterator<Item = char>,
-    I2: Iterator<Item = char>,
-{
-    type Item = char;
-
-    #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Building(i) => i.next(),
-            Self::Dead(i) => i.next(),
-        }
-    }
-
-    #[inline(always)]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            Self::Building(i) => i.size_hint(),
-            Self::Dead(i) => i.size_hint(),
-        }
-    }
-}
-
-/// The configuration a syllable is parsed and rendered under.
-///
-/// The [`Keymap`] decoding transform keys, and the [`TonePlacement`] scheme
-/// picking the nucleus vowel that carries the tone mark. Neither is buffered
-/// input, so both are kept apart from the state, the only part that changes
-/// per keystroke.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyllableContext<KM: Keymap> {
-    keymap: KM,
-    tone_placement: TonePlacement,
-}
-
-impl<KM: Keymap> SyllableContext<KM> {
-    /// Creates a context from a keymap and a tone-placement scheme.
-    #[inline]
-    pub const fn new(keymap: KM, tone_placement: TonePlacement) -> Self {
-        Self {
-            keymap,
-            tone_placement,
-        }
-    }
-
-    /// The active keymap.
-    #[inline(always)]
-    pub const fn keymap(&self) -> &KM {
-        &self.keymap
-    }
-
-    /// The tone-placement scheme used when rendering.
-    #[inline(always)]
-    pub const fn tone_placement(&self) -> TonePlacement {
-        self.tone_placement
     }
 }
 
@@ -247,11 +186,12 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     /// whether in the building phase (with precomposed tones) or verbatim dead phase.
     #[inline]
     pub fn iter_chars(&self) -> impl Iterator<Item = char> + '_ {
+        use crate::composition::syllable::iter::SyllableChars;
         match &self.state {
             SyllableState::Building(builder) => {
-                SyllableBuilderIter::Building(builder.iter_chars(self.context.tone_placement()))
+                SyllableChars::Building(builder.iter_chars(self.context.tone_placement()))
             }
-            SyllableState::Dead(builder) => SyllableBuilderIter::Dead(builder.iter_chars()),
+            SyllableState::Dead(builder) => SyllableChars::Dead(builder.iter_chars()),
         }
     }
 

@@ -4,7 +4,7 @@
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Settings, 
-    Config, DefaultKeymap, SessionFactory, Key, KeyEvent, KeyStates, Result, Session,
+    Config, DefaultKeymap, SessionFactory, Session,
 };
 
 type TelexSession = Session<DefaultKeymap<'static>>;
@@ -15,14 +15,19 @@ fn following() -> TelexSession {
     SessionFactory::telex(Settings::default()).new_session()
 }
 
+fn rendered_to_string(session: &TelexSession) -> String {
+    session.rendered().into_iter().collect()
+}
+
 fn type_str(session: &mut TelexSession, s: &str) -> String {
     for ch in s.chars() {
-        session.process_key(KeyEvent {
-            key: Key::Character(ch),
-            states: KeyStates::empty(),
-        });
+        session.insert(ch);
     }
-    session.parsed()
+    rendered_to_string(session)
+}
+
+fn make_context(keymap: DefaultKeymap<'static>, tone: TonePlacement) -> SyllableContext<DefaultKeymap<'static>> {
+    SyllableContext::new(keymap, tone)
 }
 
 // "hoa" + sắc: the two schemes place the mark on different vowels
@@ -40,7 +45,7 @@ fn a_new_session_follows_the_shared_config() {
 fn a_session_config_selects_the_tone_placement_at_construction() {
     let mut session = Session::with_isolated_config(Config::new(
         Settings::default(),
-        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
+        make_context(DefaultKeymap::telex(), TonePlacement::Old),
     ));
     assert_eq!(type_str(&mut session, "hoas"), OLD_HOA);
 }
@@ -61,7 +66,7 @@ fn a_private_config_overrides_only_its_own_session() {
     let mut following = engine.new_session();
     let mut private = engine.new_session_with(Config::new(
         Settings::default(),
-        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
+        make_context(DefaultKeymap::telex(), TonePlacement::Old),
     ));
 
     assert_eq!(type_str(&mut following, "hoas"), MODERN_HOA);
@@ -74,23 +79,15 @@ fn only_a_session_with_a_private_config_reports_as_private() {
     assert!(!engine.new_session().has_private_config());
     assert!(
         engine
-            .new_session_with(Config::from_keymap(
+            .new_session_with(Config::new(
                 Settings::default(),
-                DefaultKeymap::telex()
+                make_context(DefaultKeymap::telex(), TonePlacement::Modern),
             ))
             .has_private_config()
     );
 }
 
 // ─────────────────────────── Caret movement ───────────────────────────
-
-/// Presses a non-character key and reports what the session did with it.
-fn press(session: &mut TelexSession, key: Key) -> Result {
-    session.process_key(KeyEvent {
-        key,
-        states: KeyStates::empty(),
-    })
-}
 
 /// The caret predicates decide whether a move is consumed or forwarded, so
 /// their boundary conditions are what the frontend contract rests on: the
@@ -102,18 +99,18 @@ fn caret_predicates_track_the_raw_buffer() {
 
     // Type "toa": the caret sits after the final character.
     type_str(&mut session, "toa");
-    assert_eq!(press(&mut session, Key::Left), Result::CursorMoved);
-    assert_eq!(press(&mut session, Key::Left), Result::CursorMoved);
-    assert_eq!(press(&mut session, Key::Left), Result::CursorMoved);
+    assert!(*session.move_cursor_left().rendered());
+    assert!(*session.move_cursor_left().rendered());
+    assert!(*session.move_cursor_left().rendered());
 
     // Caret now at position 0: further left is forwarded, not consumed.
-    assert_eq!(press(&mut session, Key::Left), Result::Forward);
+    assert!(!*session.move_cursor_left().rendered());
 
     // And back to the end, where right is forwarded.
-    assert_eq!(press(&mut session, Key::Right), Result::CursorMoved);
-    assert_eq!(press(&mut session, Key::Right), Result::CursorMoved);
-    assert_eq!(press(&mut session, Key::Right), Result::CursorMoved);
-    assert_eq!(press(&mut session, Key::Right), Result::Forward);
+    assert!(*session.move_cursor_right().rendered());
+    assert!(*session.move_cursor_right().rendered());
+    assert!(*session.move_cursor_right().rendered());
+    assert!(!*session.move_cursor_right().rendered());
 }
 
 /// Moving the caret must not alter the rendered text, and resetting must put
@@ -122,14 +119,16 @@ fn caret_predicates_track_the_raw_buffer() {
 fn caret_moves_leave_the_render_unchanged() {
     let mut session = following();
     type_str(&mut session, "hoas");
-    let before = session.parsed();
+    let before = rendered_to_string(&session);
 
-    for key in [Key::Left, Key::Left, Key::Right] {
-        press(&mut session, key);
+    for _ in 0..3 {
+        session.move_cursor_left();
+        session.move_cursor_left();
+        session.move_cursor_right();
     }
-    assert_eq!(session.parsed(), before);
+    assert_eq!(rendered_to_string(&session), before);
 
     // After a reset the buffer is empty, so there is nowhere to move.
     session.reset();
-    assert_eq!(session.parsed(), "");
+    assert_eq!(rendered_to_string(&session), "");
 }

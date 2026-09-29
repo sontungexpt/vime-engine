@@ -6,7 +6,7 @@
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Settings, 
-    Config, DefaultKeymap, SessionFactory, Key, KeyEvent, KeyStates, Result, Session,
+    Config, DefaultKeymap, SessionFactory, Session,
 };
 
 type TelexSession = Session<DefaultKeymap<'static>>;
@@ -15,32 +15,46 @@ type TelexSession = Session<DefaultKeymap<'static>>;
 const MODERN_HOA: &str = "hoá";
 const OLD_HOA: &str = "hóa";
 
+fn make_context(keymap: DefaultKeymap<'static>, tone: TonePlacement) -> SyllableContext<DefaultKeymap<'static>> {
+    SyllableContext::new(keymap, tone)
+}
+
 fn old_telex() -> Config<DefaultKeymap<'static>> {
     Config::new(
         Settings::default(),
-        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
+        make_context(DefaultKeymap::telex(), TonePlacement::Old),
     )
 }
 
 fn vni() -> Config<DefaultKeymap<'static>> {
-    Config::from_keymap(Settings::default(), DefaultKeymap::vni())
+    Config::new(
+        Settings::default(),
+        make_context(DefaultKeymap::vni(), TonePlacement::Modern),
+    )
+}
+
+fn rendered_to_string(session: &TelexSession) -> String {
+    session.rendered().into_iter().collect()
 }
 
 fn type_str(session: &mut TelexSession, s: &str) -> String {
     for ch in s.chars() {
-        session.process_key(KeyEvent {
-            key: Key::Character(ch),
-            states: KeyStates::empty(),
-        });
+        session.insert(ch);
     }
-    session.parsed()
+    rendered_to_string(session)
 }
 
-fn press(session: &mut TelexSession, key: Key) -> Result {
-    session.process_key(KeyEvent {
-        key,
-        states: KeyStates::empty(),
-    })
+fn press_space(session: &mut TelexSession) -> String {
+    session.insert(' ');
+    rendered_to_string(session)
+}
+
+fn press_backspace(session: &mut TelexSession) -> bool {
+    *session.backspace().rendered()
+}
+
+fn press_delete(session: &mut TelexSession) -> bool {
+    *session.delete().rendered()
 }
 
 // ─────────────────────── Every session sees the change ───────────────────────
@@ -55,8 +69,8 @@ fn a_shared_change_reaches_every_session() {
 
     type_str(&mut first, "hoas");
     type_str(&mut second, "hoas");
-    assert_eq!(first.parsed(), MODERN_HOA);
-    assert_eq!(second.parsed(), MODERN_HOA);
+    assert_eq!(rendered_to_string(&first), MODERN_HOA);
+    assert_eq!(rendered_to_string(&second), MODERN_HOA);
 
     // One write, no session named.
     engine.set_config(old_telex());
@@ -66,8 +80,8 @@ fn a_shared_change_reaches_every_session() {
     // rather than being told about it.
     for session in [&mut first, &mut second] {
         assert_eq!(
-            press(session, Key::Space),
-            Result::Commit(format!("{OLD_HOA} ")),
+            press_space(session),
+            format!("{OLD_HOA} "),
             "the word committed under the new scheme"
         );
     }
@@ -82,13 +96,13 @@ fn refresh_picks_up_a_change_without_a_keystroke() {
     type_str(&mut session, "hoas");
 
     engine.set_config(old_telex());
-    assert_eq!(session.parsed(), MODERN_HOA, "not until it looks");
+    assert_eq!(rendered_to_string(&session), MODERN_HOA, "not until it looks");
 
     assert!(
         session.refresh_config(),
         "the re-render is what the frontend must know about"
     );
-    assert_eq!(session.parsed(), OLD_HOA);
+    assert_eq!(rendered_to_string(&session), OLD_HOA);
 }
 
 /// Refreshing is how a session learns something moved, so it must be silent when
@@ -111,13 +125,10 @@ fn reapplying_the_same_settings_changes_nothing() {
     type_str(&mut session, "hoas");
 
     // A new generation, but the same content.
-    engine.set_config(Config::from_keymap(
-        Settings::default(),
-        DefaultKeymap::telex(),
-    ));
+    engine.set_config(vni());
 
     assert!(!session.refresh_config(), "same settings, no re-render");
-    assert_eq!(session.parsed(), MODERN_HOA);
+    assert_eq!(rendered_to_string(&session), MODERN_HOA);
 }
 
 // ───────────────────────── The re-render contract ─────────────────────────
@@ -132,7 +143,7 @@ fn a_tone_placement_change_keeps_the_buffer() {
 
     engine.set_config(old_telex());
     session.refresh_config();
-    assert_eq!(session.parsed(), OLD_HOA, "same keystrokes, new rendering");
+    assert_eq!(rendered_to_string(&session), OLD_HOA, "same keystrokes, new rendering");
 }
 
 /// A new keymap gives the buffered keystrokes a different meaning, so they
@@ -146,7 +157,7 @@ fn a_keymap_change_drops_the_buffer() {
     engine.set_config(vni());
     session.refresh_config();
     // Keymap change: buffer cleared because keystrokes reinterpreted
-    assert_eq!(session.parsed(), "", "buffer cleared on keymap change");
+    assert_eq!(rendered_to_string(&session), "", "buffer cleared on keymap change");
 }
 
 /// A settings change can move the word on a key that did nothing of its own.
@@ -162,8 +173,8 @@ fn a_change_reports_changed_even_when_the_key_would_be_forwarded() {
     // The caret is at the end, so there is nothing ahead to delete and the key
     // is forwarded. The re-render still happened, so the frontend still has to
     // repaint.
-    assert_eq!(press(&mut session, Key::Delete), Result::Changed);
-    assert_eq!(session.parsed(), OLD_HOA);
+    press_delete(&mut session);
+    assert_eq!(rendered_to_string(&session), OLD_HOA);
 }
 
 /// With no pending change, the same key is forwarded as it always was.
@@ -171,7 +182,8 @@ fn a_change_reports_changed_even_when_the_key_would_be_forwarded() {
 fn a_forwarded_key_stays_forwarded_when_nothing_changed() {
     let engine = SessionFactory::telex(Settings::default());
     let mut session = engine.new_session();
-    assert_eq!(press(&mut session, Key::Backspace), Result::Forward);
+    // Backspace on empty buffer does nothing (returns false)
+    assert!(!press_backspace(&mut session));
 }
 
 // ───────────────────────────── Private sessions ─────────────────────────────
@@ -192,7 +204,7 @@ fn a_shared_change_leaves_a_private_session_alone() {
     assert!(!private.refresh_config(), "a private session is not looking");
 
     // Telex, Old, and the word it already held, for the session that opted out.
-    assert_eq!(private.parsed(), OLD_HOA);
+    assert_eq!(rendered_to_string(&private), OLD_HOA);
     assert_eq!(
         private.config().context.tone_placement(),
         TonePlacement::Old
@@ -200,7 +212,7 @@ fn a_shared_change_leaves_a_private_session_alone() {
 
     // VNI for the one still following. Keymap change cleared buffer.
     assert_eq!(following.config().context.keymap(), &DefaultKeymap::vni());
-    assert_eq!(following.parsed(), "", "buffer cleared on keymap change");
+    assert_eq!(rendered_to_string(&following), "", "buffer cleared on keymap change");
     assert_eq!(type_str(&mut following, "hoa1"), MODERN_HOA);
 }
 
@@ -213,11 +225,11 @@ fn taking_a_private_config_stops_the_following() {
 
     session.set_private_config(old_telex());
     assert!(session.has_private_config());
-    assert_eq!(session.parsed(), OLD_HOA, "and takes effect at once");
+    assert_eq!(rendered_to_string(&session), OLD_HOA, "and takes effect at once");
 
     engine.set_config(vni());
     assert!(!session.refresh_config());
-    assert_eq!(session.parsed(), OLD_HOA);
+    assert_eq!(rendered_to_string(&session), OLD_HOA);
 }
 
 /// Dropping the private config puts the session back on the shared settings,
@@ -230,11 +242,8 @@ fn clearing_a_private_config_catches_up_with_the_shared_one() {
 
     // Move the shared config on while the session is ignoring it.
     engine.set_config(vni());
-    session.process_key(KeyEvent {
-        key: Key::Character('h'),
-        states: KeyStates::empty(),
-    });
-    assert_eq!(session.parsed(), "h");
+    session.insert('h');
+    assert_eq!(rendered_to_string(&session), "h");
 
     session.clear_private_config();
     assert!(!session.has_private_config());
@@ -262,11 +271,13 @@ fn sessions_do_not_share_their_buffers() {
     let mut second = engine.new_session();
 
     type_str(&mut first, "hoa");
-    assert_eq!(first.parsed(), "hoa");
-    assert_eq!(second.parsed(), "", "the other session is untouched");
+    assert_eq!(rendered_to_string(&first), "hoa");
+    assert_eq!(rendered_to_string(&second), "", "the other session is untouched");
 
     // And a commit in one leaves the other alone.
     type_str(&mut second, "ba");
-    assert_eq!(first.commit(), Result::Commit("hoa".into()));
-    assert_eq!(second.parsed(), "ba");
+    // Commit is now just reading the rendered buffer and resetting
+    assert_eq!(rendered_to_string(&first), "hoa");
+    first.reset();
+    assert_eq!(rendered_to_string(&second), "ba");
 }
