@@ -139,10 +139,10 @@ impl BuildingSyllable {
     /// wanted as a value to keep.
     #[inline(always)]
     pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
-        // Reserve up front. `String::extend` only reserves `size_hint().0`,
-        // which counts *chars*, while a Vietnamese vowel is up to 3 UTF-8
-        // bytes — so without this the destination can reallocate mid-nucleus.
-        let estimated_bytes = (self.onset.len() + self.nucleus.len() + self.coda.len()) * 3;
+        // Reserve enough UTF-8 capacity up front. Onset and coda are ASCII
+        // except for a possible `đ`/`Đ`, while each nucleus character can use
+        // up to 3 bytes.
+        let estimated_bytes = self.onset.len() + 1 + self.coda.len() + self.nucleus.len() * 3;
         output.reserve(estimated_bytes);
 
         // 1. Onset (contiguous chars)
@@ -150,16 +150,26 @@ impl BuildingSyllable {
             output.push(c);
         }
 
-        // 2. Vowels: the nucleus stores Flat tones; apply the syllable tone
-        // only while rendering the vowel selected by the placement rules.
-        let tone_pos = self.tone_vowel_index(tone_placement);
-        for (idx, vowel) in self.nucleus.iter().enumerate() {
-            let tone = if Some(idx) == tone_pos {
-                self.tone
-            } else {
-                Tone::Flat
-            };
-            output.push(vowel.with_tone(tone).to_char());
+        // 2. Vowels: nuclei store flat vowels. If the syllable has no tone,
+        // render them directly; otherwise apply the tone to the vowel selected
+        // by the placement rules.
+        if self.tone == Tone::Flat {
+            for &vowel in self.nucleus.iter() {
+                output.push(vowel.to_char());
+            }
+        } else {
+            // Only calculate tone when the syllable is not flat; tone is
+            // applied to the vowel selected by the placement rules.
+            let tone_pos = self.tone_vowel_index(tone_placement);
+            for (idx, vowel) in self.nucleus.iter().enumerate() {
+                let tone = if Some(idx) == tone_pos {
+                    self.tone
+                } else {
+                    Tone::Flat
+                };
+
+                output.push(vowel.with_tone(tone).to_char());
+            }
         }
 
         // 3. Coda
@@ -191,14 +201,23 @@ impl BuildingSyllable {
 
         // 2. Vowels: the nucleus stores Flat tones; apply the syllable tone
         // only while rendering the vowel selected by the placement rules.
-        let tone_pos = self.tone_vowel_index(tone_placement);
-        for (idx, vowel) in self.nucleus.iter().enumerate() {
-            let tone = if Some(idx) == tone_pos {
-                self.tone
-            } else {
-                Tone::Flat
-            };
-            output.push(vowel.with_tone(tone).to_char());
+        if self.tone == Tone::Flat {
+            for &vowel in self.nucleus.iter() {
+                output.push(vowel.to_char());
+            }
+        } else {
+            // Only calculate tone when the syllable is not flat; tone is
+            // applied to the vowel selected by the placement rules.
+            let tone_pos = self.tone_vowel_index(tone_placement);
+            for (idx, vowel) in self.nucleus.iter().enumerate() {
+                let tone = if Some(idx) == tone_pos {
+                    self.tone
+                } else {
+                    Tone::Flat
+                };
+
+                output.push(vowel.with_tone(tone).to_char());
+            }
         }
 
         // 3. Coda (contiguous chars -> one memcpy)

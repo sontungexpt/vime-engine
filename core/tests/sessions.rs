@@ -5,16 +5,16 @@
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{
-    Config, DefaultKeymap, Engine, Key, KeyEvent, KeyStates, Result, SessionConfig, Sessions,
+use vime_engine::{Settings, 
+    Config, DefaultKeymap, SessionFactory, Key, KeyEvent, KeyStates, Result, Sessions,
 };
 
 const MODERN_HOA: &str = "hoá";
 const OLD_HOA: &str = "hóa";
 
-fn old_telex() -> SessionConfig<DefaultKeymap<'static>> {
-    SessionConfig::new(
-        Config::default(),
+fn old_telex() -> Config<DefaultKeymap<'static>> {
+    Config::new(
+        Settings::default(),
         SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
     )
 }
@@ -37,8 +37,8 @@ fn type_into(session: &vime_engine::SessionRef<DefaultKeymap<'static>>, s: &str)
 }
 
 fn all() -> Sessions<DefaultKeymap<'static>> {
-    Sessions::new(SessionConfig::from_keymap(
-        Config::default(),
+    Sessions::new(Config::from_keymap(
+        Settings::default(),
         DefaultKeymap::telex(),
     ))
 }
@@ -147,7 +147,7 @@ fn one_write_reaches_every_registered_session() {
 
     for session in [&first, &second, &third] {
         let mut session = session.lock().expect("uncontended");
-        session.refresh();
+        session.refresh_config();
         assert_eq!(session.parsed(), OLD_HOA);
     }
 }
@@ -162,7 +162,7 @@ fn a_session_opened_after_a_change_starts_out_current() {
     let (_, session) = sessions.open();
     assert_eq!(type_into(&session, "hoas"), OLD_HOA);
     assert!(
-        !session.lock().expect("uncontended").refresh(),
+        !session.lock().expect("uncontended").refresh_config(),
         "nothing to catch up on"
     );
 }
@@ -173,24 +173,34 @@ fn a_private_session_in_a_registry_ignores_the_shared_config() {
     let (_, following) = sessions.open();
     let (_, private) = sessions.open_with(old_telex());
 
-    sessions.set_config(SessionConfig::from_keymap(
-        Config::default(),
+    // Type into following session before config change
+    type_into(&following, "hoas");
+
+    sessions.set_config(Config::from_keymap(
+        Settings::default(),
         DefaultKeymap::vni(),
     ));
 
-    assert_eq!(type_into(&following, "hoa1"), MODERN_HOA);
+    // Following: buffer cleared on keymap change, then new input
+    assert_eq!(type_into(&following, "hoa1"), "hoá");
+    // Private: ignores shared config, keeps old_telex
     assert_eq!(type_into(&private, "hoas"), OLD_HOA);
 }
 
+#[test]
+/// The keymap setter is sugar for the full config replace.
+///
+/// The buffer is cleared on keymap change.
 #[test]
 fn set_keymap_is_the_short_form_of_set_config() {
     let sessions = all();
     let (_, session) = sessions.open();
     type_into(&session, "hoas");
 
-    sessions.set_keymap(Config::default(), DefaultKeymap::vni());
+    sessions.set_keymap(Settings::default(), DefaultKeymap::vni());
     let mut session = session.lock().expect("uncontended");
-    assert!(session.refresh(), "a new keymap has to be noticed");
+    assert!(session.refresh_config(), "a new keymap has to be noticed");
+    // Buffer cleared on keymap change
     assert_eq!(session.parsed(), "");
 }
 
@@ -269,7 +279,7 @@ fn a_settings_change_does_not_visit_the_sessions() {
 
 #[test]
 fn a_set_can_adopt_an_engines_settings() {
-    let engine = Engine::telex(Config::default());
+    let engine = SessionFactory::telex(Settings::default());
     let sessions = Sessions::from_engine(&engine);
     let (_, session) = sessions.open();
     assert_eq!(type_into(&session, "hoas"), MODERN_HOA);
@@ -278,16 +288,17 @@ fn a_set_can_adopt_an_engines_settings() {
     // them. That is the point: one config, however many owners it has.
     engine.set_config(old_telex());
     let mut session = session.lock().expect("uncontended");
-    assert!(session.refresh());
+    assert!(session.refresh_config());
     assert_eq!(session.parsed(), OLD_HOA);
 
     // And the set moves them the same way the engine does.
-    sessions.set_config(SessionConfig::from_keymap(
-        Config::default(),
+    sessions.set_config(Config::from_keymap(
+        Settings::default(),
         DefaultKeymap::vni(),
     ));
-    assert!(session.refresh());
-    assert_eq!(session.parsed(), "", "reinterpreted, so cleared");
+    assert!(session.refresh_config());
+    // Keymap change: buffer cleared
+    assert_eq!(session.parsed(), "");
 }
 
 /// A cloned handle names the same set, which is how a frontend hands the
@@ -369,5 +380,5 @@ fn a_registered_session_behaves_like_any_other() {
         session.config().context.tone_placement(),
         TonePlacement::Modern
     );
-    assert!(!session.is_private());
+    assert!(!session.has_private_config());
 }

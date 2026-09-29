@@ -3,32 +3,36 @@
 
 mod common;
 
-use common::{key_event, Engine};
-use vime::{VimeAction, VimeInputMethod, VimeKey, VimeTonePlacement};
+use common::{SessionFactory, Session, char_event, key_event};
+use vime::{VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeTonePlacement};
 
 #[test]
-fn create_and_destroy() {
-    let engine = Engine::create().expect("vime_create must succeed");
-    drop(engine);
+fn create_and_destroy_factory() {
+    let factory = SessionFactory::create().expect("vime_session_factory_create must succeed");
+    drop(factory);
 }
 
 #[test]
-fn create_with_all_methods() {
+fn create_factory_with_all_methods() {
     for method in [
         VimeInputMethod::Telex,
         VimeInputMethod::Vni,
         VimeInputMethod::Viqr,
     ] {
-        let engine =
-            Engine::create_with(method, VimeTonePlacement::Modern).expect("engine must be created");
-        drop(engine);
+        let factory = SessionFactory::create_with(VimeConfig {
+            input_method: method,
+            tone_placement: VimeTonePlacement::Modern,
+            auto_restore_english: true,
+        }).expect("factory must be created");
+        drop(factory);
     }
 }
 
 #[test]
 fn commit_on_empty_buffer_forwards() {
-    let mut engine = Engine::create().unwrap();
-    let out = engine.commit();
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    let out = session.commit();
     assert_eq!(out.action, VimeAction::Forward);
     assert!(out.rendered.is_none());
     assert!(out.commit.is_none());
@@ -36,9 +40,10 @@ fn commit_on_empty_buffer_forwards() {
 
 #[test]
 fn reset_returns_updated_empty_buffer() {
-    let mut engine = Engine::create().unwrap();
-    engine.type_text("viet");
-    let out = engine.reset();
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    session.type_text("viet");
+    let out = session.reset();
     assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some(""));
     assert!(out.commit.is_none());
@@ -46,52 +51,39 @@ fn reset_returns_updated_empty_buffer() {
 
 #[test]
 fn switching_method_clears_pending_buffer() {
-    let mut engine = Engine::create().unwrap();
-    engine.type_text("too");
-    let out = engine.set_input_method(VimeInputMethod::Vni);
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    session.type_text("too");
+    let out = session.set_input_method(VimeInputMethod::Vni);
     assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some(""));
     assert!(out.commit.is_none());
 }
 
-/// `vime_reset` no longer routes through `output()`, so the cache
-/// invalidation that `output()` used to do has to happen on its own path.
-/// Without it the next read serves the pre-reset word.
+/// `vime_session_reset` invalidates the cached word on its own path.
 #[test]
 fn reset_invalidates_the_cached_word() {
-    let mut engine = Engine::create().unwrap();
-    engine.type_text("viet");
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    session.type_text("viet");
 
     // Prime the cache so a stale read would be observable.
-    let before = unsafe { vime::vime_parsed(engine.raw()) };
-    assert!(!before.is_null());
-    assert_eq!(
-        unsafe { std::ffi::CStr::from_ptr(before) }
-            .to_str()
-            .unwrap(),
-        "viet"
-    );
+    let before = session.word().unwrap();
+    assert_eq!(before, "viet");
 
-    assert!(
-        unsafe { vime::vime_reset(engine.raw()) },
-        "reset must report success"
-    );
+    assert!(session.reset(), "reset must report success");
 
     // The word must now be empty, not the cached "viet".
-    let after = unsafe { vime::vime_parsed(engine.raw()) };
-    assert!(!after.is_null(), "an empty word is still a word");
-    assert_eq!(
-        unsafe { std::ffi::CStr::from_ptr(after) }.to_str().unwrap(),
-        ""
-    );
+    let after = session.word().unwrap();
+    assert_eq!(after, "");
 }
 
 #[test]
 fn switching_placement_renders_without_text_commit() {
-    let mut engine = Engine::create_with(VimeInputMethod::Telex, VimeTonePlacement::Modern)
-        .expect("engine must be created");
-    engine.type_text("hoas");
-    let out = engine.set_tone_placement(VimeTonePlacement::Old);
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    session.type_text("hoas");
+    let out = session.set_tone_placement(VimeTonePlacement::Old);
     assert_eq!(out.action, VimeAction::Changed);
     assert_eq!(out.rendered.as_deref(), Some("hóa"));
     assert!(out.commit.is_none());
@@ -99,58 +91,59 @@ fn switching_placement_renders_without_text_commit() {
 
 #[test]
 fn switch_then_commit_uses_new_placement() {
-    let mut engine = Engine::create_with(VimeInputMethod::Telex, VimeTonePlacement::Modern)
-        .expect("engine must be created");
-    engine.type_text("hoas");
-    engine.set_tone_placement(VimeTonePlacement::Old);
-    let committed = engine.commit();
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    session.type_text("hoas");
+    session.set_tone_placement(VimeTonePlacement::Old);
+    let committed = session.commit();
     assert_eq!(committed.action, VimeAction::Commit);
     assert_eq!(committed.commit.as_deref(), Some("hóa"));
 }
 
 #[test]
 fn navigate_empty_buffer_forwards() {
-    let mut engine = Engine::create().unwrap();
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
     assert_eq!(
-        engine.process(key_event(VimeKey::Left)).action,
+        session.process(key_event(VimeKey::Left)).action,
         VimeAction::Forward
     );
     assert_eq!(
-        engine.process(key_event(VimeKey::Right)).action,
+        session.process(key_event(VimeKey::Right)).action,
         VimeAction::Forward
     );
     assert_eq!(
-        engine.process(key_event(VimeKey::Backspace)).action,
+        session.process(key_event(VimeKey::Backspace)).action,
         VimeAction::Forward
     );
     assert_eq!(
-        engine.process(key_event(VimeKey::Delete)).action,
+        session.process(key_event(VimeKey::Delete)).action,
         VimeAction::Forward
     );
 }
 
-/// A state change made outside `vime_process_key` must still invalidate the
-/// cached word, or a lazy `vime_parsed` hands back text from before the
+/// A state change made outside `vime_session_process_key` must still invalidate the
+/// cached word, or a lazy `vime_session_render` hands back text from before the
 /// change. Both config setters are state changes of exactly that kind.
 #[test]
 fn config_changes_invalidate_the_cached_word() {
-    let mut engine = Engine::create_with(VimeInputMethod::Telex, VimeTonePlacement::Modern)
-        .expect("engine must be created");
-    engine.type_text("hoas");
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    session.type_text("hoas");
 
     // Cached under the modern scheme.
-    assert_eq!(engine.word().expect("a word must be reported"), "hoá");
+    assert_eq!(session.word().expect("a word must be reported"), "hoá");
 
     // Switching placement re-renders the pending vowels; the cache must not
     // still answer with the modern rendering.
-    engine.set_tone_placement(VimeTonePlacement::Old);
-    assert_eq!(engine.word().expect("a word must be reported"), "hóa");
+    session.set_tone_placement(VimeTonePlacement::Old);
+    assert_eq!(session.word().expect("a word must be reported"), "hóa");
 
     // Switching the method clears the buffer; the cache must not still answer
     // with the pre-clear text.
-    engine.type_text("too");
-    engine.set_input_method(VimeInputMethod::Vni);
-    assert_eq!(engine.word().expect("a word must be reported"), "");
+    session.type_text("too");
+    session.set_input_method(VimeInputMethod::Vni);
+    assert_eq!(session.word().expect("a word must be reported"), "");
 }
 
 /// The word buffer is reused across renders rather than reallocated, so the
@@ -158,27 +151,28 @@ fn config_changes_invalidate_the_cached_word() {
 /// land in the same live buffer the frontend is still holding.
 #[test]
 fn reused_word_buffer_serves_the_current_text() {
-    let mut engine = Engine::create().unwrap();
-    let typed = engine.type_text("tiengs");
+    let mut factory = SessionFactory::create().unwrap();
+    let mut session = factory.open_session();
+    let typed = session.type_text("tiengs");
 
     // The buffer must agree with what typing last reported, and repeated reads
     // must not disturb it.
-    assert_eq!(engine.word().expect("a word must be reported"), typed);
-    assert_eq!(engine.word().expect("a word must be reported"), typed);
-    assert_eq!(engine.word().expect("a word must be reported"), typed);
+    assert_eq!(session.word().expect("a word must be reported"), typed);
+    assert_eq!(session.word().expect("a word must be reported"), typed);
+    assert_eq!(session.word().expect("a word must be reported"), typed);
 
     // Each backspace must land new text in the same reused buffer.
     let mut previous = typed;
     for _ in 0..4 {
-        engine.process(key_event(VimeKey::Backspace));
-        let now = engine.word().expect("a word must be reported");
+        session.process(key_event(VimeKey::Backspace));
+        let now = session.word().expect("a word must be reported");
         assert_ne!(now, previous, "backspace must change the word");
         previous = now;
     }
 
     // And an emptied buffer must render as empty, not as stale text.
     for _ in 0..8 {
-        engine.process(key_event(VimeKey::Backspace));
+        session.process(key_event(VimeKey::Backspace));
     }
-    assert_eq!(engine.word().expect("a word must be reported"), "");
+    assert_eq!(session.word().expect("a word must be reported"), "");
 }

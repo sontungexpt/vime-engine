@@ -102,6 +102,16 @@ impl<KM: Keymap> Composition<KM> {
         self.raw.is_empty()
     }
 
+    /// Returns the current composition cursor position in Unicode characters.
+    pub fn cursor_pos(&self) -> usize {
+        self.parsed_cursor.get()
+    }
+
+    /// Returns the rendered composition length in Unicode characters.
+    pub fn length(&self) -> usize {
+        self.parsed.len()
+    }
+
     // --------------------------------------------------------- cursor move
 
     /// Returns `true` if the cursor can move one position to the left.

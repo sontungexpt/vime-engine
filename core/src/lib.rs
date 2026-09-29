@@ -20,7 +20,7 @@
 //!   [`TonePlacement`](phonology::TonePlacement).
 //! - [`Session`]: one typing buffer, turning each [`KeyEvent`] into a
 //!   [`Result`] (re-render, commit, ignore or forward the key).
-//! - [`Engine`]: owns the [`SessionConfig`] shared by its sessions and creates
+//! - [`SessionFactory`]: owns the [`Config`] shared by its sessions and creates
 //!   them, so one settings change can reach every session.
 
 // The `unsafe fn` bodies in this crate are `const fn`s whose safety contract
@@ -29,8 +29,6 @@
 // the implicit-unsafe that `unsafe fn` used to confer.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-mod config;
-mod engine;
 mod event;
 mod keymap;
 mod result;
@@ -42,11 +40,9 @@ pub mod util;
 pub mod composition;
 pub mod phonology;
 
-pub use composition::Composition;
-pub use config::Config;
-pub use engine::Engine;
+pub use session::factory::SessionFactory;
 pub use event::{Key, KeyEvent, KeyStates};
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
 pub use result::Result;
-pub use session::{Session, SessionConfig, SharedConfig};
+pub use session::{Session, Config, SharedConfig, Settings};
 pub use sessions::{SessionId, SessionRef, Sessions};

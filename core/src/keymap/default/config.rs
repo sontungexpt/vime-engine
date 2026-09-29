@@ -126,7 +126,7 @@ macro_rules! rules {
         shapes: [ $( $shape:expr ),* $(,)? ],
         strokes: [ $( $stroke:expr ),* $(,)? ] $(,)?
     ) => {
-        $crate::keymap::default::Rules::new(
+        Rules::new(
             &[ $( $tone ),* ],
             &[ $( $shape ),* ],
             &[ $( $stroke ),* ],

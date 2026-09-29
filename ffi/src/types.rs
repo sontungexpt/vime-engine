@@ -3,7 +3,7 @@ use std::ptr;
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{DefaultKeymap, Result, Session, SessionConfig};
+use vime_engine::{DefaultKeymap, Result, Session, SessionFactory, Config, Settings};
 
 /// A reusable, NUL-terminated UTF-8 buffer handed to C.
 ///
@@ -16,42 +16,32 @@ use vime_engine::{DefaultKeymap, Result, Session, SessionConfig};
 ///   defeated the reuse and made each read *slower* than allocating afresh.
 /// - **Staleness is explicit.** [`Self::invalidate`] marks the contents stale
 ///   without freeing them, and only a fresh buffer may be read.
-struct CText {
+pub(crate) struct CText {
     /// The UTF-8 bytes followed by one NUL. The NUL is always the last element.
     bytes: Vec<u8>,
     /// Whether `bytes` still describes the engine's current state.
     fresh: bool,
 }
 
-/// Engine settings, in the layout a C caller sees.
+/// Complete configuration used by sessions and factories.
 ///
-/// Each field mirrors one field of the engine's own [`vime_engine::Config`],
-/// so a frontend sets its behaviour without a bespoke call per setting. The
-/// input method and tone-placement scheme are not here: they are runtime
-/// choices with their own entry points.
-///
-/// The library and this header are installed together, so a caller cannot
-/// end up with a struct from one revision and a `libvime.so` from another.
-/// Adding a field is therefore a normal breaking change, handled the same way
-/// as any other edit to this file.
+/// Mirrors the C `VimeConfig` struct. The factory stores one shared
+/// configuration; sessions normally follow it, unless a session has
+/// explicitly taken a private configuration.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct VimeConfig {
-    /// Restore English when the word is empty. Mirrors
-    /// [`vime_engine::Config::auto_restore_english`].
     pub auto_restore_english: bool,
+    pub input_method: VimeInputMethod,
+    pub tone_placement: VimeTonePlacement,
 }
 
 impl Default for VimeConfig {
-    /// Matches the engine's own default.
-    ///
-    /// Spelled out rather than derived, because a derived `Default` would give
-    /// `false` for the field while the engine defaults it to `true`, and the
-    /// two are converted into each other. `config_defaults_match_the_engine` in
-    /// `tests/safety.rs` pins them together.
     fn default() -> Self {
         Self {
-            auto_restore_english: vime_engine::Config::default().auto_restore_english,
+            auto_restore_english: vime_engine::Settings::default().auto_restore_english,
+            input_method: VimeInputMethod::Telex,
+            tone_placement: VimeTonePlacement::Modern,
         }
     }
 }
@@ -72,10 +62,24 @@ impl VimeConfig {
     ///
     /// One place decides what a C field means, so a frontend and the engine
     /// cannot disagree about it.
-    pub fn to_engine_config(self) -> vime_engine::Config {
-        vime_engine::Config {
-            auto_restore_english: self.auto_restore_english,
-        }
+    pub fn to_engine_config(self) -> vime_engine::Config<DefaultKeymap<'static>> {
+        let input_method: VimeInputMethod = self.input_method;
+        let tone_placement: VimeTonePlacement = self.tone_placement;
+        let keymap = match input_method {
+            VimeInputMethod::Telex => vime_engine::DefaultKeymap::telex(),
+            VimeInputMethod::Vni => vime_engine::DefaultKeymap::vni(),
+            VimeInputMethod::Viqr => vime_engine::DefaultKeymap::viqr(),
+        };
+        let tone_placement = match self.tone_placement {
+            VimeTonePlacement::Modern => vime_engine::phonology::TonePlacement::Modern,
+            VimeTonePlacement::Old => vime_engine::phonology::TonePlacement::Old,
+        };
+        vime_engine::Config::new(
+            vime_engine::Settings {
+                auto_restore_english: self.auto_restore_english,
+            },
+            vime_engine::composition::syllable::SyllableContext::new(keymap, tone_placement),
+        )
     }
 }
 
@@ -87,13 +91,10 @@ impl CText {
         }
     }
 
-    /// Marks the contents stale. The next [`Self::ptr`] must not be trusted
-    /// until [`Self::set`] has run again.
     fn invalidate(&mut self) {
         self.fresh = false;
     }
 
-    /// Replaces the contents with `text` and marks them fresh.
     fn set(&mut self, text: &str) {
         self.bytes.clear();
         self.bytes.extend_from_slice(text.as_bytes());
@@ -101,22 +102,11 @@ impl CText {
         self.fresh = true;
     }
 
-    /// Empties the buffer, so [`Self::ptr`] reports nothing.
     fn clear(&mut self) {
         self.bytes.clear();
         self.invalidate();
     }
 
-    /// The C string view, or NULL when the buffer holds nothing.
-    ///
-    /// A rendered-but-empty word is one NUL byte, so it reads as a valid empty
-    /// string rather than NULL. That is deliberate: NULL means "there is no
-    /// buffer to read" (a cleared or never-set field), while `""` means "the
-    /// word is empty", which a frontend must act on by clearing its preedit.
-    /// Collapsing the two would leave a stale preedit on screen.
-    ///
-    /// Only call on a fresh buffer, or the caller will read text from before
-    /// the last state change.
     fn ptr(&self) -> *const c_char {
         if self.bytes.is_empty() {
             ptr::null()
@@ -126,36 +116,40 @@ impl CText {
     }
 }
 
-/// A live Vietnamese input session plus the text buffers it hands to C.
-///
-/// The handle owns no C-visible memory; the two text buffers below do, and
-/// outlive every call so a frontend can hold a pointer across one state change.
-///
-/// One handle is one typing buffer, which is why it wraps a [`Session`] rather
-/// than an engine. A frontend with several buffers holds several handles, and
-/// the settings changes here apply to this handle alone.
+/// Opaque handle to a session factory (shared configuration + session creation).
 #[repr(C)]
-pub struct VimeEngineHandle {
-    pub(crate) session: Session<DefaultKeymap<'static>>,
-    /// The word the engine has parsed, rendered lazily and reused across keystrokes.
-    parsed: CText,
-    /// The text the last commit produced, or empty when none is pending.
-    committed: CText,
-    /// Scratch space the word is rendered into before being copied out. Kept
-    /// so the render can reuse its capacity too.
-    scratch: String,
+pub struct VimeSessionFactoryHandle {
+    pub(crate) factory: SessionFactory<DefaultKeymap<'static>>,
 }
 
-impl VimeEngineHandle {
-    /// Hands the handle to C as an owning raw pointer.
-    ///
-    /// The matching [`crate::vime_destroy`] turns it back into a `Box` and
-    /// drops it, so the allocation is owned by the caller across the ABI.
+/// Opaque handle to one independent typing session.
+#[repr(C)]
+pub struct VimeSessionHandle {
+    pub(crate) session: Session<DefaultKeymap<'static>>,
+    /// The word the engine has parsed, rendered lazily and reused across keystrokes.
+    pub(crate) parsed: CText,
+    /// The text the last commit produced, or empty when none is pending.
+    pub(crate) committed: CText,
+    /// Scratch space the word is rendered into before being copied out. Kept
+    /// so the render can reuse its capacity too.
+    pub(crate) scratch: String,
+}
+
+impl VimeSessionFactoryHandle {
     pub(crate) fn into_raw(self) -> *mut Self {
         Box::into_raw(Box::new(self))
     }
 
-    /// Wraps a session in a hand-rolled buffer-owning handle.
+    pub(crate) fn new(factory: SessionFactory<DefaultKeymap<'static>>) -> Self {
+        Self { factory }
+    }
+}
+
+impl VimeSessionHandle {
+    pub(crate) fn into_raw(self) -> *mut Self {
+        Box::into_raw(Box::new(self))
+    }
+
     pub(crate) fn new(session: Session<DefaultKeymap<'static>>) -> Self {
         Self {
             session,
@@ -165,36 +159,17 @@ impl VimeEngineHandle {
         }
     }
 
-    /// Gives this handle its own parse context, leaving the other engine
-    /// settings alone.
-    ///
-    /// This is the handle's private config, so it does not disturb any other
-    /// handle the frontend holds.
-    pub(crate) fn set_context(&mut self, context: SyllableContext<DefaultKeymap<'static>>) {
-        let config = SessionConfig::new(self.session.config().config, context);
-        self.session.set_private_config(config);
-    }
-
-    /// Marks the word stale without touching the buffer.
-    ///
-    /// For state changes made outside [`Self::output`] — the config setters,
-    /// which return no [`VimeOutput`]. Dropping the text here would defeat the
-    /// buffer reuse that keeps a warm handle allocation-free.
     pub(crate) fn invalidate_parsed(&mut self) {
         self.parsed.invalidate();
     }
 
-    /// The word the engine currently has parsed, as a NUL-terminated UTF-8
-    /// string owned by this handle, or NULL when there is nothing to show.
-    ///
-    /// Rendered on first use after a state change and cached until the next
-    /// [`Self::output`], so a frontend that never reads the word never pays
-    /// for it. The returned pointer stays valid until the next call on this
-    /// handle or [`vime_destroy`](crate::vime_destroy).
+    pub(crate) fn invalidate(&mut self) {
+        self.parsed.invalidate();
+        self.committed.clear();
+    }
+
     pub(crate) fn parsed_ptr(&mut self) -> *const c_char {
         if !self.parsed.fresh {
-            // Render into the reusable scratch, then copy into the buffer we
-            // already own: neither step allocates once the handle is warm.
             self.scratch.clear();
             self.session.write_parsed_to(&mut self.scratch);
             self.parsed.set(&self.scratch);
@@ -202,24 +177,6 @@ impl VimeEngineHandle {
         self.parsed.ptr()
     }
 
-    /// Marks the cached word stale and drops any pending commit.
-    ///
-    /// Any pointer handed out earlier describes state that has since moved on,
-    /// so the next read has to go back to the engine. Every entry point that
-    /// changes state calls this, whether or not it returns a `VimeOutput`:
-    /// `vime_reset` does not, which is why this is not folded into
-    /// [`Self::output`] alone.
-    #[inline]
-    pub(crate) fn invalidate(&mut self) {
-        self.parsed.invalidate();
-        self.committed.clear();
-    }
-
-    /// Builds a `VimeOutput` view whose text lives in buffers owned by this
-    /// handle. Any previously returned pointers become invalidated by this call.
-    ///
-    /// The parsed is *not* rendered here: read it with
-    /// [`Self::parsed_ptr`] only when the frontend actually needs it.
     pub(crate) fn output(&mut self, result: Result) -> VimeOutput {
         self.invalidate();
 
@@ -239,6 +196,16 @@ impl VimeEngineHandle {
             commit: self.committed.ptr(),
         }
     }
+
+    /// Returns the current composition cursor position in Unicode characters.
+    pub(crate) fn cursor_pos(&self) -> usize {
+        self.session.composition.cursor_pos()
+    }
+
+    /// Returns the rendered composition length in Unicode characters.
+    pub(crate) fn length(&self) -> usize {
+        self.session.composition.length()
+    }
 }
 
 #[repr(u32)]
@@ -250,7 +217,6 @@ pub enum VimeInputMethod {
     Viqr = 3,
 }
 
-/// Tone-placement scheme; values mirror the ABI agreement with the Rust core.
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VimeTonePlacement {
@@ -259,8 +225,6 @@ pub enum VimeTonePlacement {
     Old = 2,
 }
 
-/// A `repr(u32)` enum accepts any value a C caller passes, so the conversion
-/// is fallible: an unknown discriminant has no `TonePlacement` counterpart.
 impl TryFrom<VimeTonePlacement> for TonePlacement {
     type Error = ();
 
@@ -278,11 +242,6 @@ impl TryFrom<VimeTonePlacement> for TonePlacement {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VimeKey {
-    /// The event carries a character, in [`VimeKeyEvent::character`].
-    ///
-    /// The core enum's `Key::Character(char)` holds a `char`, which a flat C
-    /// struct cannot, so this variant is payload-free and the character travels
-    /// beside it. Every other variant is a discrete key with no character.
     #[default]
     Character = 0,
     Backspace = 1,
@@ -311,33 +270,20 @@ pub struct VimeKeyEvent {
     pub states: u32,
 }
 
-/// Action directive returned to native frontends (Fcitx5, IBus, macOS).
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VimeAction {
-    /// Key was ignored by IME; frontend must forward key to active application.
     Forward = 0,
-    /// Key was consumed by IME, but nothing in the buffer changed.
     Noop = 1,
-    /// The buffer changed; re-read the word with [`crate::vime_parsed`] and
-    /// redraw whatever the frontend shows for it. Mirrors the core's
-    /// `Result::Changed`.
     Changed = 2,
-    /// Text was committed; clear the displayed word and insert the committed
-    /// text.
     Commit = 3,
-    /// The caret moved within the word, which is unchanged. Re-read with
-    /// [`crate::vime_parsed`] only if the frontend shows the caret.
     CursorMoved = 4,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VimeOutput {
-    /// High-level action for the frontend state machine.
     pub action: VimeAction,
-    /// Text to commit to the input context (UTF-8, null-terminated). NULL if none.
-    /// Owned by the engine handle; valid until the next call or vime_destroy.
     pub commit: *const c_char,
 }
 
@@ -356,4 +302,7 @@ impl Default for VimeOutput {
     fn default() -> Self {
         Self::empty(VimeAction::Forward)
     }
+}
+
+impl VimeConfig {
 }

@@ -1,6 +1,6 @@
 //! A registry of open sessions.
 //!
-//! [`Engine`] makes sessions but does not keep them: it hands each one out and
+//! [`SessionFactory`] makes sessions but does not keep them: it hands each one out and
 //! forgets it, which is the right shape when the thing you already own — an fcitx
 //! `InputContext`, a window, a test case — *is* the session. This module is for
 //! when something else should hold the sessions instead.
@@ -20,7 +20,7 @@
 //!   sessions are open.
 //! - The per-session lock is uncontended whenever a session has the single
 //!   owner it is meant to have, which is the normal case.
-//! - The alternative — handing sessions out by value, as [`Engine`] does —
+//! - The alternative — handing sessions out by value, as [`SessionFactory`] does —
 //!   needs no lock at all, and is still the better choice when the caller can
 //!   own the session outright. This is the trade made when it cannot.
 //!
@@ -36,9 +36,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::config::Config;
 use crate::keymap::Keymap;
-use crate::session::{Session, SessionConfig, SharedConfig};
+use crate::session::{Session, Config, SharedConfig, Settings};
 
 /// Names one registered session.
 ///
@@ -65,7 +64,7 @@ pub type SessionRef<KM> = Arc<Mutex<Session<KM>>>;
 /// A set of open sessions, with the settings they share by default.
 ///
 /// Create with [`Sessions::new`], or with [`Sessions::from_engine`] to keep the
-/// settings of an existing [`Engine`]. Keep the returned
+/// settings of an existing [`SessionFactory`]. Keep the returned
 /// [`SessionRef`](type@SessionRef) — that is the thing a caller types through.
 pub struct Sessions<KM: Keymap> {
     shared: SharedConfig<KM>,
@@ -103,7 +102,7 @@ where
     KM: Clone + PartialEq,
 {
     /// Opens an empty set whose sessions share `config`.
-    pub fn new(config: SessionConfig<KM>) -> Self {
+    pub fn new(config: Config<KM>) -> Self {
         Self {
             shared: SharedConfig::new(config),
             open: Arc::new(Mutex::new(Entries {
@@ -116,10 +115,10 @@ where
     /// Opens an empty set whose sessions follow an existing engine's settings.
     ///
     /// The settings are *shared*, not copied, so a later
-    /// [`Engine::set_config`](crate::Engine::set_config) reaches these sessions
+    /// [`SessionFactory::set_config`](crate::SessionFactory::set_config) reaches these sessions
     /// too. Two owners of one [`SharedConfig`] is the normal case rather than a
     /// special one; only the registry itself is this set's own.
-    pub fn from_engine(engine: &crate::Engine<KM>) -> Self {
+    pub fn from_engine(engine: &crate::SessionFactory<KM>) -> Self {
         Self {
             shared: engine.shared().clone(),
             open: Arc::new(Mutex::new(Entries {
@@ -144,8 +143,8 @@ where
 
     /// Opens a session with its own settings, which do not change when the
     /// shared config does.
-    pub fn open_with(&self, config: SessionConfig<KM>) -> (SessionId, SessionRef<KM>) {
-        let session = SessionRef::new(Mutex::new(Session::with_config_on(
+    pub fn open_with(&self, config: Config<KM>) -> (SessionId, SessionRef<KM>) {
+        let session = SessionRef::new(Mutex::new(Session::with_config_on_shared(
             self.shared.clone(),
             config,
         )));
@@ -214,16 +213,17 @@ impl<KM: Keymap> Sessions<KM> {
     /// later and one that has been idle for an hour end up in the same place,
     /// and neither can be left behind.
     #[inline]
-    pub fn set_config(&self, config: SessionConfig<KM>) -> u64 {
+    pub fn set_config(&self, config: Config<KM>) -> u64 {
         self.shared.replace(config)
     }
 
     /// Replaces the config shared by every session here, from an engine
     /// [`Config`] and a keymap.
     #[inline]
-    pub fn set_keymap(&self, config: Config, keymap: KM) -> u64 {
-        self.set_config(SessionConfig::from_keymap(config, keymap))
+    pub fn set_keymap(&self, config: Settings, keymap: KM) -> u64 {
+        self.set_config(Config::from_keymap(config, keymap))
     }
+
 
     // ------------------------------------------------------------------ ids
 

@@ -1,6 +1,7 @@
 #ifndef VIME_ENGINE_H
 #define VIME_ENGINE_H
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -13,41 +14,66 @@ extern "C" {
 /* ========================================================================= */
 
 /**
- * Handle to one Vietnamese typing buffer, plus the text it hands back.
+ * Factory that owns the shared configuration and creates sessions.
  *
- * A handle is a single session: it owns the keystrokes typed into it and the
- * word they parse to. A frontend that needs several buffers — one per window,
- * per conversation, or per test case — holds several handles, and they share
- * nothing: their buffers are independent even when they hold identical
- * settings.
+ * Sessions created from the factory follow its shared configuration unless
+ * they have a private configuration.
  *
- * Because of that, vime_set_input_method and vime_set_tone_placement apply to
- * the handle they are given and to no other. A frontend that wants every
- * buffer to move together has to call them on each handle; there is no
- * handle-wide setting, and a handle never picks up a change made to another.
- *
- * Thread-safety: Not thread-safe. Synchronization is the caller's duty, and
- * covers all handles, since they are independent rather than isolated.
+ * Thread-safety: not thread-safe. Synchronization is the caller's
+ * responsibility.
  */
-typedef struct VimeEngineHandle VimeEngineHandle;
+typedef struct VimeSessionFactoryHandle VimeSessionFactoryHandle;
+
+/**
+ * One independent typing session.
+ *
+ * Owns its input buffer, composition state, cursor state, and optionally
+ * a private configuration.
+ */
+typedef struct VimeSessionHandle VimeSessionHandle;
+
 
 /* ========================================================================= */
 /* Enumerations                                                              */
 /* ========================================================================= */
 
 /**
- * High-level action directive returned to native frontends.
+ * Action returned after processing a key.
  */
 typedef enum VimeAction {
-    VIME_ACTION_FORWARD        = 0, /* key ignored by IME; forward it to the app */
-    VIME_ACTION_NOOP           = 1, /* key consumed; nothing visibly changed     */
-    VIME_ACTION_CHANGED        = 2, /* buffer changed; re-read and redraw     */
-    VIME_ACTION_COMMIT         = 3, /* text committed; clear the word, insert  */
-    VIME_ACTION_CURSOR_MOVED   = 4, /* caret moved; the word is unchanged      */
+    /**
+     * The key was not consumed by the IME.
+     * The frontend should forward it to the application.
+     */
+    VIME_ACTION_FORWARD = 0,
+
+    /**
+     * The key was consumed, but no visible state changed.
+     */
+    VIME_ACTION_NOOP = 1,
+
+    /**
+     * The composition changed.
+     * The frontend should re-read the rendered composition.
+     */
+    VIME_ACTION_CHANGED = 2,
+
+    /**
+     * Text was committed.
+     *
+     * `VimeOutput.commit` contains the UTF-8 text to commit.
+     */
+    VIME_ACTION_COMMIT = 3,
+
+    /**
+     * The composition cursor moved without changing the composition text.
+     */
+    VIME_ACTION_CURSOR_MOVED = 4,
 } VimeAction;
 
+
 /**
- * Exclusive input-method selection. Values reflect the ABI agreement with Rust backend.
+ * Vietnamese input method.
  */
 typedef enum VimeInputMethod {
     VIME_INPUT_METHOD_TELEX = 1u,
@@ -55,22 +81,22 @@ typedef enum VimeInputMethod {
     VIME_INPUT_METHOD_VIQR  = 3u,
 } VimeInputMethod;
 
-/**
- * Tone-placement scheme. Values reflect the ABI agreement with Rust backend.
- */
-typedef enum VimeTonePlacement {
-    VIME_TONE_PLACEMENT_MODERN = 1u, /* "hoá", "thuý"                       */
-    VIME_TONE_PLACEMENT_OLD    = 2u, /* "hóa", "thúy"                       */
-} VimeTonePlacement;
 
 /**
- * Discrete key codes. Values match the engine's internal Key enum.
+ * Vietnamese tone-placement convention.
+ */
+typedef enum VimeTonePlacement {
+    VIME_TONE_PLACEMENT_MODERN = 1u,
+    VIME_TONE_PLACEMENT_OLD    = 2u,
+} VimeTonePlacement;
+
+
+/**
+ * Discrete key codes.
+ *
+ * VIME_KEY_CHARACTER uses `VimeKeyEvent.character`.
  */
 typedef enum VimeKey {
-    /* The event carries a character, in VimeKeyEvent::character. The core
-     * Key::Character holds a char, which a flat struct cannot, so this
-     * variant is payload-free and the character travels beside it. Every
-     * other variant is a discrete key with no character. */
     VIME_KEY_CHARACTER = 0,
     VIME_KEY_BACKSPACE = 1,
     VIME_KEY_DELETE    = 2,
@@ -82,14 +108,11 @@ typedef enum VimeKey {
     VIME_KEY_SPACE     = 8,
 } VimeKey;
 
+
 /* ========================================================================= */
-/* Structures                                                                */
+/* Modifier State                                                             */
 /* ========================================================================= */
 
-/**
- * Modifier-state bits for `VimeKeyEvent::states`. Values match the engine's
- * internal KeyStates bitmask; frontends must translate native modifiers.
- */
 #define VIME_KEY_STATE_CTRL      (1u << 0)
 #define VIME_KEY_STATE_ALT       (1u << 1)
 #define VIME_KEY_STATE_SHIFT     (1u << 2)
@@ -99,133 +122,305 @@ typedef enum VimeKey {
 #define VIME_KEY_STATE_HYPER     (1u << 6)
 #define VIME_KEY_STATE_META      (1u << 7)
 
+
+/* ========================================================================= */
+/* Structures                                                                 */
+/* ========================================================================= */
+
+/**
+ * Key event passed to a session.
+ */
 typedef struct VimeKeyEvent {
     VimeKey key;
+
+    /**
+     * Unicode scalar value for VIME_KEY_CHARACTER.
+     *
+     * Ignored for other key types.
+     */
     uint32_t character;
+
+    /**
+     * Combination of VIME_KEY_STATE_* flags.
+     */
     uint32_t states;
 } VimeKeyEvent;
 
+
+/**
+ * Result of processing one key.
+ *
+ * `commit` is non-NULL only when action == VIME_ACTION_COMMIT.
+ *
+ * The returned pointer is owned by the session and must not be freed.
+ * It remains valid until the next operation that changes the session state
+ * or until vime_session_destroy().
+ */
 typedef struct VimeOutput {
-    /* high-level action for the frontend state machine */
     VimeAction action;
-    /* Text to commit (UTF-8, NUL-terminated), or NULL if there is none.
-     *
-     * This is the only way to obtain the commit text: it is set when
-     * `action` is VIME_ACTION_COMMIT and NULL for every other action, so
-     * there is no separate accessor to call and no window in which a
-     * frontend can read a stale commit.
-     *
-     * Owned by the handle, valid until the next call that changes the state
-     * on the same handle, or vime_destroy. Do not free it. */
     const char *commit;
 } VimeOutput;
 
-/* ========================================================================= */
-/* Engine Lifecycle                                                          */
-/* ========================================================================= */
 
 /**
- * Engine settings, in the layout a C caller sees.
+ * Complete configuration used by sessions.
  *
- * Each field mirrors one field of the engine's own configuration, so a
- * frontend sets its behaviour without a bespoke call per setting. The input
- * method and tone-placement scheme are not here: they are runtime choices
- * with their own entry points.
- *
- * The library and this header are installed together, so a caller cannot end
- * up with a struct from one revision and a libvime from another. Adding a
- * field is therefore a normal breaking change.
+ * The factory stores one shared configuration. Sessions normally follow it,
+ * unless a session has explicitly taken a private configuration.
  */
 typedef struct VimeConfig {
-    /* Restore English when the word contains characters that are not
-     * Vietnamese, committing the literal text instead of interpreting it.
-     * Defaults to true, which is not the C zero, so a caller that zero-initialises
-     * the struct gets a different value from one that passes it zeroed. */
     bool auto_restore_english;
+    VimeInputMethod input_method;
+    VimeTonePlacement tone_placement;
 } VimeConfig;
 
-/* The defaults: what a NULL config selects. */
-#define VIME_CONFIG_INIT ((VimeConfig){ .auto_restore_english = true })
-
-/** Creates a new Telex engine with the default configuration. */
-VimeEngineHandle *vime_create(void);
 
 /**
- * Creates an engine for the given input method and tone-placement scheme,
- * with every setting at its default.
+ * Default configuration.
  */
-VimeEngineHandle *vime_create_with(VimeInputMethod method, VimeTonePlacement tone_placement);
+#define VIME_CONFIG_INIT \
+    ((VimeConfig){ \
+        .auto_restore_english = true, \
+        .input_method = VIME_INPUT_METHOD_TELEX, \
+        .tone_placement = VIME_TONE_PLACEMENT_MODERN \
+    })
 
-/**
- * Creates an engine for the given input method, tone-placement scheme and
- * settings.
- *
- * config may be NULL, which means every default. Returns NULL for an
- * unknown input method.
- */
-VimeEngineHandle *vime_create_with_config(const VimeConfig *config,
-                                          VimeInputMethod method,
-                                          VimeTonePlacement tone_placement);
-
-/** Destroys an engine instance and frees associated memory. */
-void vime_destroy(VimeEngineHandle *engine);
-
-/**
- * Sets the active input method, clearing the buffer.
- *
- * Returns true on success, false for a NULL handle or an unknown method (in
- * which case the engine is untouched).
- *
- * On success the buffer was cleared, so the word has changed: call
- * vime_parsed and redraw. No key was consumed and no text is committed, so
- * there is no action to dispatch.
- */
-bool vime_set_input_method(VimeEngineHandle *engine, VimeInputMethod method);
-
-/**
- * Switches the tone-placement scheme, re-rendering the current word.
- *
- * Returns true on success, false for a NULL handle or an unknown scheme (in
- * which case the engine is untouched).
- *
- * On success the pending vowels render under the new scheme, so the word has
- * changed: call vime_parsed and redraw.
- */
-bool vime_set_tone_placement(VimeEngineHandle *engine, VimeTonePlacement tone_placement);
-
-/**
- * Returns the word currently parsed (UTF-8, NUL-terminated), or NULL if the
- * engine has no valid handle.
- *
- * Rendered lazily: the text is produced on the first call after a state change
- * and cached until the next call that changes the state, so a frontend that
- * only reacts to VIME_ACTION_COMMIT never pays for it. Call this whenever the
- * action is VIME_ACTION_CHANGED or VIME_ACTION_CURSOR_MOVED.
- *
- * The pointer is owned by the handle and stays valid until the next call that
- * changes the state, or vime_destroy. Do not free it.
- */
-const char *vime_parsed(VimeEngineHandle *engine);
-
-/**
- * Clears the buffer.
- *
- * Returns true on success, false for a NULL handle (in which case the engine
- * is untouched) — the same shape as vime_set_input_method and
- * vime_set_tone_placement.
- *
- * There is no action to dispatch: reset consumes no key and commits no text,
- * and on success the word is empty, so the frontend clears its preedit and
- * repaints.
- */
-bool vime_reset(VimeEngineHandle *engine);
 
 /* ========================================================================= */
-/* Event Processing & Utilities                                              */
+/* Session Factory — Lifecycle                                               */
 /* ========================================================================= */
 
-/** Processes a key event and returns output directives for the frontend adapter. */
-VimeOutput vime_process_key(VimeEngineHandle *engine, VimeKeyEvent event);
+/**
+ * Creates a factory with the default configuration.
+ *
+ * Equivalent to:
+ *
+ *     vime_session_factory_create_with_config(&VIME_CONFIG_INIT)
+ */
+VimeSessionFactoryHandle *vime_session_factory_create(void);
+
+
+/**
+ * Creates a factory with the supplied configuration.
+ *
+ * `config` may be NULL, in which case VIME_CONFIG_INIT is used.
+ *
+ * Returns NULL if the configuration contains an invalid enum value.
+ */
+VimeSessionFactoryHandle *vime_session_factory_create_with_config(
+    const VimeConfig *config
+);
+
+
+/**
+ * Destroys a factory.
+ *
+ * Existing sessions created by the factory remain valid if the implementation
+ * retains their shared configuration independently.
+ */
+void vime_session_factory_destroy(
+    VimeSessionFactoryHandle *factory
+);
+
+
+/* ========================================================================= */
+/* Session Factory — Shared Configuration                                    */
+/* ========================================================================= */
+
+/**
+ * Replaces the shared configuration.
+ *
+ * Existing sessions that follow the shared configuration observe the change
+ * on their next operation.
+ *
+ * Sessions with a private configuration are unaffected.
+ *
+ * Returns false for NULL handles or invalid enum values.
+ */
+bool vime_session_factory_set_config(
+    VimeSessionFactoryHandle *factory,
+    const VimeConfig *config
+);
+
+
+/**
+ * Changes the shared input method.
+ *
+ * Sessions following the shared configuration observe the new method on
+ * their next operation.
+ */
+bool vime_session_factory_set_input_method(
+    VimeSessionFactoryHandle *factory,
+    VimeInputMethod method
+);
+
+
+/**
+ * Changes the shared tone-placement convention.
+ *
+ * Sessions following the shared configuration observe the new convention on
+ * their next operation.
+ */
+bool vime_session_factory_set_tone_placement(
+    VimeSessionFactoryHandle *factory,
+    VimeTonePlacement tone_placement
+);
+
+
+/**
+ * Changes the shared English auto-restore setting.
+ */
+bool vime_session_factory_set_auto_restore_english(
+    VimeSessionFactoryHandle *factory,
+    bool enabled
+);
+
+
+/* ========================================================================= */
+/* Session — Lifecycle                                                       */
+/* ========================================================================= */
+
+/**
+ * Creates a new empty session following the factory's shared configuration.
+ */
+VimeSessionHandle *vime_session_create(
+    VimeSessionFactoryHandle *factory
+);
+
+
+/**
+ * Creates a new empty session with a private configuration.
+ *
+ * The session does not follow subsequent shared configuration changes until
+ * its private configuration is cleared.
+ */
+VimeSessionHandle *vime_session_create_with_config(
+    VimeSessionFactoryHandle *factory,
+    const VimeConfig *config
+);
+
+
+/**
+ * Destroys a session.
+ */
+void vime_session_destroy(
+    VimeSessionHandle *session
+);
+
+
+/* ========================================================================= */
+/* Session — Configuration                                                   */
+/* ========================================================================= */
+
+/**
+ * Replaces this session's configuration with a private configuration.
+ *
+ * After this call, changes to the factory's shared configuration no longer
+ * affect this session.
+ */
+bool vime_session_set_config(
+    VimeSessionHandle *session,
+    const VimeConfig *config
+);
+
+
+/**
+ * Clears the session's private configuration.
+ *
+ * The session resumes following the factory's current shared configuration.
+ */
+bool vime_session_clear_config(
+    VimeSessionHandle *session
+);
+
+
+/* ========================================================================= */
+/* Session — Input Processing                                                */
+/* ========================================================================= */
+
+/**
+ * Processes one key event.
+ *
+ * The returned action tells the frontend what to do next.
+ *
+ * For VIME_ACTION_COMMIT, `output.commit` contains the text to commit.
+ */
+VimeOutput vime_session_process_key(
+    VimeSessionHandle *session,
+    VimeKeyEvent event
+);
+
+
+/* ========================================================================= */
+/* Session — Composition                                                     */
+/* ========================================================================= */
+
+/**
+ * Returns the currently rendered composition.
+ *
+ * Returns:
+ *
+ *     NULL    invalid session
+ *     ""      empty composition
+ *     text    current rendered composition
+ *
+ * The returned UTF-8 string is owned by the session and must not be freed.
+ *
+ * The pointer remains valid until the next operation that changes the
+ * session's rendered state or until vime_session_destroy().
+ */
+const char *vime_session_render(
+    VimeSessionHandle *session
+);
+
+
+/**
+ * Clears the current composition.
+ *
+ * Returns false for a NULL session.
+ */
+bool vime_session_reset(
+    VimeSessionHandle *session
+);
+
+
+/* ========================================================================= */
+/* Session — Cursor                                                          */
+/* ========================================================================= */
+
+/**
+ * Returns the current composition cursor position.
+ *
+ * The position is expressed in rendered Unicode characters, not UTF-8 bytes.
+ *
+ * Returns SIZE_MAX for an invalid session.
+ */
+size_t vime_session_cursor(
+    const VimeSessionHandle *session
+);
+
+
+/**
+ * Returns the rendered composition length in Unicode characters.
+ *
+ * Returns SIZE_MAX for an invalid session.
+ */
+size_t vime_session_length(
+    const VimeSessionHandle *session
+);
+
+
+/* ========================================================================= */
+/* Version                                                                     */
+/* ========================================================================= */
+
+/**
+ * Returns the VIME ABI version.
+ *
+ * The returned string is static and must not be freed.
+ */
+const char *vime_version(void);
+
 
 #ifdef __cplusplus
 }

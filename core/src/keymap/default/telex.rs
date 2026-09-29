@@ -3,7 +3,7 @@ use crate::phonology::{RootVowel, Shape, Tone};
 
 /// Telex layout: shapes on `a/e/o` (circumflex), `w` (breve/horn), `d`
 /// (stroke); tones on `s/f/r/x/j/z`.
-pub(crate) const CONFIG: &Rules = &rules! {
+pub(crate) static CONFIG: &Rules = &rules! {
     tones: [
         ToneRule { key: b's', tone: Tone::Acute },
         ToneRule { key: b'f', tone: Tone::Grave },

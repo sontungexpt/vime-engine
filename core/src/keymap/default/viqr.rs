@@ -3,7 +3,7 @@ use crate::phonology::{RootVowel, Shape, Tone};
 
 /// VIQR layout: shapes on `^` (circumflex), `(` (breve), `+` (horn), `d`
 /// (stroke); tones on `` ` `` `?` `~` `'` `.` and `z`.
-pub(crate) const CONFIG: &Rules = &rules! {
+pub(crate) static CONFIG: &Rules = &rules! {
     tones: [
         ToneRule { key: b'`', tone: Tone::Grave },
         ToneRule { key: b'?', tone: Tone::Hook },

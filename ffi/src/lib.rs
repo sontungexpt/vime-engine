@@ -1,40 +1,19 @@
-//! The C ABI: every `vime_*` function here is `extern "C"` and safe to call
-//! from a frontend that speaks the header in `include/vime_engine.h`.
-//!
-//! Two rules hold throughout, and both are what the handle exists to provide:
-//!
-//! - **A NULL handle is never a crash.** Every entry point checks and returns a
-//!   neutral value: an empty [`VimeOutput`], a NULL string, or `false`.
-//! - **The word is read separately from the action that announces it.** A call
-//!   that changes state returns only an action; the frontend then asks
-//!   [`vime_parsed`] for the text it actually wants. The word is rendered on
-//!   that first read, so a frontend that never displays it never pays for it.
-//! - **The commit text rides along with its action.** Unlike the word, it is
-//!   already final when the key that produced it is processed, so it comes back
-//!   in [`VimeOutput::commit`] on `VIME_ACTION_COMMIT` and is NULL otherwise.
-//!   There is no accessor to call and no window in which a stale commit could
-//!   be read.
-
 use std::ffi::c_char;
 use std::ptr;
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{DefaultKeymap, KeyEvent, Session, SessionConfig};
+use vime_engine::{DefaultKeymap, KeyEvent, Result, Session, SessionFactory, Config, Settings};
 
-pub mod convert;
-pub mod types;
+mod convert;
+mod types;
 
 pub use types::{
-    VimeAction, VimeConfig, VimeEngineHandle, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
-    VimeTonePlacement,
+    VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
+    VimeTonePlacement, VimeSessionFactoryHandle, VimeSessionHandle,
 };
 
-/// Binds a possibly-NULL handle, or returns `default` from the caller.
-///
-/// Every entry point needs this, and spelling it out each time is both noisy
-/// and easy to forget on a new one.
-macro_rules! handle_or {
+macro_rules! factory_handle_or {
     ($ptr:expr, $default:expr) => {
         match $ptr.as_mut() {
             Some(handle) => handle,
@@ -43,10 +22,15 @@ macro_rules! handle_or {
     };
 }
 
-/// The built-in keymap for `method`, or `None` if the discriminant is unknown.
-///
-/// A `repr(u32)` enum can hold any value a C caller passes, so the trailing
-/// match arm is reachable from C even though it is not from Rust.
+macro_rules! session_handle_or {
+    ($ptr:expr, $default:expr) => {
+        match $ptr.as_mut() {
+            Some(handle) => handle,
+            None => return $default,
+        }
+    };
+}
+
 fn keymap_for(method: VimeInputMethod) -> Option<DefaultKeymap<'static>> {
     #[allow(unreachable_patterns)]
     match method {
@@ -57,215 +41,235 @@ fn keymap_for(method: VimeInputMethod) -> Option<DefaultKeymap<'static>> {
     }
 }
 
-/// Creates a Telex engine with the default configuration.
-///
-/// Equivalent to `vime_create_with_config(NULL, VIME_INPUT_METHOD_TELEX,
-/// VIME_TONE_PLACEMENT_MODERN)`. The config argument is accepted even though
-/// it currently carries no fields, so that adding one does not change this
-/// signature.
-#[no_mangle]
-pub extern "C" fn vime_create() -> *mut VimeEngineHandle {
-    // SAFETY: passes a NULL config, which is one of the two forms
-    // `vime_create_with_config` accepts and which takes no reading at all.
-    unsafe {
-        vime_create_with_config(
-            ptr::null(),
-            VimeInputMethod::Telex,
-            VimeTonePlacement::Modern,
-        )
-    }
+fn tone_placement_for(tp: VimeTonePlacement) -> Option<TonePlacement> {
+    TonePlacement::try_from(tp).ok()
 }
 
-/// Creates an engine for any built-in input method with the given
-/// tone-placement scheme. Returns NULL for an unknown input method.
-///
-/// The shorter form of [`vime_create_with_config`] for the common case, where
-/// every setting takes its default.
+/// Creates a session factory with the default configuration.
 #[no_mangle]
-pub extern "C" fn vime_create_with(
-    method: VimeInputMethod,
-    tone_placement: VimeTonePlacement,
-) -> *mut VimeEngineHandle {
-    // SAFETY: as in `vime_create`, a NULL config is read by nobody.
-    unsafe { vime_create_with_config(ptr::null(), method, tone_placement) }
-}
-
-/// Creates an engine for any built-in input method with the given
-/// tone-placement scheme and settings.
-///
-/// # Safety
-///
-/// `config` must be NULL or point to a readable [`VimeConfig`]. A NULL pointer
-/// means "every default".
-///
-/// Returns NULL for an unknown input method.
-#[no_mangle]
-pub unsafe extern "C" fn vime_create_with_config(
-    config: *const VimeConfig,
-    method: VimeInputMethod,
-    tone_placement: VimeTonePlacement,
-) -> *mut VimeEngineHandle {
-    // SAFETY: forwarded from this function's own contract.
-    let config = unsafe { VimeConfig::read(config) };
-    let (Some(keymap), Ok(tone_placement)) =
-        (keymap_for(method), TonePlacement::try_from(tone_placement))
-    else {
-        return ptr::null_mut();
-    };
-    // A handle is one typing buffer, so it holds a session. The session gets a
-    // private config because the engine-level config is already fully described
-    // by the three creation arguments.
-    let session = Session::with_config(SessionConfig::new(
-        // The one place a C field becomes a `Config` field.
-        config.to_engine_config(),
-        SyllableContext::new(keymap, tone_placement),
+pub extern "C" fn vime_session_factory_create() -> *mut VimeSessionFactoryHandle {
+    let factory = SessionFactory::new(Config::new(
+        Settings::default(),
+        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Modern),
     ));
-    VimeEngineHandle::new(session).into_raw()
+    VimeSessionFactoryHandle::new(factory).into_raw()
 }
 
-/// Destroys an engine instance, invalidating every pointer it handed out.
+/// Creates a factory with the supplied configuration.
 ///
-/// # Safety
+/// `config` may be NULL, in which case VIME_CONFIG_INIT is used.
 ///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`]. Passing NULL is allowed; passing an already-destroyed
-/// pointer is not, and will double-free.
+/// Returns NULL if the configuration contains an invalid enum value.
 #[no_mangle]
-pub unsafe extern "C" fn vime_destroy(engine: *mut VimeEngineHandle) {
-    if !engine.is_null() {
-        drop(Box::from_raw(engine));
+pub unsafe extern "C" fn vime_session_factory_create_with_config(
+    config: *const VimeConfig,
+) -> *mut VimeSessionFactoryHandle {
+    let config = unsafe { VimeConfig::read(config) };
+    let config = config.to_engine_config();
+    let factory = SessionFactory::new(config);
+    VimeSessionFactoryHandle::new(factory).into_raw()
+}
+
+/// Destroys a factory.
+///
+/// Existing sessions created by the factory remain valid.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_factory_destroy(factory: *mut VimeSessionFactoryHandle) {
+    if !factory.is_null() {
+        drop(Box::from_raw(factory));
     }
 }
 
-/// Clears the buffer.
+/// Replaces the shared configuration.
 ///
-/// Returns true on success, false for a NULL handle (in which case the engine
-/// is untouched) — the same shape as [`vime_set_input_method`] and
-/// [`vime_set_tone_placement`].
+/// Existing sessions that follow the shared configuration observe the change
+/// on their next operation. Sessions with a private configuration are unaffected.
 ///
-/// There is no action to dispatch: reset consumes no key and commits no text,
-/// and on success the word is empty, so the frontend clears its preedit and
-/// repaints. Returning a [`VimeOutput`] would imply a choice among the
-/// actions, when the only reachable one is `VIME_ACTION_CHANGED`.
-///
-/// # Safety
-///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`] that has not been passed to [`vime_destroy`].
+/// Returns false for NULL handles or invalid enum values.
 #[no_mangle]
-pub unsafe extern "C" fn vime_reset(engine: *mut VimeEngineHandle) -> bool {
-    let Some(engine) = engine.as_mut() else {
-        return false;
-    };
-    engine.session.reset();
-    // The word and any pending commit are now stale. `output()` normally does
-    // this as a side effect, but a reset no longer routes through it, and
-    // without it the next `vime_parsed` would serve the pre-reset text.
-    engine.invalidate();
+pub unsafe extern "C" fn vime_session_factory_set_config(
+    factory: *mut VimeSessionFactoryHandle,
+    config: *const VimeConfig,
+) -> bool {
+    let factory = factory_handle_or!(factory, false);
+    let config = unsafe { VimeConfig::read(config) };
+    let config = config.to_engine_config();
+    factory.factory.set_config(config);
     true
 }
 
-/// Returns the word the engine currently has parsed, rendered on demand.
-///
-/// The action returned by the last call decides whether this is worth asking
-/// for: read it on `VIME_ACTION_CHANGED` and
-/// `VIME_ACTION_CURSOR_MOVED`, skip it otherwise. The text is cached after the
-/// first call, so asking twice between state changes costs one render.
-///
-/// The returned pointer is owned by the handle and is invalidated by the next
-/// call that changes the state, or by `vime_destroy`. It must not be freed by
-/// the caller.
-///
-/// # Safety
-///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`] that has not been passed to [`vime_destroy`].
+/// Changes the shared input method.
 #[no_mangle]
-pub unsafe extern "C" fn vime_parsed(engine: *mut VimeEngineHandle) -> *const c_char {
-    let engine = handle_or!(engine, ptr::null());
-    engine.parsed_ptr()
+pub unsafe extern "C" fn vime_session_factory_set_input_method(
+    factory: *mut VimeSessionFactoryHandle,
+    method: VimeInputMethod,
+) -> bool {
+    let factory = factory_handle_or!(factory, false);
+    let Some(keymap) = keymap_for(method) else { return false; };
+    let config = Config::from_keymap(Settings::default(), keymap);
+    factory.factory.set_config(config);
+    true
 }
 
-/// Processes a key event and reports what the frontend should do about it.
-///
-/// # Safety
-///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`] that has not been passed to [`vime_destroy`].
+/// Changes the shared tone-placement convention.
 #[no_mangle]
-pub unsafe extern "C" fn vime_process_key(
-    engine: *mut VimeEngineHandle,
+pub unsafe extern "C" fn vime_session_factory_set_tone_placement(
+    factory: *mut VimeSessionFactoryHandle,
+    tone_placement: VimeTonePlacement,
+) -> bool {
+    let factory = factory_handle_or!(factory, false);
+    let Some(_tp) = tone_placement_for(tone_placement) else { return false; };
+    let config = Config::from_keymap(Settings::default(), DefaultKeymap::telex());
+    let mut config = config;
+    config.context = config.context; // keep keymap
+    config.context = SyllableContext::new(*config.context.keymap(), tone_placement_for(tone_placement).unwrap());
+    factory.factory.set_config(config);
+    true
+}
+
+/// Changes the shared English auto-restore setting.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_factory_set_auto_restore_english(
+    factory: *mut VimeSessionFactoryHandle,
+    enabled: bool,
+) -> bool {
+    let factory = factory_handle_or!(factory, false);
+    let mut config = factory.factory.shared().snapshot();
+    config.settings.auto_restore_english = enabled;
+    factory.factory.set_config(config);
+    true
+}
+
+/// Creates a new empty session following the factory's shared configuration.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_create(
+    factory: *mut VimeSessionFactoryHandle,
+) -> *mut VimeSessionHandle {
+    let factory = factory_handle_or!(factory, ptr::null_mut());
+    let session = Session::new(factory.factory.shared().clone());
+    VimeSessionHandle::new(session).into_raw()
+}
+
+/// Creates a new empty session with a private configuration.
+///
+/// The session does not follow subsequent shared configuration changes until
+/// its private configuration is cleared.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_create_with_config(
+    factory: *mut VimeSessionFactoryHandle,
+    config: *const VimeConfig,
+) -> *mut VimeSessionHandle {
+    let factory = factory_handle_or!(factory, ptr::null_mut());
+    let config = unsafe { VimeConfig::read(config) };
+    let config = config.to_engine_config();
+    let session = Session::with_config_on_shared(factory.factory.shared().clone(), config);
+    VimeSessionHandle::new(session).into_raw()
+}
+
+/// Destroys a session.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_destroy(session: *mut VimeSessionHandle) {
+    if !session.is_null() {
+        drop(Box::from_raw(session));
+    }
+}
+
+/// Replaces this session's configuration with a private configuration.
+///
+/// After this call, changes to the factory's shared configuration no longer
+/// affect this session.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_set_config(
+    session: *mut VimeSessionHandle,
+    config: *const VimeConfig,
+) -> bool {
+    let session = session_handle_or!(session, false);
+    let config = unsafe { VimeConfig::read(config) };
+    let config = config.to_engine_config();
+    session.session.set_private_config(config);
+    true
+}
+
+/// Clears the session's private configuration.
+///
+/// The session resumes following the factory's current shared configuration.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_clear_config(session: *mut VimeSessionHandle) -> bool {
+    let session = session_handle_or!(session, false);
+    session.session.clear_private_config();
+    true
+}
+
+/// Processes one key event.
+///
+/// The returned action tells the frontend what to do next.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_process_key(
+    session: *mut VimeSessionHandle,
     event: VimeKeyEvent,
 ) -> VimeOutput {
-    let engine = handle_or!(engine, VimeOutput::default());
+    let session = session_handle_or!(session, VimeOutput::default());
 
     let Ok(key_event) = KeyEvent::try_from(event) else {
         return VimeOutput::default();
     };
 
-    let result = engine.session.process_key(key_event);
-    engine.output(result)
+    let result = session.session.process_key(key_event);
+    session.output(result)
 }
 
-/// Sets the active input method, clearing the buffer.
+/// Returns the currently rendered composition.
 ///
-/// Returns whether the switch happened. False means a null handle or an unknown
-/// method, in which case the engine is untouched.
+/// Returns NULL for invalid session, "" for empty composition.
 ///
-/// On success the buffer is cleared, so the word has changed: the frontend must
-/// re-read it with [`vime_parsed`]. There is no action to dispatch,
-/// because nothing here consumes a key.
-///
-/// # Safety
-///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`] that has not been passed to [`vime_destroy`].
+/// The returned pointer is owned by the session and must not be freed.
+/// Valid until the next operation that changes the session state or vime_session_destroy().
 #[no_mangle]
-pub unsafe extern "C" fn vime_set_input_method(
-    engine: *mut VimeEngineHandle,
-    method: VimeInputMethod,
-) -> bool {
-    let engine = handle_or!(engine, false);
-    let Some(keymap) = keymap_for(method) else {
-        return false;
-    };
+pub unsafe extern "C" fn vime_session_render(
+    session: *mut VimeSessionHandle,
+) -> *const c_char {
+    let session = session_handle_or!(session, ptr::null());
+    session.parsed_ptr()
+}
 
-    let tone_placement = engine.session.config().context.tone_placement();
-    engine.set_context(SyllableContext::new(keymap, tone_placement));
-    // A new input method reinterprets the buffered keystrokes, so they are
-    // dropped; the word the frontend last read is no longer what the engine
-    // holds.
-    engine.session.reset();
-    engine.invalidate_parsed();
+/// Clears the current composition.
+///
+/// Returns false for a NULL session.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_reset(session: *mut VimeSessionHandle) -> bool {
+    let session = session_handle_or!(session, false);
+    session.session.reset();
+    session.invalidate();
     true
 }
 
-/// Switches the tone-placement scheme, re-rendering the current parsed.
+/// Returns the current composition cursor position in Unicode characters.
 ///
-/// Returns whether the switch happened. False means a null handle or an unknown
-/// scheme, in which case the engine is untouched.
-///
-/// On success the pending vowels render under the new scheme, so the word has
-/// changed: the frontend must re-read it with [`vime_parsed`].
-///
-/// # Safety
-///
-/// `engine` must be NULL or a live pointer from [`vime_create`] /
-/// [`vime_create_with`] that has not been passed to [`vime_destroy`].
+/// Returns SIZE_MAX for an invalid session.
 #[no_mangle]
-pub unsafe extern "C" fn vime_set_tone_placement(
-    engine: *mut VimeEngineHandle,
-    tone_placement: VimeTonePlacement,
-) -> bool {
-    let engine = handle_or!(engine, false);
-    let Ok(tone_placement) = TonePlacement::try_from(tone_placement) else {
-        return false;
-    };
-
-    let keymap = *engine.session.config().context.keymap();
-    engine.set_context(SyllableContext::new(keymap, tone_placement));
-    // The pending vowels re-render under the new scheme, so the cached parsed
-    // no longer describes the buffer.
-    engine.invalidate_parsed();
-    true
+pub unsafe extern "C" fn vime_session_cursor(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    let session = session_handle_or!(session, usize::MAX);
+    session.cursor_pos()
 }
+
+/// Returns the rendered composition length in Unicode characters.
+///
+/// Returns SIZE_MAX for an invalid session.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_length(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    let session = session_handle_or!(session, usize::MAX);
+    session.length()
+}
+
+/// Returns the VIME ABI version.
+///
+/// The returned string is static and must not be freed.
+#[no_mangle]
+pub extern "C" fn vime_version() -> *const c_char {
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
+}
+

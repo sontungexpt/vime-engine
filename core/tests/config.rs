@@ -3,8 +3,8 @@
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{
-    Config, DefaultKeymap, Engine, Key, KeyEvent, KeyStates, Result, Session, SessionConfig,
+use vime_engine::{Settings, 
+    Config, DefaultKeymap, SessionFactory, Key, KeyEvent, KeyStates, Result, Session,
 };
 
 type TelexSession = Session<DefaultKeymap<'static>>;
@@ -12,7 +12,7 @@ type TelexSession = Session<DefaultKeymap<'static>>;
 /// A session that never set a private config, so it reports as following the
 /// shared one.
 fn following() -> TelexSession {
-    Engine::telex(Config::default()).new_session()
+    SessionFactory::telex(Settings::default()).new_session()
 }
 
 fn type_str(session: &mut TelexSession, s: &str) -> String {
@@ -38,8 +38,8 @@ fn a_new_session_follows_the_shared_config() {
 
 #[test]
 fn a_session_config_selects_the_tone_placement_at_construction() {
-    let mut session = Session::with_config(SessionConfig::new(
-        Config::default(),
+    let mut session = Session::with_isolated_config(Config::new(
+        Settings::default(),
         SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
     ));
     assert_eq!(type_str(&mut session, "hoas"), OLD_HOA);
@@ -47,7 +47,7 @@ fn a_session_config_selects_the_tone_placement_at_construction() {
 
 #[test]
 fn the_engines_keymap_reaches_every_session_it_creates() {
-    let engine = Engine::vni(Config::default());
+    let engine = SessionFactory::vni(Settings::default());
     let mut first = engine.new_session();
     let mut second = engine.new_session();
 
@@ -57,10 +57,10 @@ fn the_engines_keymap_reaches_every_session_it_creates() {
 
 #[test]
 fn a_private_config_overrides_only_its_own_session() {
-    let engine = Engine::telex(Config::default());
+    let engine = SessionFactory::telex(Settings::default());
     let mut following = engine.new_session();
-    let mut private = engine.new_session_with(SessionConfig::new(
-        Config::default(),
+    let mut private = engine.new_session_with(Config::new(
+        Settings::default(),
         SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
     ));
 
@@ -70,15 +70,15 @@ fn a_private_config_overrides_only_its_own_session() {
 
 #[test]
 fn only_a_session_with_a_private_config_reports_as_private() {
-    let engine = Engine::telex(Config::default());
-    assert!(!engine.new_session().is_private());
+    let engine = SessionFactory::telex(Settings::default());
+    assert!(!engine.new_session().has_private_config());
     assert!(
         engine
-            .new_session_with(SessionConfig::from_keymap(
-                Config::default(),
+            .new_session_with(Config::from_keymap(
+                Settings::default(),
                 DefaultKeymap::telex()
             ))
-            .is_private()
+            .has_private_config()
     );
 }
 

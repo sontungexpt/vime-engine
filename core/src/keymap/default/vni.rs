@@ -3,7 +3,7 @@ use crate::phonology::{RootVowel, Shape, Tone};
 
 /// VNI layout: shapes on `6` (circumflex), `7` (breve/horn), `8` (horn),
 /// `9` (stroke); tones on `1-5` and `0`.
-pub(crate) const CONFIG: &Rules = &rules! {
+pub(crate) static CONFIG: &Rules = &rules! {
     tones: [
         ToneRule { key: b'1', tone: Tone::Acute },
         ToneRule { key: b'2', tone: Tone::Grave },
