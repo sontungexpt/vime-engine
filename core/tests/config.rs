@@ -1,39 +1,17 @@
 //! Where a session's settings come from: the shared config it is created from,
 //! and the private config it can be given instead.
 
-use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
+mod common;
+use common::*;
 
-type TelexSession = Session<DefaultKeymap<'static>>;
+use vime_engine::phonology::TonePlacement;
+use vime_engine::{DefaultKeymap, Session, SessionFactory, Settings};
 
 /// A session that never set a private config, so it reports as following the
 /// shared one.
 fn following() -> TelexSession {
     SessionFactory::telex(Settings::default()).new_session()
 }
-
-fn rendered_to_string(session: &mut TelexSession) -> String {
-    session.rendered().into_iter().collect()
-}
-
-fn type_str(session: &mut TelexSession, s: &str) -> String {
-    for ch in s.chars() {
-        session.insert(ch);
-    }
-    rendered_to_string(session)
-}
-
-fn make_config(
-    keymap: DefaultKeymap<'static>,
-    tone: TonePlacement,
-) -> Config<DefaultKeymap<'static>> {
-    Config::new(Settings::default(), keymap, tone)
-}
-
-// "hoa" + sắc: the two schemes place the mark on different vowels
-// (Modern 2-vowel rule: second vowel; Old open syllable: first vowel).
-const MODERN_HOA: &str = "hoá";
-const OLD_HOA: &str = "hóa";
 
 #[test]
 fn a_new_session_follows_the_shared_config() {

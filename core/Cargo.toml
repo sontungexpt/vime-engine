@@ -12,7 +12,8 @@ license = "MIT"
 # dev-dependencies.
 
 # Integration tests (tests/*.rs). Declared explicitly so helper
-# subdirectories (e.g. tests/common/) never become targets.
+# subdirectories (e.g. tests/common/) never become targets, and so every
+# target is listed rather than some being picked up by auto-discovery.
 [[test]]
 name = "config"
 path = "tests/config.rs"
@@ -36,6 +37,10 @@ path = "tests/nucleus.rs"
 [[test]]
 name = "phonotactics"
 path = "tests/phonotactics.rs"
+
+[[test]]
+name = "session"
+path = "tests/session.rs"
 
 [[test]]
 name = "vowel"

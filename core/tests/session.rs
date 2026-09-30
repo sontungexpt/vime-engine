@@ -3,21 +3,11 @@
 //! These are the tests that pin the feature down: the change is made once, in
 //! one place, and no session is notified by name.
 
+mod common;
+use common::*;
+
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
-
-type TelexSession = Session<DefaultKeymap<'static>>;
-
-/// "hoa" + sắc: Modern puts the mark on the second vowel, Old on the first.
-const MODERN_HOA: &str = "hoá";
-const OLD_HOA: &str = "hóa";
-
-fn make_config(
-    keymap: DefaultKeymap<'static>,
-    tone: TonePlacement,
-) -> Config<DefaultKeymap<'static>> {
-    Config::new(Settings::default(), keymap, tone)
-}
 
 fn old_telex() -> Config<DefaultKeymap<'static>> {
     make_config(DefaultKeymap::telex(), TonePlacement::Old)
@@ -25,17 +15,6 @@ fn old_telex() -> Config<DefaultKeymap<'static>> {
 
 fn vni() -> Config<DefaultKeymap<'static>> {
     make_config(DefaultKeymap::vni(), TonePlacement::Modern)
-}
-
-fn rendered_to_string(session: &mut TelexSession) -> String {
-    session.rendered().into_iter().collect()
-}
-
-fn type_str(session: &mut TelexSession, s: &str) -> String {
-    for ch in s.chars() {
-        session.insert(ch);
-    }
-    rendered_to_string(session)
 }
 
 fn press_space(session: &mut TelexSession) -> String {
