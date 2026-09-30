@@ -15,8 +15,6 @@
 
 mod slice;
 mod state;
-mod tone_placement;
 
 pub use slice::BaseVowelSlice;
 pub use state::{nucleus_state, NucleusState, NucleusStateOf, NUCLEUS_MAX_LEN};
-pub use tone_placement::TonePlacement;

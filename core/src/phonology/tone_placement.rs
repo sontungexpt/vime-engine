@@ -1,6 +1,4 @@
-use crate::phonology::BaseVowel;
-
-use super::slice::BaseVowelSlice;
+use crate::phonology::{BaseVowel, BaseVowelSlice};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TonePlacement {
