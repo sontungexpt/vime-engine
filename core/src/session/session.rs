@@ -218,15 +218,36 @@ where
         self.composition.reset();
     }
 
-    // /// Returns the current composition cursor position in Unicode characters.
-    // pub fn cursor_pos(&self) -> usize {
-    //     self.composition.cursor_pos()
-    // }
+    // /// Returns the caret position inside the rendered word, in Unicode
+    // /// characters.
+    // ///
+    // /// The position is a character index, not a byte offset: the caller that
+    // /// needs bytes has to walk the text this session renders.
+    #[inline(always)]
+    pub const fn cursor_pos(&self) -> usize {
+        self.composition.cursor_pos()
+    }
 
-    /// Returns the rendered composition length in Unicode characters.
-    // pub fn length(&self) -> usize {
-    //     self.composition.length()
-    // }
+    /// Returns the caret position inside the raw keystroke buffer, in keystrokes.
+    ///
+    /// Reported separately from [`Self::cursor_pos`] because a transform consumes
+    /// a keystroke without lengthening the rendered word, so the two positions
+    /// are not interchangeable.
+    #[inline(always)]
+    pub const fn raw_cursor_pos(&self) -> usize {
+        self.composition.raw_cursor_pos()
+    }
+
+    /// Whether the buffer currently spells a complete, valid Vietnamese
+    /// syllable.
+    ///
+    /// See [`SyllableBuilder::is_valid`](crate::composition::syllable::SyllableBuilder::is_valid)
+    /// for what "valid" means here; in short, a building syllable with a nucleus
+    /// that the phonotactic rules accept.
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        self.composition.is_valid()
+    }
 
     // ------------------------------------------------------------- editing
 

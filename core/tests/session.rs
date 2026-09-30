@@ -198,7 +198,6 @@ fn a_standalone_private_session_is_self_contained() {
 }
 
 // ────────────────────────── Independence of buffers ──────────────────────────
-
 /// Sessions share settings, not input. This is the one thing they must never
 /// do, and the reason a session is not just an `SessionFactory` with a name.
 #[test]
@@ -221,4 +220,79 @@ fn sessions_do_not_share_their_buffers() {
     assert_eq!(rendered_to_string(&first), "hoa");
     first.reset();
     assert_eq!(rendered_to_string(&second), "ba");
+}
+
+// ──────────────────── Positions and validity for a frontend ───────────────────
+
+/// The two cursors are separate because a transform consumes a keystroke
+/// without lengthening the rendered word, so the two positions drift apart.
+#[test]
+fn the_two_cursors_diverge_across_a_transform() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+
+    type_str(&mut session, "aw");
+    assert_eq!(rendered_to_string(&session), "ă");
+    assert_eq!(session.cursor_pos(), 1, "one rendered character");
+    assert_eq!(session.raw_cursor_pos(), 2, "but two keystrokes");
+
+    // Backspacing once eats the shape key, which puts the raw cursor behind the
+    // rendered one — the case where a caller has to be told which caret it is.
+    assert!(press_backspace(&mut session));
+    assert_eq!(session.cursor_pos(), 0);
+    assert_eq!(session.raw_cursor_pos(), 1);
+}
+
+/// A position is a character index, never a byte offset, so it is exactly as
+/// long as the render the caller can see.
+#[test]
+fn a_cursor_never_exceeds_the_rendered_word() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+
+    for word in ["", "a", "hoas", "uowng", "thuowng"] {
+        session.reset();
+        type_str(&mut session, word);
+        let rendered = rendered_to_string(&session);
+        assert!(
+            session.cursor_pos() <= rendered.chars().count(),
+            "{word:?}: caret {} is past the {}-character render",
+            session.cursor_pos(),
+            rendered.chars().count(),
+        );
+        assert!(session.raw_cursor_pos() <= session.raw().len());
+    }
+}
+
+/// Validity is a question about a *finished* word: a bare onset is a fragment,
+/// and input the parser could not read at all is not a word either.
+#[test]
+fn validity_answers_whether_the_buffer_is_a_word() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+
+    let verdict = |session: &mut TelexSession, word: &str| {
+        session.reset();
+        type_str(session, word);
+        session.is_valid()
+    };
+
+    assert!(!verdict(&mut session, ""), "nothing typed");
+    assert!(!verdict(&mut session, "b"), "an onset alone is a fragment");
+    assert!(verdict(&mut session, "ba"), "a one-vowel nucleus is a word");
+    assert!(verdict(&mut session, "anh"), "coda after a plain vowel");
+    assert!(
+        verdict(&mut session, "toan"),
+        "two-vowel nucleus with a coda"
+    );
+    assert!(verdict(&mut session, "uowng"), "renders as ương");
+    assert!(
+        !verdict(&mut session, "qwerty"),
+        "input the parser could not read"
+    );
+
+    // The core's own spelling rules are reported, not second-guessed: an
+    // entering coda with no tone is what `EnteringToneRequired` rejects.
+    assert!(!verdict(&mut session, "hoc"), "hoc without a tone");
+    assert!(verdict(&mut session, "hocs"), "hocs carries one");
 }

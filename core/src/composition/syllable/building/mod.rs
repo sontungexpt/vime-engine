@@ -29,7 +29,7 @@ pub use error::SyllableBuildError;
 pub use types::*;
 
 /// A single Vietnamese syllable under construction.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct BuildingSyllable {
     onset_kind: Onset,
     onset: OnsetChars,
@@ -137,7 +137,6 @@ impl BuildingSyllable {
     /// characters go straight to the destination. Prefer it when the render is
     /// only being written somewhere; use `to_chars` when the characters are
     /// wanted as a value to keep.
-    #[inline(always)]
     pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
         // Reserve enough UTF-8 capacity up front. Onset and coda are ASCII
         // except for a possible `đ`/`Đ`, while each nucleus character can use
@@ -184,7 +183,7 @@ impl BuildingSyllable {
     /// Needs no intermediate buffer, so it is the cheapest way to consume the
     /// render. Prefer [`Self::write_to`] when the characters are only being
     /// written somewhere, and `to_chars` when they are wanted as a value.
-    #[inline]
+    #[inline(always)]
     pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
         self.to_chars(tone_placement).into_iter()
     }
@@ -192,7 +191,6 @@ impl BuildingSyllable {
     /// Renders the syllable into an inline buffer: onset, then the tone-marked
     /// vowels, then the coda. See also [`Self::write_to`], which writes the
     /// same characters without an intermediate buffer.
-    #[inline(always)]
     pub fn to_chars(&self, tone_placement: TonePlacement) -> InlineVec<char, { Self::MAX_LEN }> {
         let mut output = InlineVec::default();
 
@@ -468,7 +466,7 @@ impl BuildingSyllable {
 
     /// Applies the D-stroke when `key` is the stroke key, and reports
     /// [`TransformResult::NotApplicable`] when it is not.
-    #[inline]
+    #[inline(always)]
     fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformResult {
         if keymap.is_stroke_key(key) {
             return self.toggle_d_stroke();
@@ -480,7 +478,7 @@ impl BuildingSyllable {
     ///
     /// Only applies when the onset is a lone `D`/`Đ`; otherwise the stroke key
     /// cannot act here.
-    #[inline]
+    #[inline(always)]
     fn toggle_d_stroke(&mut self) -> TransformResult {
         match self.onset_kind {
             Onset::D => {

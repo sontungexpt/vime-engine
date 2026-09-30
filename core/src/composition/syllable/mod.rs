@@ -93,6 +93,41 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         self.len() == 0
     }
 
+    /// Whether the buffer spells a complete, orthographically valid Vietnamese
+    /// syllable — the question a frontend asks to decide whether the word it is
+    /// showing is real.
+    ///
+    /// Two things have to hold. The syllable must still be in the building
+    /// phase, because a dead buffer is verbatim input and not a word at all; and
+    /// the phonotactic rules must accept its onset / nucleus / coda / tone, with
+    /// a nucleus present so that a bare onset is not mistaken for a word.
+    ///
+    /// This asks the validator directly rather than going through
+    /// [`BuildingSyllable::validate`], whose incomplete-nucleus guard reads the
+    /// cached `nucleus_state`. That cache only tracks nuclei of two vowels or
+    /// more — a one-vowel nucleus is accepted as soon as it is pushed, without
+    /// consulting it — so it answers "may this edit stand?", not "is this word
+    /// finished?".
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        use crate::phonology::{DefaultPhonotacticValidator, PhonotacticValidator};
+        match &self.state {
+            SyllableState::Building(builder) => {
+                let nucleus = builder.nucleus();
+                !nucleus.is_empty()
+                    && DefaultPhonotacticValidator
+                        .validate(
+                            builder.onset_kind(),
+                            nucleus,
+                            builder.coda_kind(),
+                            builder.tone(),
+                        )
+                        .is_ok()
+            }
+            SyllableState::Dead(_) => false,
+        }
+    }
+
     /// Resets the syllable to an empty building state, keeping the
     /// [`SyllableContext`] (keymap and tone placement) as it is.
     #[inline]

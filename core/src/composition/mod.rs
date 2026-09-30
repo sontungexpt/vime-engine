@@ -228,6 +228,37 @@ impl<KM: Keymap> Composition<KM> {
         result
     }
 
+    // ------------------------------------------------------------ positions
+
+    /// The rendered cursor position, in Unicode characters from the start.
+    ///
+    /// This is the caret a frontend shows: the position inside the text
+    /// `write_rendered_to` produces. The raw buffer has its own cursor, reported
+    /// by [`Self::raw_cursor_pos`], because the two buffers are not the same
+    /// length.
+    #[inline(always)]
+    pub const fn cursor_pos(&self) -> usize {
+        self.rendered_cursor.get()
+    }
+
+    /// The raw cursor position, in keystrokes from the start of the raw buffer.
+    ///
+    /// The counterpart to [`Self::cursor_pos`] for the buffer that records what
+    /// was actually typed, which is the buffer editing operations act on.
+    #[inline(always)]
+    pub const fn raw_cursor_pos(&self) -> usize {
+        self.raw_cursor.get()
+    }
+
+    /// Whether the buffered syllable spells a complete, valid Vietnamese
+    /// syllable.
+    ///
+    /// See [`SyllableBuilder::is_valid`] for what "valid" means.
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        self.rendered.is_valid()
+    }
+
     // ----------------------------------------------------------- rendering
 
     /// Renders the current parsed composition.
