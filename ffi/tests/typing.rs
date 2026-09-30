@@ -2,8 +2,6 @@
 
 mod common;
 
-use common::Session;
-
 /// The headline case: Telex turns raw ASCII into Vietnamese, and the ABI reports
 /// the same render the core does.
 #[test]
