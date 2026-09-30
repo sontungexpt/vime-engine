@@ -22,9 +22,13 @@
 //! `process_key` turns it into a [`Result::Changed`] so the frontend re-reads
 //! the word.
 
+// Named after the type it defines, like the rest of the crate. The lint objects
+// to `session::session`, which reads oddly but says the file's contents exactly.
+#[allow(clippy::module_inception)]
+mod session;
+
 mod config;
 mod factory;
-mod session;
 mod shared;
 
 #[cfg(test)]
