@@ -210,13 +210,19 @@ fn write_to_appends_rather_than_replaces() {
 
     let mut out = String::from("prefix:");
     s.write_to(&mut out);
-    assert_eq!(out, format!("prefix:{}", s.to_chars().iter().collect::<String>()));
+    assert_eq!(
+        out,
+        format!("prefix:{}", s.to_chars().iter().collect::<String>())
+    );
 
     // And in the dead phase too.
     s.push('z');
     let mut out = String::from("dead:");
     s.write_to(&mut out);
-    assert_eq!(out, format!("dead:{}", s.to_chars().iter().collect::<String>()));
+    assert_eq!(
+        out,
+        format!("dead:{}", s.to_chars().iter().collect::<String>())
+    );
 }
 
 /// The dead phase writes its characters in the order they were typed,
@@ -260,6 +266,9 @@ fn dead_write_to_matches_to_chars_and_appends() {
 
     let mut out = String::from("head|");
     s.write_to(&mut out);
-    assert_eq!(out, format!("head|{}", s.to_chars().iter().collect::<String>()));
+    assert_eq!(
+        out,
+        format!("head|{}", s.to_chars().iter().collect::<String>())
+    );
     assert_eq!(out, "head|toizq");
 }

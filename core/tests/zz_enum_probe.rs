@@ -29,7 +29,10 @@ struct Today<KM: Keymap + Clone> {
 fn probe() {
     println!("Config<KM>        {}", size_of::<Config<KM>>());
     println!("  Config                  {}", size_of::<Config<KM>>());
-    println!("  SyllableContext<KM>     {}", size_of::<SyllableContext<KM>>());
+    println!(
+        "  SyllableContext<KM>     {}",
+        size_of::<SyllableContext<KM>>()
+    );
     println!("TwoVariant<KM>           {}", size_of::<TwoVariant<KM>>());
     println!("Hoisted<KM>              {}", size_of::<Hoisted<KM>>());
     println!("cfg + bool (today)       {}", size_of::<Today<KM>>());

@@ -35,10 +35,7 @@ pub struct SessionFactory<KM: Keymap> {
     config: SharedConfig<KM>,
 }
 
-impl<KM: Keymap> SessionFactory<KM>
-where
-    KM: PartialEq,
-{
+impl<KM: Keymap> SessionFactory<KM> {
     /// Creates a factory whose sessions all start from `config`.
     #[inline]
     pub fn new(config: Config<KM>) -> Self {
@@ -71,7 +68,9 @@ where
     pub fn set_config(&self, config: Config<KM>) -> u64 {
         self.config.replace(config)
     }
+}
 
+impl<KM: Keymap + PartialEq> SessionFactory<KM> {
     /// Creates an empty session that follows the shared config.
     #[inline]
     pub fn new_session(&self) -> Session<KM> {

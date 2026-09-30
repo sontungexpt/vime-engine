@@ -118,10 +118,7 @@ impl<KM: Keymap> SharedConfig<KM> {
     }
 }
 
-impl<KM: Keymap> SharedConfig<KM>
-where
-    KM: Clone,
-{
+impl<KM: Keymap + Clone> SharedConfig<KM> {
     /// The settings in force right now.
     ///
     /// Takes the lock, so this is for a caller that is not on the keystroke

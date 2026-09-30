@@ -1,18 +1,18 @@
 mod building;
+mod context;
 mod dead;
 mod input_effect;
 mod iter;
-mod context;
 
 use crate::{
     keymap::Keymap,
-    phonology::{Coda, Onset, TonePlacement, Vowel},
+    phonology::{Coda, Onset, Vowel},
 };
 
 pub use building::BuildingSyllable;
+pub use context::SyllableContext;
 pub use dead::DeadSyllable;
 pub use input_effect::InputEffect;
-pub use context::SyllableContext;
 
 #[cfg(test)]
 mod tests;

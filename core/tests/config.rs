@@ -3,9 +3,7 @@
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Settings, 
-    Config, DefaultKeymap, SessionFactory, Session,
-};
+use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
 
 type TelexSession = Session<DefaultKeymap<'static>>;
 
@@ -26,7 +24,10 @@ fn type_str(session: &mut TelexSession, s: &str) -> String {
     rendered_to_string(session)
 }
 
-fn make_context(keymap: DefaultKeymap<'static>, tone: TonePlacement) -> SyllableContext<DefaultKeymap<'static>> {
+fn make_context(
+    keymap: DefaultKeymap<'static>,
+    tone: TonePlacement,
+) -> SyllableContext<DefaultKeymap<'static>> {
     SyllableContext::new(keymap, tone)
 }
 
@@ -77,14 +78,12 @@ fn a_private_config_overrides_only_its_own_session() {
 fn only_a_session_with_a_private_config_reports_as_private() {
     let engine = SessionFactory::telex(Settings::default());
     assert!(!engine.new_session().has_private_config());
-    assert!(
-        engine
-            .new_session_with(Config::new(
-                Settings::default(),
-                make_context(DefaultKeymap::telex(), TonePlacement::Modern),
-            ))
-            .has_private_config()
-    );
+    assert!(engine
+        .new_session_with(Config::new(
+            Settings::default(),
+            make_context(DefaultKeymap::telex(), TonePlacement::Modern),
+        ))
+        .has_private_config());
 }
 
 // ─────────────────────────── Caret movement ───────────────────────────

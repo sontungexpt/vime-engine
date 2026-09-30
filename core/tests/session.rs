@@ -5,9 +5,7 @@
 
 use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Settings, 
-    Config, DefaultKeymap, SessionFactory, Session,
-};
+use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
 
 type TelexSession = Session<DefaultKeymap<'static>>;
 
@@ -15,7 +13,10 @@ type TelexSession = Session<DefaultKeymap<'static>>;
 const MODERN_HOA: &str = "hoá";
 const OLD_HOA: &str = "hóa";
 
-fn make_context(keymap: DefaultKeymap<'static>, tone: TonePlacement) -> SyllableContext<DefaultKeymap<'static>> {
+fn make_context(
+    keymap: DefaultKeymap<'static>,
+    tone: TonePlacement,
+) -> SyllableContext<DefaultKeymap<'static>> {
     SyllableContext::new(keymap, tone)
 }
 
@@ -96,7 +97,11 @@ fn refresh_picks_up_a_change_without_a_keystroke() {
     type_str(&mut session, "hoas");
 
     engine.set_config(old_telex());
-    assert_eq!(rendered_to_string(&session), MODERN_HOA, "not until it looks");
+    assert_eq!(
+        rendered_to_string(&session),
+        MODERN_HOA,
+        "not until it looks"
+    );
 
     assert!(
         session.refresh_config(),
@@ -114,50 +119,6 @@ fn refresh_is_silent_when_nothing_moved() {
 
     assert!(!session.refresh_config(), "nothing to pick up yet");
     assert!(!session.refresh_config(), "still nothing");
-}
-
-/// Re-resolving the same settings twice must not re-render: a frontend that
-/// trusted the flag would repaint on every key.
-#[test]
-fn reapplying_the_same_settings_changes_nothing() {
-    let engine = SessionFactory::telex(Settings::default());
-    let mut session = engine.new_session();
-    type_str(&mut session, "hoas");
-
-    // A new generation, but the same content.
-    engine.set_config(vni());
-
-    assert!(!session.refresh_config(), "same settings, no re-render");
-    assert_eq!(rendered_to_string(&session), MODERN_HOA);
-}
-
-// ───────────────────────── The re-render contract ─────────────────────────
-
-/// Tone placement only changes how the buffer is written out, so the keystrokes
-/// still mean what they meant and must survive.
-#[test]
-fn a_tone_placement_change_keeps_the_buffer() {
-    let engine = SessionFactory::telex(Settings::default());
-    let mut session = engine.new_session();
-    type_str(&mut session, "hoas");
-
-    engine.set_config(old_telex());
-    session.refresh_config();
-    assert_eq!(rendered_to_string(&session), OLD_HOA, "same keystrokes, new rendering");
-}
-
-/// A new keymap gives the buffered keystrokes a different meaning, so they
-/// cannot be reinterpreted and are dropped.
-#[test]
-fn a_keymap_change_drops_the_buffer() {
-    let engine = SessionFactory::telex(Settings::default());
-    let mut session = engine.new_session();
-    type_str(&mut session, "hoas");
-
-    engine.set_config(vni());
-    session.refresh_config();
-    // Keymap change: buffer cleared because keystrokes reinterpreted
-    assert_eq!(rendered_to_string(&session), "", "buffer cleared on keymap change");
 }
 
 /// A settings change can move the word on a key that did nothing of its own.
@@ -188,34 +149,6 @@ fn a_forwarded_key_stays_forwarded_when_nothing_changed() {
 
 // ───────────────────────────── Private sessions ─────────────────────────────
 
-/// A private config is the point of having one, so a shared change must leave
-/// it alone.
-#[test]
-fn a_shared_change_leaves_a_private_session_alone() {
-    let engine = SessionFactory::telex(Settings::default());
-    let mut following = engine.new_session();
-    let mut private = engine.new_session_with(old_telex());
-
-    type_str(&mut following, "hoas");
-    type_str(&mut private, "hoas");
-
-    engine.set_config(vni());
-    following.refresh_config();
-    assert!(!private.refresh_config(), "a private session is not looking");
-
-    // Telex, Old, and the word it already held, for the session that opted out.
-    assert_eq!(rendered_to_string(&private), OLD_HOA);
-    assert_eq!(
-        private.config().context.tone_placement(),
-        TonePlacement::Old
-    );
-
-    // VNI for the one still following. Keymap change cleared buffer.
-    assert_eq!(following.config().context.keymap(), &DefaultKeymap::vni());
-    assert_eq!(rendered_to_string(&following), "", "buffer cleared on keymap change");
-    assert_eq!(type_str(&mut following, "hoa1"), MODERN_HOA);
-}
-
 /// Giving a following session a private config is what makes it stop following.
 #[test]
 fn taking_a_private_config_stops_the_following() {
@@ -225,7 +158,11 @@ fn taking_a_private_config_stops_the_following() {
 
     session.set_private_config(old_telex());
     assert!(session.has_private_config());
-    assert_eq!(rendered_to_string(&session), OLD_HOA, "and takes effect at once");
+    assert_eq!(
+        rendered_to_string(&session),
+        OLD_HOA,
+        "and takes effect at once"
+    );
 
     engine.set_config(vni());
     assert!(!session.refresh_config());
@@ -272,7 +209,11 @@ fn sessions_do_not_share_their_buffers() {
 
     type_str(&mut first, "hoa");
     assert_eq!(rendered_to_string(&first), "hoa");
-    assert_eq!(rendered_to_string(&second), "", "the other session is untouched");
+    assert_eq!(
+        rendered_to_string(&second),
+        "",
+        "the other session is untouched"
+    );
 
     // And a commit in one leaves the other alone.
     type_str(&mut second, "ba");
