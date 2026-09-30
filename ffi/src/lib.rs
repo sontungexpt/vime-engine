@@ -21,14 +21,15 @@
 //! A keystroke is
 //!
 //! ```text
-//! validate -> insert -> mark the text cache stale -> return
+//! validate -> insert -> mark the text stale -> return
 //! ```
 //!
 //! and nothing else. No allocation, no rendering, no UTF-8 walking, no lock. The
 //! text is only rendered when a frontend asks for it, and then only if it changed
 //! since the last time somebody asked — which, for the usual
 //! keystroke-then-repaint loop, means it is rendered once per keystroke and never
-//! twice. See [`handle`] for the cache and why it lives in the handle.
+//! twice. Moving the caret is shorter still, because it changes neither string.
+//! See [`handle`] for the buffers and why they live in the handle.
 //!
 //! # Failure values
 //!
@@ -77,7 +78,11 @@ mod config;
 mod handle;
 mod render;
 
-pub use config::{VimeConfig, VimeInputMethod, VimeTonePlacement};
+pub use config::{
+    VimeConfig, VimeInputMethod, VimeTonePlacement,
+    VIME_INPUT_METHOD_TELEX, VIME_INPUT_METHOD_VNI, VIME_INPUT_METHOD_VIQR,
+    VIME_TONE_PLACEMENT_MODERN, VIME_TONE_PLACEMENT_OLD,
+};
 pub use handle::{VimeSessionFactoryHandle, VimeSessionHandle};
 pub use render::VimeRenderState;
 
@@ -397,6 +402,9 @@ pub unsafe extern "C" fn vime_session_delete(session: *mut VimeSessionHandle) ->
 /// caret follows its own buffer, which can be somewhere else entirely after a
 /// transform key consumed a keystroke.
 ///
+/// The text is not re-rendered: a caret move rewrites neither string, and the
+/// byte offset is derived from the caret when a caller asks for it.
+///
 /// # Safety
 ///
 /// `session` must be a live session handle.
@@ -408,7 +416,6 @@ pub unsafe extern "C" fn vime_session_move_cursor_left(session: *mut VimeSession
             return false;
         };
         let moved = handle.session.move_cursor_left();
-        handle.invalidate();
         *moved.rendered()
     })
 }
@@ -430,7 +437,6 @@ pub unsafe extern "C" fn vime_session_move_cursor_right(session: *mut VimeSessio
             return false;
         };
         let moved = handle.session.move_cursor_right();
-        handle.invalidate();
         *moved.rendered()
     })
 }
@@ -598,8 +604,8 @@ pub unsafe extern "C" fn vime_session_get_raw_cursor_byte_idx(
 
 /// [ADVANCED STATE] Retrieves a complete snapshot of current session render state.
 ///
-/// Cheaper than the six individual getters, because the text is rendered at most
-/// once and the offsets are measured in the same pass that writes it.
+/// Cheaper than the six individual getters, because each string is rendered at
+/// most once and each byte offset is one short walk over text already in hand.
 ///
 /// # The delete counts
 ///
@@ -611,6 +617,9 @@ pub unsafe extern "C" fn vime_session_get_raw_cursor_byte_idx(
 /// call's delete count — so one repaint per keystroke is the cycle they describe.
 /// [`vime_session_render_text`] deliberately does not move them, leaving that to
 /// a caller that reads the text on its own schedule.
+///
+/// The lengths cover the whole rendered word, including any U+0000 a caller
+/// inserted, even though `text` as a C string stops at the first one.
 ///
 /// The pointer is owned by the session, must not be freed, and stays valid until
 /// the next call on this session. Returns NULL if the session is NULL.

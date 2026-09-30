@@ -32,7 +32,6 @@ typedef enum VimeTonePlacement {
 } VimeTonePlacement;
 
 typedef struct VimeConfig {
-    bool auto_restore_english;
     VimeInputMethod input_method;
     VimeTonePlacement tone_placement;
 } VimeConfig;
@@ -42,7 +41,6 @@ typedef struct VimeConfig {
  */
 #define VIME_CONFIG_INIT \
     ((VimeConfig){ \
-        .auto_restore_english = true, \
         .input_method = VIME_INPUT_METHOD_TELEX, \
         .tone_placement = VIME_TONE_PLACEMENT_MODERN \
     })

@@ -79,7 +79,7 @@ impl<KM: Keymap> Composition<KM> {
     /// The new keymap and tone-placement scheme are used by subsequent parsing
     /// and rendering.
     #[inline]
-    pub fn set_context(&mut self, context: SyllableContext<KM>) {
+    pub fn set_syllable_context(&mut self, context: SyllableContext<KM>) {
         self.rendered.set_context(context);
     }
 

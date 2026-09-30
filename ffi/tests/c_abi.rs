@@ -305,12 +305,11 @@ fn the_c_abi_sizes_match_what_the_header_declares() {
 #include <assert.h>
 
 int main(void) {
-    /* bool + padding + int + int */
-    assert(sizeof(VimeConfig) == 12);
+    /* int + int */
+    assert(sizeof(VimeConfig) == 8);
     assert(_Alignof(VimeConfig) == 4);
-    assert(offsetof(VimeConfig, auto_restore_english) == 0);
-    assert(offsetof(VimeConfig, input_method) == 4);
-    assert(offsetof(VimeConfig, tone_placement) == 8);
+    assert(offsetof(VimeConfig, input_method) == 0);
+    assert(offsetof(VimeConfig, tone_placement) == 4);
 
     /* The enums are C ints, so they are 4 bytes wide. */
     assert(sizeof(VimeInputMethod) == 4);
@@ -348,13 +347,6 @@ int main(void) {
     assert(sizeof(VimeConfig *) == sizeof(void *));
     vime_session_destroy(session);
     vime_session_factory_destroy(factory);
-
-    /* A bool crossing the boundary is 0 or 1, which is what C requires. */
-    VimeConfig config = VIME_CONFIG_INIT;
-    unsigned char *bytes = (unsigned char *)&config;
-    assert(bytes[0] == 1);
-    config.auto_restore_english = false;
-    assert(bytes[0] == 0);
 
     printf("ok\n");
     return 0;

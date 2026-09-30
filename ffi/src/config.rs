@@ -6,18 +6,21 @@
 //! [`VimeConfig::read`], so there is exactly one answer to "what does this C
 //! struct mean" and no entry point can disagree with another about it.
 //!
-//! # Why the raw view exists
+//! # Why the read is field by field
 //!
 //! [`VimeConfig`] holds [`VimeInputMethod`] and [`VimeTonePlacement`], which are
 //! Rust enums — and reading a Rust enum out of memory that holds a value outside
-//! its variants is instant undefined behaviour, no matter how carefully the
-//! value is checked afterwards. A C caller is free to put `99` in that field.
+//! its variants is instant undefined behaviour, no matter how carefully the value
+//! is checked afterwards. A C caller is free to put `99` in that field, and there
+//! is no way to look before looking.
 //!
-//! So incoming bytes are read through [`RawVimeConfig`], which spells both
-//! fields as `u32`, and only ever turned into an enum after [`VimeInputMethod::from_raw`]
-//! / [`VimeTonePlacement::from_raw`] have matched it against a known variant.
-//! The two views are asserted to be layout-identical below, so the read sees
-//! exactly the bytes the caller wrote.
+//! So nothing here ever reads a caller's bytes as a `VimeConfig`. Each field is
+//! read at its asserted offset as a plain integer, which has no validity
+//! constraints, and only then checked: the two `u32`s are matched against known
+//! variants by `from_raw`, and the flag byte is compared against zero. Reading
+//! the flag as a `bool` first would reintroduce exactly the hazard the enums are
+//! being avoided for — a `bool` is valid only when it is 0 or 1, and C is free to
+//! write something else.
 //!
 //! [`VimeConfig::read`] returning `None` for an unknown discriminant is what
 //! lets every caller reject a bad config with the NULL / `false` the header
@@ -31,10 +34,20 @@ use vime_engine::{Config, DefaultKeymap, Settings};
 /// dispatched. A C caller cannot supply a keymap, so there is nothing to be
 /// generic over, and `Box<dyn Keymap>` would only add a vtable hop to the
 /// keystroke path.
-pub(crate) type Keymap = DefaultKeymap<'static>;
+pub(crate) type FfiDefaultKeymap = DefaultKeymap<'static>;
 
 /// The engine config a C `VimeConfig` converts to.
-pub(crate) type EngineConfig = Config<Keymap>;
+pub(crate) type FfiConfig = Config<FfiDefaultKeymap>;
+
+/// Constants matching values defined in C Header (`vime_engine.h`)
+pub type VimeInputMethod = u32;
+pub const VIME_INPUT_METHOD_TELEX: VimeInputMethod = 1;
+pub const VIME_INPUT_METHOD_VNI: VimeInputMethod = 2;
+pub const VIME_INPUT_METHOD_VIQR: VimeInputMethod = 3;
+
+pub type VimeTonePlacement = u32;
+pub const VIME_TONE_PLACEMENT_MODERN: VimeTonePlacement = 1;
+pub const VIME_TONE_PLACEMENT_OLD: VimeTonePlacement = 2;
 
 /// Complete configuration used by sessions and factories.
 ///
@@ -44,32 +57,23 @@ pub(crate) type EngineConfig = Config<Keymap>;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct VimeConfig {
-    pub auto_restore_english: bool,
     pub input_method: VimeInputMethod,
     pub tone_placement: VimeTonePlacement,
 }
 
-/// The C `VimeConfig` as raw bytes, for reading a caller's copy.
-///
-/// `u32` where [`VimeConfig`] has an enum, so that an out-of-range discriminant
-/// is a value to check rather than undefined behaviour to suffer. See the module
-/// docs.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct RawVimeConfig {
-    auto_restore_english: bool,
-    input_method: u32,
-    tone_placement: u32,
-}
+/// Byte offsets of the two fields, used both by [`VimeConfig::read`] and by the
+/// layout assertions below, so the read and the proof that justifies it cannot
+/// drift apart. If the struct ever moves a field, the assertions stop compiling.
+const INPUT_METHOD_OFFSET: usize = 0;
+const TONE_PLACEMENT_OFFSET: usize = 4;
 
 impl VimeConfig {
     /// The configuration a C caller gets from `VIME_CONFIG_INIT` and from a NULL
-    /// pointer: Telex, modern tone placement, English auto-restore on.
+    /// pointer: Telex, modern tone placement.
     pub const fn init() -> Self {
         Self {
-            auto_restore_english: true,
-            input_method: VimeInputMethod::Telex,
-            tone_placement: VimeTonePlacement::Modern,
+            input_method: VIME_INPUT_METHOD_TELEX,
+            tone_placement: VIME_TONE_PLACEMENT_MODERN,
         }
     }
 
@@ -85,33 +89,48 @@ impl VimeConfig {
     /// `config` must be NULL or point to a readable, correctly aligned
     /// `VimeConfig` that stays readable for the duration of the call.
     pub(crate) unsafe fn read(config: *const Self) -> Option<Self> {
-        // SAFETY: the caller guarantees the pointer is NULL or readable. The
-        // read goes through `RawVimeConfig`, so an unknown discriminant is a
-        // `u32` rather than an invalid enum, and both enum fields are validated
-        // below before they are used as enums.
-        let Some(raw) = (unsafe { config.cast::<RawVimeConfig>().as_ref() }).copied() else {
+        let ptr = config.cast::<u8>();
+        if ptr.is_null() {
             return Some(Self::init());
-        };
+        }
+        // SAFETY: the caller guarantees a readable, correctly aligned
+        // `VimeConfig` for the duration of the call. `VimeConfig` is 8 bytes
+        // with a 4-byte alignment (asserted below), so the two `u32` reads are
+        // in bounds and aligned. Every field is read as an integer, which has no
+        // validity constraints, so no invalid enum is ever constructed.
+        let input_method = unsafe { ptr.add(INPUT_METHOD_OFFSET).cast::<u32>().read() };
+        let tone_placement = unsafe { ptr.add(TONE_PLACEMENT_OFFSET).cast::<u32>().read() };
+        if !matches!(input_method, 1..=3) || !matches!(tone_placement, 1..=2) {
+            return None;
+        }
+
         Some(Self {
-            auto_restore_english: raw.auto_restore_english,
-            input_method: VimeInputMethod::from_raw(raw.input_method)?,
-            tone_placement: VimeTonePlacement::from_raw(raw.tone_placement)?,
+            input_method,
+            tone_placement,
         })
     }
 
     /// Converts to the engine's own configuration.
     ///
     /// Consumes a `VimeConfig` that has already been through [`Self::read`], so
-    /// the enums are known-good and this cannot fail.
-    pub(crate) fn to_engine_config(self) -> EngineConfig {
-        EngineConfig::new(
-            Settings {
-                auto_restore_english: self.auto_restore_english,
-            },
-            SyllableContext::new(
-                self.input_method.to_keymap(),
-                self.tone_placement.to_tone_placement(),
-            ),
+    /// the u32 values are known-good and this cannot fail.
+    pub(crate) fn to_engine_config(self) -> FfiConfig {
+        let keymap = match self.input_method {
+            VIME_INPUT_METHOD_TELEX => FfiDefaultKeymap::telex(),
+            VIME_INPUT_METHOD_VNI => FfiDefaultKeymap::vni(),
+            VIME_INPUT_METHOD_VIQR => FfiDefaultKeymap::viqr(),
+            _ => unreachable!(),
+        };
+
+        let tone_placement = match self.tone_placement {
+            VIME_TONE_PLACEMENT_MODERN => TonePlacement::Modern,
+            VIME_TONE_PLACEMENT_OLD => TonePlacement::Old,
+            _ => unreachable!(),
+        };
+
+        FfiConfig::new(
+            Settings::default(),
+            SyllableContext::new(keymap, tone_placement),
         )
     }
 }
@@ -120,69 +139,6 @@ impl Default for VimeConfig {
     #[inline]
     fn default() -> Self {
         Self::init()
-    }
-}
-
-/// The input method a session parses under.
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum VimeInputMethod {
-    #[default]
-    Telex = 1,
-    Vni = 2,
-    Viqr = 3,
-}
-
-impl VimeInputMethod {
-    /// Matches a C value against the known variants, rejecting anything else.
-    #[inline]
-    pub(crate) const fn from_raw(raw: u32) -> Option<Self> {
-        match raw {
-            1 => Some(Self::Telex),
-            2 => Some(Self::Vni),
-            3 => Some(Self::Viqr),
-            _ => None,
-        }
-    }
-
-    /// The keymap this method names.
-    #[inline]
-    const fn to_keymap(self) -> Keymap {
-        match self {
-            Self::Telex => Keymap::telex(),
-            Self::Vni => Keymap::vni(),
-            Self::Viqr => Keymap::viqr(),
-        }
-    }
-}
-
-/// Which vowel a tone mark is written on.
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum VimeTonePlacement {
-    #[default]
-    Modern = 1,
-    Old = 2,
-}
-
-impl VimeTonePlacement {
-    /// Matches a C value against the known variants, rejecting anything else.
-    #[inline]
-    pub(crate) const fn from_raw(raw: u32) -> Option<Self> {
-        match raw {
-            1 => Some(Self::Modern),
-            2 => Some(Self::Old),
-            _ => None,
-        }
-    }
-
-    /// The engine convention this names.
-    #[inline]
-    const fn to_tone_placement(self) -> TonePlacement {
-        match self {
-            Self::Modern => TonePlacement::Modern,
-            Self::Old => TonePlacement::Old,
-        }
     }
 }
 
@@ -201,47 +157,60 @@ impl VimeTonePlacement {
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};
 
-    // C: { bool; enum; enum; } -> 1 byte, 3 bytes of padding, then two 4-byte
-    // enums. `bool` is 0/1 in both languages, so no translation is needed.
-    assert!(size_of::<VimeConfig>() == 12);
+    // C: { u32; u32; } -> two 4-byte integers.
+    assert!(size_of::<VimeConfig>() == 8);
     assert!(align_of::<VimeConfig>() == 4);
-    assert!(offset_of!(VimeConfig, auto_restore_english) == 0);
-    assert!(offset_of!(VimeConfig, input_method) == 4);
-    assert!(offset_of!(VimeConfig, tone_placement) == 8);
+    assert!(offset_of!(VimeConfig, input_method) == INPUT_METHOD_OFFSET);
+    assert!(offset_of!(VimeConfig, tone_placement) == TONE_PLACEMENT_OFFSET);
 
-    // The raw view must be able to stand in for the typed one field for field.
-    assert!(size_of::<RawVimeConfig>() == size_of::<VimeConfig>());
-    assert!(align_of::<RawVimeConfig>() == align_of::<VimeConfig>());
-    assert!(
-        offset_of!(RawVimeConfig, auto_restore_english)
-            == offset_of!(VimeConfig, auto_restore_english)
-    );
-    assert!(offset_of!(RawVimeConfig, input_method) == offset_of!(VimeConfig, input_method));
-    assert!(offset_of!(RawVimeConfig, tone_placement) == offset_of!(VimeConfig, tone_placement));
+    // `VimeConfig::read` walks the caller's bytes one integer at a time, so those
+    // reads need somewhere to land: the whole struct, and 4-byte alignment for
+    // the two `u32`s.
+    assert!(size_of::<VimeConfig>() >= TONE_PLACEMENT_OFFSET + size_of::<u32>());
+    assert!(align_of::<VimeConfig>() >= size_of::<u32>());
 
-    // A C enum is `int`-sized, so the discriminants have to be 4 bytes wide and
-    // have to keep the values the header writes.
-    assert!(size_of::<VimeInputMethod>() == 4);
-    assert!(size_of::<VimeTonePlacement>() == 4);
-    assert!(VimeInputMethod::Telex as u32 == 1);
-    assert!(VimeInputMethod::Vni as u32 == 2);
-    assert!(VimeInputMethod::Viqr as u32 == 3);
-    assert!(VimeTonePlacement::Modern as u32 == 1);
-    assert!(VimeTonePlacement::Old as u32 == 2);
+    // Raw constants must match the header values.
+    assert!(VIME_INPUT_METHOD_TELEX == 1);
+    assert!(VIME_INPUT_METHOD_VNI == 2);
+    assert!(VIME_INPUT_METHOD_VIQR == 3);
+    assert!(VIME_TONE_PLACEMENT_MODERN == 1);
+    assert!(VIME_TONE_PLACEMENT_OLD == 2);
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The bytes a C caller would have written for `(input_method,
+    /// tone_placement)`, held in a buffer aligned the way a real `VimeConfig *`
+    /// is, so the `u32` reads in `read` are aligned as they would be in anger.
+    #[repr(C, align(4))]
+    #[derive(Clone, Copy)]
+    struct Bytes([u8; 8]);
+
+    impl Bytes {
+        fn new(input_method: u32, tone_placement: u32) -> Self {
+            let mut bytes = [0; 8];
+            bytes[INPUT_METHOD_OFFSET..][..4].copy_from_slice(&input_method.to_ne_bytes());
+            bytes[TONE_PLACEMENT_OFFSET..][..4].copy_from_slice(&tone_placement.to_ne_bytes());
+            Self(bytes)
+        }
+
+        /// Hands over the bytes the way a C caller would.
+        fn as_config(&self) -> *const VimeConfig {
+            (self as *const Bytes).cast()
+        }
+    }
+
     #[test]
     fn every_header_discriminant_is_accepted() {
-        for raw in 1..=3 {
-            assert!(VimeInputMethod::from_raw(raw).is_some(), "{raw}");
-        }
-        for raw in 1..=2 {
-            assert!(VimeTonePlacement::from_raw(raw).is_some(), "{raw}");
-        }
+        // Valid input methods
+        assert!(matches!(1u32, 1..=3));
+        assert!(matches!(2u32, 1..=3));
+        assert!(matches!(3u32, 1..=3));
+        // Valid tone placements
+        assert!(matches!(1u32, 1..=2));
+        assert!(matches!(2u32, 1..=2));
     }
 
     /// A C caller is not bound by the header, so 0 and 4 must both be refused
@@ -249,8 +218,8 @@ mod tests {
     #[test]
     fn out_of_range_discriminants_are_refused() {
         for raw in [0u32, 4, 5, u32::MAX, u32::MAX - 1] {
-            assert_eq!(VimeInputMethod::from_raw(raw), None, "{raw}");
-            assert_eq!(VimeTonePlacement::from_raw(raw), None, "{raw}");
+            assert!(!matches!(raw, 1..=3), "{raw}");
+            assert!(!matches!(raw, 1..=2), "{raw}");
         }
     }
 
@@ -268,48 +237,39 @@ mod tests {
     #[test]
     fn a_good_config_survives_the_round_trip() {
         for method in [
-            VimeInputMethod::Telex,
-            VimeInputMethod::Vni,
-            VimeInputMethod::Viqr,
+            VIME_INPUT_METHOD_TELEX,
+            VIME_INPUT_METHOD_VNI,
+            VIME_INPUT_METHOD_VIQR,
         ] {
-            for tone in [VimeTonePlacement::Modern, VimeTonePlacement::Old] {
-                for flag in [true, false] {
-                    let config = VimeConfig {
-                        auto_restore_english: flag,
-                        input_method: method,
-                        tone_placement: tone,
-                    };
-                    // SAFETY: the pointer is to a live value of this type.
-                    let read = unsafe { VimeConfig::read(&config) };
-                    assert_eq!(read, Some(config));
+            for tone in [VIME_TONE_PLACEMENT_MODERN, VIME_TONE_PLACEMENT_OLD] {
+                let config = VimeConfig {
+                    input_method: method,
+                    tone_placement: tone,
+                };
+                // SAFETY: the pointer is to a live value of this type.
+                let read = unsafe { VimeConfig::read(&config) };
+                assert_eq!(read, Some(config));
 
-                    let engine = config.to_engine_config();
-                    assert_eq!(engine.settings.auto_restore_english, flag);
-                    assert_eq!(engine.context.tone_placement(), tone.to_tone_placement());
-                }
+                let engine = config.to_engine_config();
+                let expected_tone = match tone {
+                    VIME_TONE_PLACEMENT_MODERN => TonePlacement::Modern,
+                    VIME_TONE_PLACEMENT_OLD => TonePlacement::Old,
+                    _ => unreachable!(),
+                };
+                assert_eq!(engine.context.tone_placement(), expected_tone);
             }
         }
     }
 
     #[test]
     fn a_bad_discriminant_rejects_the_whole_config() {
-        // Same bytes `VimeConfig::init` would produce, with one discriminant
+        // The bytes `VimeConfig::init` would produce, with one discriminant
         // replaced by a value no variant claims.
-        for raw in [
-            RawVimeConfig {
-                auto_restore_english: true,
-                input_method: 99,
-                tone_placement: 1,
-            },
-            RawVimeConfig {
-                auto_restore_english: true,
-                input_method: 1,
-                tone_placement: 99,
-            },
-        ] {
-            // SAFETY: `RawVimeConfig` is layout-identical to `VimeConfig` (asserted
-            // above), so these are exactly the bytes a C caller would have written.
-            let read = unsafe { VimeConfig::read((&raw as *const RawVimeConfig).cast()) };
+        for raw in [Bytes::new(99, 1), Bytes::new(1, 99)] {
+            // SAFETY: `Bytes` is the same size as `VimeConfig` and aligned the
+            // same way (both asserted above), so this is exactly the pointer a C
+            // caller would hand over.
+            let read = unsafe { VimeConfig::read(raw.as_config()) };
             assert_eq!(read, None);
         }
     }

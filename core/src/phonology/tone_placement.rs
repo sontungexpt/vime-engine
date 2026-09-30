@@ -1,12 +1,13 @@
 use super::{BaseVowel, BaseVowelSlice};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
 pub enum TonePlacement {
     /// Modern standard orthography ("học sinh", "hóa", "thúy").
     #[default]
-    Modern,
+    Modern = 0,
     /// Pre-1975 classic orthography ("hoá", "thúy").
-    Old,
+    Old = 1,
 }
 
 impl TonePlacement {

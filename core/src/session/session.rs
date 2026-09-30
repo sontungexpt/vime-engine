@@ -59,7 +59,7 @@ where
             // never named.
             generation: UNRESOLVED,
         };
-        session.refresh_config();
+        session.pull_config();
         session
     }
 
@@ -126,7 +126,7 @@ where
         }
         self.has_private_config = false;
         self.generation = UNRESOLVED;
-        self.refresh_config();
+        self.pull_config();
     }
 
     /// Re-resolves the settings if the shared config has moved since this
@@ -135,7 +135,7 @@ where
     /// Returns `true` when the live composition was re-rendered as a result,
     /// meaning the word on screen changed without a key being pressed. A
     /// session with a private config is unaffected and returns `false`.
-    pub fn refresh_config(&mut self) -> bool {
+    pub fn pull_config(&mut self) -> bool {
         let gen = self.shared_config.generation();
         if self.generation == gen {
             return false;
@@ -155,18 +155,22 @@ where
     /// The only place that writes `active_config` or the composition's context, so
     /// those two cannot disagree about what this session is parsing under.
     fn adopt_config(&mut self, next: Config<KM>) -> bool {
+        if self.active_config == next {
+            return false; // Cấu hình không thay đổi -> Không re-render -> Giữ Cache!
+        }
         self.active_config = next;
+
         self.composition
-            .set_context(self.active_config.context.clone());
+            .set_syllable_context(self.active_config.context.clone());
         true
     }
 
     #[inline(always)]
-    fn with_refreshed_config<F, R>(&mut self, f: F) -> R
+    fn with_pulled_config<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.refresh_config();
+        self.pull_config();
         f(self)
     }
 
@@ -181,8 +185,8 @@ where
     ///
     /// See [`Self::write_parsed_to`] for the version that does not allocate.
     #[inline]
-    pub fn rendered(&self) -> Vec<char> {
-        self.composition.rendered()
+    pub fn rendered(&mut self) -> Vec<char> {
+        self.with_pulled_config(|this| this.composition.rendered())
     }
 
     /// Writes the parsed word into `output`, replacing its contents.
@@ -191,8 +195,8 @@ where
     /// on every keystroke can keep one `String` and reuse its capacity instead
     /// of building a new one each time.
     #[inline]
-    pub fn write_rendered_to(&self, output: &mut String) {
-        self.composition.write_rendered_to(output);
+    pub fn write_rendered_to(&mut self, output: &mut String) {
+        self.with_pulled_config(|this| this.composition.write_rendered_to(output))
     }
 
     #[inline]
@@ -253,26 +257,26 @@ where
 
     #[inline]
     pub fn insert(&mut self, character: char) {
-        self.with_refreshed_config(|c| c.composition.insert(character));
+        self.with_pulled_config(|c| c.composition.insert(character));
     }
 
     #[inline]
     pub fn backspace(&mut self) -> Parallel<bool> {
-        self.with_refreshed_config(|c| c.composition.backspace())
+        self.with_pulled_config(|c| c.composition.backspace())
     }
 
     #[inline]
     pub fn delete(&mut self) -> Parallel<bool> {
-        self.with_refreshed_config(|c| c.composition.delete())
+        self.with_pulled_config(|c| c.composition.delete())
     }
 
     #[inline]
     pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        self.with_refreshed_config(|c| c.composition.move_cursor_left())
+        self.with_pulled_config(|c| c.composition.move_cursor_left())
     }
 
     #[inline]
     pub fn move_cursor_right(&mut self) -> Parallel<bool> {
-        self.with_refreshed_config(|c| c.composition.move_cursor_right())
+        self.with_pulled_config(|c| c.composition.move_cursor_right())
     }
 }

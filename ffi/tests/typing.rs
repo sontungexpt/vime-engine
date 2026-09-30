@@ -34,9 +34,9 @@ fn other_input_methods_come_from_config() {
     // `1`, VIQR `'`. All three must render identically, which is what shows the
     // keymap came from the config rather than being hard-wired.
     let cases = [
-        (vime::VimeInputMethod::Telex, "toans"),
-        (vime::VimeInputMethod::Vni, "toan1"),
-        (vime::VimeInputMethod::Viqr, "toan'"),
+        (vime::VIME_INPUT_METHOD_TELEX, "toans"),
+        (vime::VIME_INPUT_METHOD_VNI, "toan1"),
+        (vime::VIME_INPUT_METHOD_VIQR, "toan'"),
     ];
     for (input_method, typed) in cases {
         let config = vime::VimeConfig {
@@ -55,9 +55,9 @@ fn other_input_methods_come_from_config() {
 #[test]
 fn shape_keys_come_from_the_config_too() {
     let cases = [
-        (vime::VimeInputMethod::Telex, "ow", "ơ"),
-        (vime::VimeInputMethod::Vni, "o7", "ơ"),
-        (vime::VimeInputMethod::Viqr, "o+", "ơ"),
+        (vime::VIME_INPUT_METHOD_TELEX, "ow", "ơ"),
+        (vime::VIME_INPUT_METHOD_VNI, "o7", "ơ"),
+        (vime::VIME_INPUT_METHOD_VIQR, "o+", "ơ"),
     ];
     for (input_method, typed, expected) in cases {
         let config = vime::VimeConfig {
@@ -75,7 +75,7 @@ fn shape_keys_come_from_the_config_too() {
 #[test]
 fn tone_placement_is_configurable() {
     let config = vime::VimeConfig {
-        tone_placement: vime::VimeTonePlacement::Old,
+        tone_placement: vime::VIME_TONE_PLACEMENT_OLD,
         ..Default::default()
     };
     let mut factory = common::Factory::create_with(&config).unwrap();
@@ -185,6 +185,48 @@ fn cursor_indices_are_in_both_bytes_and_characters() {
     while session.move_cursor_right() {}
     assert_eq!(session.cursor_char_idx(), text.chars().count());
     assert_eq!(session.cursor_byte_idx(), text.len());
+}
+
+/// Moving the caret is not an edit. It reports a new position in both strings and
+/// changes neither string, which is why nothing about it has to be re-rendered.
+#[test]
+fn moving_the_caret_leaves_both_texts_alone() {
+    let mut session = common::Factory::create().unwrap().open_session();
+    session.type_text("dduongf");
+    let rendered = session.render_text();
+    let raw = session.render_raw_text();
+    assert_eq!(rendered, "đùong");
+    assert_eq!(raw, "dduongf");
+
+    // Walk the whole way back and forward again, checking after every step that
+    // only the positions moved. The two carets start at different places, because
+    // "tieengs"-style input makes the raw string longer than the rendered one, so
+    // the same five steps leave them at different offsets.
+    for _ in 0..5 {
+        assert!(session.move_cursor_left());
+    }
+    assert_eq!(session.render_text(), rendered);
+    assert_eq!(session.render_raw_text(), raw);
+    assert_eq!(session.cursor_char_idx(), 0);
+    assert_eq!(session.cursor_byte_idx(), 0);
+    assert_eq!(
+        session.raw_cursor_char_idx(),
+        2,
+        "7 keystrokes less 5 steps"
+    );
+    assert_eq!(
+        session.raw_cursor_byte_idx(),
+        2,
+        "'dd' are ASCII, one byte each"
+    );
+
+    while session.move_cursor_right() {}
+    assert_eq!(session.render_text(), rendered);
+    assert_eq!(session.render_raw_text(), raw);
+    assert_eq!(session.cursor_char_idx(), 5);
+    assert_eq!(session.cursor_byte_idx(), rendered.len());
+    assert_eq!(session.raw_cursor_char_idx(), 7);
+    assert_eq!(session.raw_cursor_byte_idx(), raw.len());
 }
 
 /// The raw cursor and the rendered cursor are independent: they are the same

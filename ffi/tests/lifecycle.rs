@@ -2,7 +2,7 @@
 
 mod common;
 
-use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
+use vime::{VimeConfig, VIME_INPUT_METHOD_TELEX, VIME_INPUT_METHOD_VNI, VIME_TONE_PLACEMENT_MODERN, VIME_TONE_PLACEMENT_OLD};
 
 /// A factory's sessions follow the shared config, and a change reaches them.
 ///
@@ -13,11 +13,11 @@ use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
 #[test]
 fn a_shared_config_change_reaches_existing_sessions() {
     let old = VimeConfig {
-        tone_placement: VimeTonePlacement::Old,
+        tone_placement: VIME_TONE_PLACEMENT_OLD,
         ..Default::default()
     };
     let new = VimeConfig {
-        tone_placement: VimeTonePlacement::Modern,
+        tone_placement: VIME_TONE_PLACEMENT_MODERN,
         ..Default::default()
     };
 
@@ -39,11 +39,11 @@ fn a_shared_config_change_reaches_existing_sessions() {
 #[test]
 fn a_shared_config_change_reaches_the_snapshot() {
     let old = VimeConfig {
-        input_method: VimeInputMethod::Telex,
+        input_method: VIME_INPUT_METHOD_TELEX,
         ..Default::default()
     };
     let new = VimeConfig {
-        input_method: VimeInputMethod::Vni,
+        input_method: VIME_INPUT_METHOD_VNI,
         ..Default::default()
     };
 
@@ -73,11 +73,11 @@ fn a_shared_config_change_reaches_the_snapshot() {
 #[test]
 fn a_private_config_shadows_the_shared_one() {
     let shared_old = VimeConfig {
-        tone_placement: VimeTonePlacement::Old,
+        tone_placement: VIME_TONE_PLACEMENT_OLD,
         ..Default::default()
     };
     let private_modern = VimeConfig {
-        tone_placement: VimeTonePlacement::Modern,
+        tone_placement: VIME_TONE_PLACEMENT_MODERN,
         ..Default::default()
     };
 
@@ -87,7 +87,7 @@ fn a_private_config_shadows_the_shared_one() {
 
     // Changing the shared config must not disturb the private one.
     let shared_modern = VimeConfig {
-        tone_placement: VimeTonePlacement::Modern,
+        tone_placement: VIME_TONE_PLACEMENT_MODERN,
         ..Default::default()
     };
     assert!(factory.set_config(&shared_modern));
@@ -105,7 +105,7 @@ fn a_private_config_shadows_the_shared_one() {
 fn a_private_config_can_be_replaced() {
     let modern = VimeConfig::default();
     let old = VimeConfig {
-        tone_placement: VimeTonePlacement::Old,
+        tone_placement: VIME_TONE_PLACEMENT_OLD,
         ..Default::default()
     };
 
@@ -165,7 +165,7 @@ fn sessions_from_one_factory_are_independent() {
 fn private_configs_differ_within_one_factory() {
     let modern = VimeConfig::default();
     let old = VimeConfig {
-        tone_placement: VimeTonePlacement::Old,
+        tone_placement: VIME_TONE_PLACEMENT_OLD,
         ..Default::default()
     };
     let mut factory = common::Factory::create().unwrap();

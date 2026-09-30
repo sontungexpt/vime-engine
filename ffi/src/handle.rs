@@ -1,152 +1,123 @@
-//! The two opaque handles, and the text cache a session hands to C.
+//! The two opaque handles, and the buffers a session hands to C.
 //!
-//! # What a handle holds
+//! # What a session handle holds
 //!
-//! A session handle is the engine's own [`Session`] plus the buffers C reads
-//! through. Nothing else: no copy of the composition, no copy of the settings,
-//! no second opinion about the cursor. Everything a frontend can ask for is
-//! either already in the [`Session`] or one of the two cached render buffers, so
-//! there is no state here that can fall out of step with the engine.
+//! The engine's own [`Session`], the two NUL-terminated strings C reads, and the
+//! last snapshot reported. That is all: no copy of the composition, no copy of
+//! the settings, no second opinion about the caret. Every number a frontend can
+//! ask for is either already in the [`Session`] or is derived from the two
+//! buffers when it is asked for, so nothing here can fall out of step with the
+//! engine.
 //!
 //! A factory handle is just the engine's [`SessionFactory`]. The shared
-//! configuration is already an `Arc` inside the core, and sessions already pick
-//! changes up through it, so wrapping it in another copy of the settings would
-//! only be a second thing to keep correct.
+//! configuration is already an `Arc` inside the core and sessions already follow
+//! it, so wrapping it in another copy of the settings would be a second thing to
+//! keep correct.
 //!
-//! # Why the buffers live in the handle
+//! # Why the strings live in the handle
 //!
-//! The header says a returned `const char *` "is managed by Session and remains
-//! valid until next session call". That is a promise about a *stable* address
-//! for as long as the session lives, which rules out handing out a pointer into
-//! a `String` built for one call. So each session owns a buffer that is refilled
-//! in place, and the pointer stays valid for the session's whole lifetime —
-//! strictly longer than the header promises.
-//!
-//! Refilling reuses the allocation: `clear` keeps the capacity, so a session that
-//! renders on every keystroke allocates once and then never again. The address
-//! can still move if the text outgrows the capacity, which is harmless under this
-//! contract but is why nothing in this file assumes a stable address *across* a
-//! growth.
+//! The header promises a `const char *` that "remains valid until next session
+//! call", which rules out handing out a pointer into a `String` built for one
+//! call. So the session owns a buffer and refills it in place, and the pointer is
+//! then good for the session's whole lifetime — strictly longer than the header
+//! promises. `clear` keeps the allocation, so a session that renders on every
+//! keystroke allocates once and never again. The address can still move if the text
+//! outgrows the capacity, which that contract allows and which is why nothing here
+//! assumes a stable address *across* a growth.
 //!
 //! # Why nothing is eagerly computed
 //!
-//! Insert, backspace, delete and the cursor moves only mark the buffers stale.
-//! They never render, and never build a snapshot. A frontend that types a word
-//! and only asks for the text at the end pays for one render, not one per
-//! keystroke, and a frontend that never asks pays nothing. The stale flags are
-//! the whole of the mutation path's cache work: two byte writes.
+//! An edit only marks the two buffers stale. It never renders, never walks UTF-8
+//! and never builds a snapshot, so a frontend that types a word and asks once pays
+//! for one render rather than one per keystroke, and a frontend that never asks
+//! pays nothing. A keystroke is `validate -> insert -> two stores -> return`.
 //!
-//! # Why there is no `CText`
+//! # The invalidation rule
 //!
-//! The two buffers want the same three things — reuse the allocation, carry one
-//! NUL, and say whether they are current — so they share [`TextCache`]. What
-//! they do *not* share is when they are refilled, and that is the only thing the
-//! old `fresh` flag was ever for.
+//! Only an operation that can change the *text* marks the buffers stale. Moving
+//! the caret cannot: it moves two numbers the core owns and rewrites neither
+//! string. Because the byte offsets are derived from the caret at the moment they
+//! are asked for rather than stored, a caret move has nothing to invalidate, which
+//! is why [`VimeSessionHandle::invalidate`] is not called on the cursor path.
+//! Stated once: if the two strings could come out different, mark them stale; if
+//! not, do nothing.
 
 use std::ffi::c_char;
 
 use vime_engine::{Session, SessionFactory};
 
-use crate::config::{EngineConfig, Keymap};
-use crate::render::{measure, Measured, VimeRenderState};
+use crate::config::{FfiConfig, FfiDefaultKeymap};
+use crate::render::{measure, VimeRenderState};
 
 /// The engine session a handle owns.
-type EngineSession = Session<Keymap>;
+type EngineSession = Session<FfiDefaultKeymap>;
 
-/// A reusable, NUL-terminated UTF-8 buffer.
+/// The text inside a render buffer, without the terminator the fill added.
 ///
-/// The invariant is one line: `text` is the current content followed by exactly
-/// one NUL, and that NUL is its last byte. Keeping the terminator inside the
-/// buffer is what makes the pointer a `const char *` with nothing to build
-/// around it — no `CString`, no per-call scan for interior NULs, and no second
-/// copy out of the engine's `String`.
-///
-/// Interior NULs are possible: U+0000 is a valid scalar value, so a caller may
-/// insert one and the engine will hold it. That is not a memory-safety problem —
-/// it truncates the C view of the text at that point, which is inherent to
-/// handing out a C string, and the engine's own copy is unaffected.
-struct TextCache {
-    /// Content plus the terminator. Never handed out without the terminator.
-    text: String,
-    /// Whether `text` still describes the engine's current state.
-    fresh: bool,
+/// A buffer is either empty — a session that has not rendered yet — or the text
+/// followed by exactly one NUL, so stripping that one NUL is the whole of it.
+/// Stripping exactly one matters: U+0000 is a valid scalar value, so a caller may
+/// insert one and the engine will hold it, and a buffer for the text `a\0` is
+/// `a\0\0`. The C view still stops at the first NUL, which is what a C string is,
+/// but the delivery lengths keep counting the full content.
+#[inline]
+fn content(buffer: &str) -> &str {
+    buffer.strip_suffix('\0').unwrap_or(buffer)
 }
 
-impl TextCache {
-    const fn new() -> Self {
-        Self {
-            text: String::new(),
-            fresh: false,
-        }
-    }
-
-    /// Refills the buffer, measuring it in the same pass.
-    ///
-    /// `render` appends the engine's text to `out`; it is the engine's own
-    /// allocation-free writer, called straight into the buffer that C will read,
-    /// so the text is never materialised anywhere else first.
-    ///
-    /// The terminator goes on after the measurement, so every length this returns
-    /// is a length of the content rather than of the C string around it.
-    #[inline]
-    fn refill(&mut self, render: impl FnOnce(&mut String), caret_chars: usize) -> Measured {
-        self.text.clear();
-        render(&mut self.text);
-        self.fresh = true;
-        let measured = measure(&self.text, caret_chars);
-        self.text.reserve(1);
-        self.text.push('\0');
-        measured
-    }
-
-    /// The buffer as a C string.
-    #[inline]
-    fn as_ptr(&self) -> *const c_char {
-        debug_assert!(self.text.ends_with('\0'), "TextCache lost its terminator");
-        self.text.as_ptr().cast()
-    }
-}
-
-/// Everything a session has already worked out, and would otherwise work out
-/// again for the next caller that asks.
+/// Opaque handle to one independent typing session.
 ///
-/// Two independent flags rather than one, because the two buffers are filled by
-/// different calls: a frontend that only wants the raw keystrokes should not pay
-/// for a Vietnamese render, and one that only wants the rendered word should not
-/// pay for the raw one. The snapshot is *not* flagged, because assembling it is
-/// a handful of field stores and no allocation, so there is nothing to save.
-pub(crate) struct RenderCache {
-    /// The rendered word, terminated.
-    text: TextCache,
-    /// The raw keystrokes, terminated.
-    raw: TextCache,
-    /// Where the rendered caret is, in bytes, and how long the word is.
-    text_measured: Measured,
-    /// Where the raw caret is, in bytes.
-    raw_byte_idx: usize,
-    /// Length of the text most recently reported by `render_state`, in bytes and
-    /// in characters — what a host has to erase before it can write the new one.
-    ///
-    /// `render_state` is the only thing that moves these, so that a frontend which
-    /// reads the text with `render_text` and then asks for a snapshot still gets
-    /// the length of the text before the edit, which is the one it needs.
+/// `#[repr(C)]` because it is a C type, though it is only ever passed behind a
+/// pointer and its layout is therefore nobody's business but its own.
+#[repr(C)]
+pub struct VimeSessionHandle {
+    /// The engine session, and the single source of truth for everything a
+    /// frontend can observe.
+    pub(crate) session: EngineSession,
+    /// The rendered word, followed by one NUL.
+    rendered: String,
+    /// The raw keystrokes, followed by one NUL.
+    raw: String,
+    /// Whether `rendered` still describes the session.
+    rendered_current: bool,
+    /// Whether `raw` still describes the session. A separate flag from
+    /// `rendered_current` because the two are filled by different calls: a
+    /// frontend that only wants the keystrokes should not pay for a Vietnamese
+    /// render, and one that only wants the word should not pay for the raw one.
+    raw_current: bool,
+    /// The length of the text most recently reported by `render_state`, in bytes
+    /// and in characters — what a host has to erase before it can write the next
+    /// one. This is the only state that has to survive an edit, because it
+    /// describes text the engine no longer holds.
     delivered_bytes: usize,
     delivered_chars: usize,
-    /// The snapshot handed to C, kept so the pointer stays valid.
+    /// The snapshot handed to C. Kept in the handle so the returned pointer stays
+    /// valid; `render_state` overwrites every field before handing it out, so
+    /// this is only ever a placeholder.
     state: VimeRenderState,
 }
 
-impl RenderCache {
-    const fn new() -> Self {
+impl VimeSessionHandle {
+    /// Wraps a session, and pre-sizes the two render buffers.
+    ///
+    /// A Vietnamese syllable is a handful of characters in a handful of bytes, so
+    /// this covers the length every word reaches. Sizing both buffers once here
+    /// means the first keystroke does not allocate either, and the steady state
+    /// never reallocates. The raw buffer has no such bound — one keystroke is one
+    /// character, however many are typed — so it grows if it has to, and keeps the
+    /// larger allocation after that.
+    pub(crate) fn new(session: EngineSession) -> Self {
+        const TYPICAL_SYLLABLE_BYTES: usize = 64;
+        let mut rendered = String::new();
+        rendered.reserve(TYPICAL_SYLLABLE_BYTES);
+        let mut raw = String::new();
+        raw.reserve(TYPICAL_SYLLABLE_BYTES);
         Self {
-            text: TextCache::new(),
-            raw: TextCache::new(),
-            text_measured: Measured {
-                byte_idx: 0,
-                len_bytes: 0,
-                len_chars: 0,
-            },
-            raw_byte_idx: 0,
+            session,
+            rendered,
+            raw,
+            rendered_current: false,
+            raw_current: false,
             delivered_bytes: 0,
             delivered_chars: 0,
             state: VimeRenderState {
@@ -163,180 +134,163 @@ impl RenderCache {
         }
     }
 
-    /// Marks both buffers stale without giving up their allocations.
-    #[inline]
-    fn invalidate(&mut self) {
-        self.text.fresh = false;
-        self.raw.fresh = false;
-    }
-}
-
-/// Opaque handle to one independent typing session.
-///
-/// `#[repr(C)]` because it is a C type, though it is only ever passed behind a
-/// pointer and its layout is therefore nobody's business but its own.
-#[repr(C)]
-pub struct VimeSessionHandle {
-    /// The engine session. The single source of truth for everything a frontend
-    /// can observe.
-    pub(crate) session: EngineSession,
-    /// The text this session hands to C, and the snapshot it reports.
-    pub(crate) cache: RenderCache,
-}
-
-impl VimeSessionHandle {
-    /// Wraps a session, and pre-sizes the two render buffers.
-    ///
-    /// A Vietnamese syllable is a handful of characters in a handful of bytes, so
-    /// this covers the length every word reaches. Sizing both buffers once here
-    /// means the first keystroke does not allocate either, and the steady state
-    /// never reallocates. The raw buffer has no such bound — one keystroke is one
-    /// character, however many are typed — so it grows if it has to, and keeps
-    /// the larger allocation after that.
-    pub(crate) fn new(session: EngineSession) -> Self {
-        const TYPICAL_SYLLABLE_BYTES: usize = 64;
-        let mut cache = RenderCache::new();
-        cache.text.text.reserve(TYPICAL_SYLLABLE_BYTES);
-        cache.raw.text.reserve(TYPICAL_SYLLABLE_BYTES);
-        Self { session, cache }
-    }
-
     pub(crate) fn into_raw(self) -> *mut Self {
         Box::into_raw(Box::new(self))
     }
 
-    /// Adopts a shared configuration change, dropping the cache if it moved the
-    /// word.
+    /// Marks the cached text stale, keeping both allocations.
     ///
-    /// The core resolves a shared-config change lazily and reports whether it
-    /// re-rendered, which is exactly the condition under which the cached text is
-    /// wrong. Doing it here is what lets a frontend that changes the settings
-    /// see the new rendering on its next *query* and not only on its next
-    /// keystroke.
-    #[inline]
-    pub(crate) fn adopt_shared_config(&mut self) {
-        if self.session.refresh_config() {
-            self.cache.invalidate();
-        }
-    }
-
-    /// Forgets the cached text after an edit. Two byte writes; no rendering.
+    /// Called only by operations that can change the text, and only after the core
+    /// has applied them.
     #[inline]
     pub(crate) fn invalidate(&mut self) {
-        self.cache.invalidate();
+        self.rendered_current = false;
+        self.raw_current = false;
+    }
+
+    /// Re-reads the shared configuration and drops the cached text if the core
+    /// reports that the word moved.
+    ///
+    /// A factory configuration change reaches a session with no call on the
+    /// session at all, so a query that only reads the cache is the only chance to
+    /// notice one. The decision belongs to the core: `refresh_config` re-reads the
+    /// shared configuration and reports whether adopting it re-rendered, and this
+    /// only acts on that answer. Nothing here tracks generations, compares
+    /// settings or predicts what a change would do.
+    ///
+    /// Mutations do not call this. The core refreshes inside every operation, so by
+    /// the time a query runs there is nothing left for it to adopt.
+    #[inline]
+    fn sync(&mut self) {
+        if self.session.pull_config() {
+            self.invalidate();
+        }
     }
 
     /// The rendered word as a C string, rendering it only if it is stale.
     #[inline]
     pub(crate) fn render_text(&mut self) -> *const c_char {
-        self.ensure_text();
-        self.cache.text.as_ptr()
+        self.sync();
+        self.fill_rendered();
+        self.rendered.as_ptr().cast()
     }
 
     /// The raw keystrokes as a C string, materialising them only if they are stale.
     #[inline]
     pub(crate) fn render_raw_text(&mut self) -> *const c_char {
-        self.ensure_raw();
-        self.cache.raw.as_ptr()
+        self.sync();
+        self.fill_raw();
+        self.raw.as_ptr().cast()
     }
 
     /// The rendered caret, in characters. No rendering: the core knows it.
     #[inline]
     pub(crate) fn cursor_char_idx(&mut self) -> usize {
-        self.adopt_shared_config();
+        self.sync();
         self.session.cursor_pos()
+    }
+
+    /// The rendered caret, in UTF-8 bytes, derived from the rendered word.
+    #[inline]
+    pub(crate) fn cursor_byte_idx(&mut self) -> usize {
+        self.sync();
+        self.fill_rendered();
+        let (byte_idx, _) = measure(content(&self.rendered), self.session.cursor_pos());
+        byte_idx
     }
 
     /// The raw caret, in keystrokes. No rendering: the core knows it.
     #[inline]
     pub(crate) fn raw_cursor_char_idx(&mut self) -> usize {
-        self.adopt_shared_config();
+        self.sync();
         self.session.raw_cursor_pos()
     }
 
-    /// The rendered caret, in UTF-8 bytes.
-    #[inline]
-    pub(crate) fn cursor_byte_idx(&mut self) -> usize {
-        self.ensure_text();
-        self.cache.text_measured.byte_idx
-    }
-
-    /// The raw caret, in UTF-8 bytes.
+    /// The raw caret, in UTF-8 bytes, derived from the raw keystrokes.
     #[inline]
     pub(crate) fn raw_cursor_byte_idx(&mut self) -> usize {
-        self.ensure_raw();
-        self.cache.raw_byte_idx
+        self.sync();
+        self.fill_raw();
+        let (byte_idx, _) = measure(content(&self.raw), self.session.raw_cursor_pos());
+        byte_idx
     }
 
     /// Whether the buffer spells a complete, valid Vietnamese syllable.
     #[inline]
     pub(crate) fn is_valid_vietnamese(&mut self) -> bool {
-        self.adopt_shared_config();
+        self.sync();
         self.session.is_valid()
     }
 
     /// A complete snapshot of everything a frontend needs for one repaint.
     ///
-    /// Each buffer is materialised at most once and the four offsets are measured
-    /// in the same pass that writes the text, so this is the cheapest way to get
-    /// the whole picture: a caller that would otherwise call six getters pays for
-    /// two renders and two walks instead.
-    ///
-    /// This is also the delivery point for the `*_to_delete` fields, which is why
-    /// the previously-reported length is read out before it is replaced.
+    /// Cheaper than the six individual getters, because each buffer is materialised
+    /// at most once and each byte offset is one short walk over text that is already
+    /// in hand. This is also the delivery point for the `*_to_delete` fields, which
+    /// is why the previously-reported lengths are read out before they are replaced.
     pub(crate) fn render_state(&mut self) -> *const VimeRenderState {
-        self.ensure_text();
-        self.ensure_raw();
+        self.sync();
+        self.fill_rendered();
+        self.fill_raw();
 
-        // Split the borrow: the snapshot is written while the text is read.
-        let Self { session, cache, .. } = self;
-        let state = &mut cache.state;
-        state.text = cache.text.as_ptr();
-        state.raw_text = cache.raw.as_ptr();
-        state.cursor_byte_idx = cache.text_measured.byte_idx;
-        state.cursor_char_idx = session.cursor_pos();
-        state.raw_cursor_byte_idx = cache.raw_byte_idx;
-        state.raw_cursor_char_idx = session.raw_cursor_pos();
-        state.bytes_to_delete = cache.delivered_bytes;
-        state.chars_to_delete = cache.delivered_chars;
-        state.is_valid_vietnamese = session.is_valid();
+        // One walk per buffer: the rendered text gives the caret byte offset and the
+        // character count the next call will need to delete; the raw text gives its
+        // own caret offset and nothing else. The core positions are character
+        // indices, and each is what its own walk converts to a byte offset.
+        let cursor_chars = self.session.cursor_pos();
+        let raw_cursor_chars = self.session.raw_cursor_pos();
+        let rendered = content(&self.rendered);
+        let (cursor_byte_idx, len_chars) = measure(rendered, cursor_chars);
+        let len_bytes = rendered.len();
+        let (raw_cursor_byte_idx, _) = measure(content(&self.raw), raw_cursor_chars);
+
+        self.state = VimeRenderState {
+            text: self.rendered.as_ptr().cast(),
+            raw_text: self.raw.as_ptr().cast(),
+            cursor_byte_idx,
+            cursor_char_idx: cursor_chars,
+            raw_cursor_byte_idx,
+            raw_cursor_char_idx: raw_cursor_chars,
+            bytes_to_delete: self.delivered_bytes,
+            chars_to_delete: self.delivered_chars,
+            is_valid_vietnamese: self.session.is_valid(),
+        };
 
         // What the host is told to erase is the text it was last handed, so this
         // call's text becomes the next call's `*_to_delete`.
-        cache.delivered_bytes = cache.text_measured.len_bytes;
-        cache.delivered_chars = cache.text_measured.len_chars;
+        self.delivered_bytes = len_bytes;
+        self.delivered_chars = len_chars;
 
-        &cache.state as *const VimeRenderState
+        &self.state as *const VimeRenderState
     }
 
-    /// Renders the word if the cache is stale.
+    /// Writes the rendered word into the buffer if it is stale.
     ///
-    /// The config is adopted first, so a session notices a shared-config change on
-    /// the query that asks for text rather than only on the next keystroke.
-    #[inline]
-    fn ensure_text(&mut self) {
-        self.adopt_shared_config();
-        if self.cache.text.fresh {
+    /// The core's writer appends straight into the buffer C will read, so the text
+    /// is never materialised anywhere else first. It appends rather than replaces,
+    /// which is what the `clear` is for; `clear` keeps the capacity, so this costs
+    /// no allocation in the steady state.
+    fn fill_rendered(&mut self) {
+        if self.rendered_current {
             return;
         }
-        let caret = self.session.cursor_pos();
-        let Self { session, cache, .. } = self;
-        cache.text_measured = cache
-            .text
-            .refill(|out| session.write_rendered_to(out), caret);
+        self.rendered.clear();
+        self.session.write_rendered_to(&mut self.rendered);
+        self.rendered.reserve(1);
+        self.rendered.push('\0');
+        self.rendered_current = true;
     }
 
-    /// Writes the raw keystrokes if the cache is stale.
-    #[inline]
-    fn ensure_raw(&mut self) {
-        self.adopt_shared_config();
-        if self.cache.raw.fresh {
+    /// Writes the raw keystrokes into the buffer if they are stale.
+    fn fill_raw(&mut self) {
+        if self.raw_current {
             return;
         }
-        let caret = self.session.raw_cursor_pos();
-        let Self { session, cache, .. } = self;
-        let measured = cache.raw.refill(|out| session.write_raw_to(out), caret);
-        cache.raw_byte_idx = measured.byte_idx;
+        self.raw.clear();
+        self.session.write_raw_to(&mut self.raw);
+        self.raw.reserve(1);
+        self.raw.push('\0');
+        self.raw_current = true;
     }
 }
 
@@ -344,11 +298,11 @@ impl VimeSessionHandle {
 /// sessions minted from it.
 #[repr(C)]
 pub struct VimeSessionFactoryHandle {
-    pub(crate) factory: SessionFactory<Keymap>,
+    pub(crate) factory: SessionFactory<FfiDefaultKeymap>,
 }
 
 impl VimeSessionFactoryHandle {
-    pub(crate) fn new(config: EngineConfig) -> Self {
+    pub(crate) fn new(config: FfiConfig) -> Self {
         Self {
             factory: SessionFactory::new(config),
         }
@@ -365,7 +319,7 @@ impl VimeSessionFactoryHandle {
 
     /// A new session with a private configuration, still able to fall back to
     /// the shared one.
-    pub(crate) fn new_session_with(&self, config: EngineConfig) -> EngineSession {
+    pub(crate) fn new_session_with(&self, config: FfiConfig) -> EngineSession {
         self.factory.new_session_with(config)
     }
 }
@@ -457,9 +411,19 @@ mod tests {
 
     fn session() -> VimeSessionHandle {
         VimeSessionHandle::new(
-            SessionFactory::<Keymap>::from_keymap(Settings::default(), DefaultKeymap::telex())
-                .new_session(),
+            SessionFactory::<FfiDefaultKeymap>::from_keymap(
+                Settings::default(),
+                DefaultKeymap::telex(),
+            )
+            .new_session(),
         )
+    }
+
+    fn type_text(handle: &mut VimeSessionHandle, text: &str) {
+        for ch in text.chars() {
+            handle.session.insert(ch);
+            handle.invalidate();
+        }
     }
 
     fn text_of(ptr: *const c_char) -> String {
@@ -483,10 +447,7 @@ mod tests {
     #[test]
     fn a_terminator_is_appended_exactly_once() {
         let mut handle = session();
-        for ch in "hoas".chars() {
-            handle.session.insert(ch);
-            handle.invalidate();
-        }
+        type_text(&mut handle, "hoas");
         let ptr = handle.render_text();
         // SAFETY: the pointer is owned by the live handle, and the render is four
         // characters plus the terminator, so five bytes are in bounds.
@@ -494,16 +455,13 @@ mod tests {
         assert_eq!(bytes, "hoá\0".as_bytes());
     }
 
-    /// The whole point of the cached buffers: a second render is free, and a
-    /// refill after an edit reuses the same allocation.
+    /// A buffer that is refilled in place: the address C was given last time is the
+    /// address it gets this time, and the text behind it is the new one.
     #[test]
     fn refilling_reuses_the_allocation() {
         let mut handle = session();
         let first = handle.render_text();
-        for ch in "toan".chars() {
-            handle.session.insert(ch);
-            handle.invalidate();
-        }
+        type_text(&mut handle, "toan");
         let second = handle.render_text();
         assert_eq!(first, second, "the allocation was reused in place");
         assert_eq!(text_of(second), "toan");
@@ -512,18 +470,54 @@ mod tests {
     #[test]
     fn stale_text_is_replaced_not_appended() {
         let mut handle = session();
-        for ch in "toan".chars() {
-            handle.session.insert(ch);
-            handle.invalidate();
-        }
+        type_text(&mut handle, "toan");
         assert_eq!(text_of(handle.render_text()), "toan");
-        for ch in "hoa".chars() {
-            handle.session.insert(ch);
-            handle.invalidate();
-        }
+        type_text(&mut handle, "hoa");
         assert_eq!(text_of(handle.render_text()), "toanhoa");
         handle.session.reset();
         handle.invalidate();
         assert_eq!(text_of(handle.render_text()), "");
+    }
+
+    /// A buffer's contents are its text without the terminator, and a word may end
+    /// in U+0000 because that is a valid scalar value a caller is allowed to
+    /// insert. Exactly one NUL comes off, so `a\0` is two characters and two bytes
+    /// even though the C view of it is just `a`.
+    #[test]
+    fn the_terminator_is_stripped_exactly_once() {
+        assert_eq!(content("a\0"), "a");
+        assert_eq!(content("a\0\0"), "a\0");
+        assert_eq!(content(""), "", "a buffer that has not been filled yet");
+    }
+
+    /// The two buffers are filled independently: asking for one does not pay for
+    /// the other.
+    #[test]
+    fn each_buffer_is_filled_on_its_own_schedule() {
+        let mut handle = session();
+        type_text(&mut handle, "hoas");
+        assert_eq!(text_of(handle.render_text()), "hoá");
+        assert!(!handle.raw_current, "the raw buffer is still stale");
+        assert_eq!(text_of(handle.render_raw_text()), "hoas");
+        assert!(handle.raw_current);
+
+        type_text(&mut handle, "c");
+        assert!(!handle.rendered_current);
+        assert!(!handle.raw_current);
+    }
+
+    /// Moving the caret changes the text's *position*, not the text, so the
+    /// invalidation rule says there is nothing to drop. The offsets are derived
+    /// from the core's caret, so they still follow it.
+    #[test]
+    fn moving_the_caret_leaves_the_text_alone() {
+        let mut handle = session();
+        type_text(&mut handle, "dduongf");
+        assert_eq!(text_of(handle.render_text()), "đùong");
+        assert!(*handle.session.move_cursor_left().rendered());
+        assert_eq!(text_of(handle.render_text()), "đùong");
+        assert_eq!(handle.cursor_char_idx(), 4);
+        // 'đ' and 'ù' are two bytes each, so four characters in is six bytes.
+        assert_eq!(handle.cursor_byte_idx(), 6);
     }
 }

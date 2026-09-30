@@ -22,8 +22,8 @@ use vime::{
     vime_session_insert, vime_session_is_valid_vietnamese, vime_session_move_cursor_left,
     vime_session_move_cursor_right, vime_session_render_raw_text, vime_session_render_state,
     vime_session_render_text, vime_session_reset, vime_session_set_config, VimeConfig,
-    VimeInputMethod, VimeRenderState, VimeSessionFactoryHandle, VimeSessionHandle,
-    VimeTonePlacement,
+    VimeRenderState, VimeSessionFactoryHandle, VimeSessionHandle,
+    VIME_INPUT_METHOD_TELEX, VIME_TONE_PLACEMENT_MODERN,
 };
 
 /// Reads a `const char *` the session owns.
@@ -292,25 +292,24 @@ pub fn config_init() -> VimeConfig {
 /// exactly what an out-of-range discriminant looks like on the wire: a struct with
 /// the right size and the wrong number in it.
 pub fn config_with_raw_input_method(input_method: u32) -> Vec<u8> {
-    raw_config(input_method, VimeTonePlacement::Modern as u32)
+    raw_config(input_method, VIME_TONE_PLACEMENT_MODERN)
 }
 
 /// A `VimeConfig` holding a tone placement outside the header's range.
 pub fn config_with_raw_tone_placement(tone_placement: u32) -> Vec<u8> {
-    raw_config(VimeInputMethod::Telex as u32, tone_placement)
+    raw_config(VIME_INPUT_METHOD_TELEX, tone_placement)
 }
 
 /// The byte pattern of a `VimeConfig`, `#[repr(C)]`-encoded by hand.
 fn raw_config(input_method: u32, tone_placement: u32) -> Vec<u8> {
-    // Laid out as the header declares it: bool, 3 bytes of padding, int, int.
+    // Laid out as the header declares it: int, int.
     assert_eq!(
         size_of::<VimeConfig>(),
-        12,
-        "the offsets below assume 12 bytes"
+        8,
+        "the offsets below assume 8 bytes"
     );
     let mut bytes = vec![0u8; size_of::<VimeConfig>()];
-    bytes[0] = 1; // auto_restore_english = true
-    bytes[4..8].copy_from_slice(&input_method.to_ne_bytes());
-    bytes[8..12].copy_from_slice(&tone_placement.to_ne_bytes());
+    bytes[0..4].copy_from_slice(&input_method.to_ne_bytes());
+    bytes[4..8].copy_from_slice(&tone_placement.to_ne_bytes());
     bytes
 }

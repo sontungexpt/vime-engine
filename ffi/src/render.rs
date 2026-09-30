@@ -1,51 +1,38 @@
-//! The render-state snapshot the header hands to a frontend, and the one place
-//! text is measured.
+//! The snapshot the header hands to a frontend, and the one walk that turns the
+//! core's character positions into byte positions.
 //!
 //! # Why the byte offsets are computed here
 //!
-//! A frontend integrating at the text level needs four positions, and the header
-//! asks for all of them: a character index and a byte index for each of the two
-//! buffers. Only the core knows the *character* positions; the byte positions
-//! have to come from walking the rendered UTF-8. Walking it once, in a single
-//! pass that both sums `len_utf8` up to the caret and counts the characters, is
-//! what keeps [`measure`] from being four separate scans.
+//! The header asks for a character index *and* a byte index for each of the two
+//! strings. The core owns the character indices and keeps no byte ones, because
+//! nothing inside the engine indexes a buffer by byte. So the FFI derives them
+//! from bytes it has already written, in a single walk that sums `len_utf8` up to
+//! the caret while it counts the characters.
 //!
-//! A Vietnamese word is a handful of characters and Vietnamese characters are
-//! two or three bytes, so this is a handful of instructions either way. The point
-//! is that it is done once, at the point where the text is already in hand, and
-//! never repeated for a second caller who wants a different index.
+//! Both numbers come out of that one walk because [`VimeRenderState`] needs both.
+//! A caller who wants only the caret throws the count away. A Vietnamese word is a
+//! handful of characters, so the walk is a handful of instructions — the point is
+//! that it happens on demand, next to text already in hand, instead of being
+//! cached in a field that has to be kept in step with the string.
 //!
 //! # What the snapshot does not claim
 //!
 //! The `*_to_delete` fields are the only part of the ABI that is about the *host*
-//! rather than about the engine, and they are the only part with a convention
-//! attached. See [`VimeRenderState::bytes_to_delete`].
+//! rather than the engine, and the only part with a convention attached. See
+//! [`VimeRenderState::bytes_to_delete`].
 
 use std::ffi::c_char;
 
-/// Byte and character offsets of one caret, plus the text's own length.
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-pub(crate) struct Measured {
-    /// UTF-8 byte offset of the caret from the start of the text.
-    pub(crate) byte_idx: usize,
-    /// The text's length in UTF-8 bytes.
-    pub(crate) len_bytes: usize,
-    /// The text's length in Unicode characters.
-    pub(crate) len_chars: usize,
-}
-
-/// Measures a rendered buffer in one pass, getting all three numbers at once.
+/// Byte offset of a caret, and the character count of the same string.
 ///
-/// `text` is the content only — the caller appends the NUL terminator
-/// afterwards, so a length here is a length a host can act on rather than one
-/// that includes a byte only the C side can see.
+/// Returns `(byte offset of the `caret`-th character, number of characters)`.
 ///
-/// `caret_chars` is a character index. A caret past the end — which the core never
-/// produces, but which costs nothing to survive — simply runs off the end and
-/// lands on the text's full length, rather than panicking between a C caller and
-/// a `char *` that is about to be handed out.
+/// A caret past the end — which the core never produces, but which costs nothing
+/// to survive — simply runs off the end and lands on the text's full length,
+/// rather than panicking between a C caller and a `char *` that is about to be
+/// handed out.
 #[inline]
-pub(crate) fn measure(text: &str, caret_chars: usize) -> Measured {
+pub(crate) fn measure(text: &str, caret_chars: usize) -> (usize, usize) {
     let mut byte_idx = 0;
     let mut len_chars = 0;
     for ch in text.chars() {
@@ -54,11 +41,7 @@ pub(crate) fn measure(text: &str, caret_chars: usize) -> Measured {
         }
         len_chars += 1;
     }
-    Measured {
-        byte_idx,
-        len_bytes: text.len(),
-        len_chars,
-    }
+    (byte_idx, len_chars)
 }
 
 /// Detailed render state snapshot for UI, uinput, and IME frameworks.
@@ -131,71 +114,29 @@ mod tests {
     #[test]
     fn a_multi_byte_word_measures_in_both_units() {
         // "ương" is 4 characters in 6 bytes; the caret is at the end.
-        assert_eq!(
-            measure("ương", 4),
-            Measured {
-                byte_idx: 6,
-                len_bytes: 6,
-                len_chars: 4
-            }
-        );
+        assert_eq!(measure("ương", 4), (6, 4));
 
         // The caret after the first character: 2 bytes in, because 'ư' is two.
-        assert_eq!(
-            measure("ương", 1),
-            Measured {
-                byte_idx: 2,
-                len_bytes: 6,
-                len_chars: 4
-            }
-        );
+        assert_eq!(measure("ương", 1), (2, 4));
 
         // "hoá" — 'á' is two bytes, so the end is 4 bytes.
-        assert_eq!(
-            measure("hoá", 3),
-            Measured {
-                byte_idx: 4,
-                len_bytes: 4,
-                len_chars: 3
-            }
-        );
+        assert_eq!(measure("hoá", 3), (4, 3));
 
         // ASCII: the two units agree, which is why this case is not interesting
         // and is only here to show the arithmetic does not drift.
-        assert_eq!(
-            measure("toan", 4),
-            Measured {
-                byte_idx: 4,
-                len_bytes: 4,
-                len_chars: 4
-            }
-        );
+        assert_eq!(measure("toan", 4), (4, 4));
     }
 
     #[test]
     fn an_empty_word_measures_to_zero() {
-        assert_eq!(
-            measure("", 0),
-            Measured {
-                byte_idx: 0,
-                len_bytes: 0,
-                len_chars: 0
-            }
-        );
+        assert_eq!(measure("", 0), (0, 0));
     }
 
     /// The core never produces an out-of-range caret, but a clamp here is free
     /// and beats a panic between a C caller and a pointer it is about to return.
     #[test]
     fn a_caret_past_the_end_clamps() {
-        assert_eq!(
-            measure("ab", 99),
-            Measured {
-                byte_idx: 2,
-                len_bytes: 2,
-                len_chars: 2
-            }
-        );
+        assert_eq!(measure("ab", 99), (2, 2));
     }
 
     /// Every byte offset has to land on a character boundary, or the frontend
@@ -204,13 +145,13 @@ mod tests {
     fn every_measured_offset_is_a_character_boundary() {
         for text in ["", "a", "ă", "ương", "tiếng", "đường", "\u{1f600}ă"] {
             for caret in 0..=text.chars().count() {
-                let m = measure(text, caret);
+                let (byte_idx, len_chars) = measure(text, caret);
                 assert!(
-                    text.is_char_boundary(m.byte_idx),
-                    "{text:?} caret {caret} -> {} is not a boundary",
-                    m.byte_idx,
+                    text.is_char_boundary(byte_idx),
+                    "{text:?} caret {caret} -> {byte_idx} is not a boundary",
                 );
-                assert!(m.byte_idx <= text.len());
+                assert!(byte_idx <= text.len());
+                assert_eq!(len_chars, text.chars().count());
             }
         }
     }

@@ -104,7 +104,7 @@ fn refresh_picks_up_a_change_without_a_keystroke() {
     );
 
     assert!(
-        session.refresh_config(),
+        session.pull_config(),
         "the re-render is what the frontend must know about"
     );
     assert_eq!(rendered_to_string(&session), OLD_HOA);
@@ -117,8 +117,8 @@ fn refresh_is_silent_when_nothing_moved() {
     let engine = SessionFactory::telex(Settings::default());
     let mut session = engine.new_session();
 
-    assert!(!session.refresh_config(), "nothing to pick up yet");
-    assert!(!session.refresh_config(), "still nothing");
+    assert!(!session.pull_config(), "nothing to pick up yet");
+    assert!(!session.pull_config(), "still nothing");
 }
 
 /// A settings change can move the word on a key that did nothing of its own.
@@ -165,7 +165,7 @@ fn taking_a_private_config_stops_the_following() {
     );
 
     engine.set_config(vni());
-    assert!(!session.refresh_config());
+    assert!(!session.pull_config());
     assert_eq!(rendered_to_string(&session), OLD_HOA);
 }
 
@@ -193,7 +193,7 @@ fn clearing_a_private_config_catches_up_with_the_shared_one() {
 fn a_standalone_private_session_is_self_contained() {
     let mut session = Session::with_isolated_config(old_telex());
     assert!(session.has_private_config());
-    assert!(!session.refresh_config());
+    assert!(!session.pull_config());
     assert_eq!(type_str(&mut session, "hoas"), OLD_HOA);
 }
 

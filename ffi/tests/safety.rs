@@ -117,7 +117,7 @@ fn a_rejected_config_leaves_the_old_one_in_place() {
     let mut session = factory.open_session();
 
     let good = VimeConfig {
-        tone_placement: VimeTonePlacement::Old,
+        tone_placement: VIME_TONE_PLACEMENT_OLD,
         ..Default::default()
     };
     assert!(factory.set_config(&good));
@@ -354,4 +354,27 @@ fn an_empty_word_has_no_bytes_to_delete() {
     assert_eq!(state.cursor_byte_idx, 0);
     assert_eq!(state.cursor_char_idx, 0);
     assert!(!state.is_valid_vietnamese, "an empty buffer is not a word");
+}
+
+/// U+0000 is a valid scalar value, so `insert` accepts it and the engine keeps it.
+/// That makes a word a C string can only partly describe: `text` stops at the NUL,
+/// because that is what a C string is, but the erase request has to cover the whole
+/// word or the host would leave the invisible half behind.
+#[test]
+fn an_embedded_nul_truncates_the_text_but_not_the_erase_request() {
+    let mut session = common::Factory::create().unwrap().open_session();
+    session.type_text("a");
+    assert!(session.insert('\0'), "U+0000 is a scalar value");
+
+    assert_eq!(session.render_text(), "a", "a C string stops at the NUL");
+
+    // The first snapshot has nothing to delete; the second reports what the first
+    // handed out.
+    let _ = session.render_state();
+    let state = session.render_state();
+    assert_eq!(
+        state.bytes_to_delete, 2,
+        "'a' plus the NUL the host cannot see"
+    );
+    assert_eq!(state.chars_to_delete, 2);
 }

@@ -23,15 +23,15 @@ where
 
 /// Whether a vowel nucleus is a known Vietnamese sequence.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum NucleusState {
     /// The sequence can never form a valid Vietnamese nucleus.
-    Dead,
+    Dead = 0,
     /// The sequence is a complete, valid nucleus.
-    Valid,
-
+    Valid = 1,
     /// The sequence is not yet complete but may become valid.
     #[default]
-    InComplete,
+    InComplete = 2,
 }
 
 impl NucleusState {
