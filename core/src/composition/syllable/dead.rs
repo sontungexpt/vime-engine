@@ -140,7 +140,7 @@ impl DeadSyllable {
     ///
     /// Nothing is parsed: this records the character, so it is only correct to
     /// call this on a buffer that is already dead.
-    #[inline]
+    #[inline(always)]
     pub fn push(&mut self, input: char) {
         self.chars.push(CharState::Rejected(input));
         self.rejected_count += 1;
@@ -150,7 +150,7 @@ impl DeadSyllable {
     ///
     /// `index` may be `0..=Self::len()`; anything past the end panics. Like
     /// [`Self::push`], this records without parsing.
-    #[inline]
+    #[inline(always)]
     pub fn insert(&mut self, index: usize, input: char) {
         self.chars.insert(index, CharState::Rejected(input));
         self.rejected_count += 1;
@@ -162,7 +162,7 @@ impl DeadSyllable {
     /// `index` must be `0..Self::len()`; anything past the end panics. This is
     /// the one operation that can take a buffer back to
     /// [`Self::is_all_accepted`], by removing the last rejected character.
-    #[inline]
+    #[inline(always)]
     pub fn remove(&mut self, index: usize) -> CharState {
         let status = self.chars.remove(index);
         if status.is_rejected() {

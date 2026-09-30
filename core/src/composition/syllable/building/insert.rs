@@ -14,7 +14,6 @@ use crate::{
 impl BuildingSyllable {
     // ─────────────────────────── Insert ───────────────────────────
 
-    #[inline(always)]
     pub fn insert<KM: Keymap>(
         &mut self,
         keymap: &KM,
@@ -110,7 +109,7 @@ impl BuildingSyllable {
     }
 
     /// Inserts a literal char into the onset (no vowel fallback).
-    #[inline(always)]
+    #[inline]
     fn insert_onset(&mut self, onset_index: usize, key: char) -> bool {
         debug_assert!(
             onset_index <= self.onset.len(),

@@ -14,7 +14,6 @@ use crate::{
 impl BuildingSyllable {
     // ─────────────────────────── Push ───────────────────────────
 
-    #[inline(always)]
     pub fn push<KM: Keymap>(
         &mut self,
         keymap: &KM,

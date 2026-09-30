@@ -10,7 +10,6 @@ use crate::{composition::syllable::InputEffect, phonology::TonePlacement};
 impl BuildingSyllable {
     // ─────────────────────────── Remove ───────────────────────────
 
-    #[inline]
     pub fn remove(
         &mut self,
         index: usize,
