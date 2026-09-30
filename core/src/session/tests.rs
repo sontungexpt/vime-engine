@@ -1,17 +1,17 @@
-//! Unit tests for [`SharedConfig`].
+//! Unit tests for [`SharedSessionConfig`].
 //!
 //! These stay inside the crate rather than moving to `tests/`: they drive
-//! `Config`'s crate-private setters, which is the only way to exercise
-//! `SharedConfig::update`. An integration test compiles against the crate as an
+//! `SessionConfig`'s crate-private setters, which is the only way to exercise
+//! `SharedSessionConfig::update`. An integration test compiles against the crate as an
 //! external caller and cannot see `pub(crate)` items.
 
-use super::{Config, Session, SharedConfig};
+use super::{Session, SessionConfig, SharedSessionConfig};
 use crate::keymap::DefaultKeymap;
 use crate::phonology::TonePlacement;
 use crate::session::Settings;
 
-fn shared() -> SharedConfig<DefaultKeymap<'static>> {
-    SharedConfig::new(Config::from_keymap(
+fn shared() -> SharedSessionConfig<DefaultKeymap<'static>> {
+    SharedSessionConfig::new(SessionConfig::from_keymap(
         crate::session::Settings::default(),
         DefaultKeymap::telex(),
     ))
@@ -83,8 +83,8 @@ fn each_update_bumps_the_generation() {
 // must leave the resolved config exactly as it found it.
 
 /// A shared config holding Telex on the modern scheme.
-fn shared_config() -> SharedConfig<DefaultKeymap<'static>> {
-    SharedConfig::new(Config::from_keymap(
+fn shared_config() -> SharedSessionConfig<DefaultKeymap<'static>> {
+    SharedSessionConfig::new(SessionConfig::from_keymap(
         Settings::default(),
         DefaultKeymap::telex(),
     ))
@@ -92,7 +92,7 @@ fn shared_config() -> SharedConfig<DefaultKeymap<'static>> {
 
 /// A session on that config, holding the word `hoas`.
 fn session_with_hoas(
-    shared: &SharedConfig<DefaultKeymap<'static>>,
+    shared: &SharedSessionConfig<DefaultKeymap<'static>>,
 ) -> Session<DefaultKeymap<'static>> {
     let mut session = Session::new(shared.clone());
     for ch in "hoas".chars() {

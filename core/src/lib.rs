@@ -20,7 +20,7 @@
 //!   [`TonePlacement`](phonology::TonePlacement).
 //! - [`Session`]: one typing buffer, turning each [`KeyEvent`] into a
 //!   [`Result`] (re-render, commit, ignore or forward the key).
-//! - [`SessionFactory`]: owns the [`Config`] shared by its sessions and creates
+//! - [`SessionFactory`]: owns the [`SessionConfig`] shared by its sessions and creates
 //!   them, so one settings change can reach every session.
 
 // The `unsafe fn` bodies in this crate are `const fn`s whose safety contract
@@ -40,4 +40,4 @@ pub mod phonology;
 pub mod syllable;
 
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
-pub use session::{Config, Session, SessionFactory, Settings, SharedConfig};
+pub use session::{Session, SessionConfig, SessionFactory, Settings, SharedSessionConfig};

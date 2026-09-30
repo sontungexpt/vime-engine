@@ -5,12 +5,11 @@ use crate::composition::Parallel;
 use crate::keymap::Keymap;
 use crate::syllable::SyllableChars;
 
-use super::config::Config;
-use super::shared::{SharedConfig, UNRESOLVED};
+use super::config::{SessionConfig, SharedSessionConfig, UNRESOLVED_GENERATION};
 
 /// One typing buffer: the settings in force, and the composition they apply to.
 ///
-/// By default a session follows a [`SharedConfig`], so a change to the shared
+/// By default a session follows a [`SharedSessionConfig`], so a change to the shared
 /// settings reaches it along with every other session. To pin a session to its
 /// own settings use [`Session::with_isolated_config`], which opts it out until
 /// [`Session::clear_private_config`] puts it back on the shared settings.
@@ -29,15 +28,16 @@ pub struct Session<KM: Keymap> {
     /// Also the record of what the composition is parsing under, since
     /// [`Session::adopt_config`] moves the two together and nothing else writes
     /// either.
-    active_config: Config<KM>,
+    active_config: SessionConfig<KM>,
     /// Whether `active_config` is a pinned private config (`true`) or a
     /// shared-config snapshot that should be refreshed (`false`).
     has_private_config: bool,
     /// The shared configuration source. Cloning shares the same atomic
     /// generation counter and value.
-    shared_config: SharedConfig<KM>,
-    /// The shared-config generation `active_config` was read at. `UNRESOLVED`
-    /// means the session must re-read on its next [`Self::pull_config`].
+    shared_config: SharedSessionConfig<KM>,
+    /// The shared-config generation `active_config` was read at. An
+    /// `UNRESOLVED_GENERATION` means the session must re-read on its next
+    /// [`Self::pull_config`].
     generation: u64,
 
     /// The composition being parsed by this session.
@@ -49,7 +49,7 @@ where
     KM: Clone + PartialEq,
 {
     /// Creates an empty session that follows `shared`.
-    pub fn new(shared: SharedConfig<KM>) -> Self {
+    pub fn new(shared: SharedSessionConfig<KM>) -> Self {
         let active_config = shared.snapshot();
         let mut session = Self {
             composition: Composition::new(),
@@ -59,7 +59,7 @@ where
             // Force one resolution so a replacement racing with construction
             // cannot leave the session holding settings from a generation it
             // never named.
-            generation: UNRESOLVED,
+            generation: UNRESOLVED_GENERATION,
         };
         session.pull_config();
         session
@@ -67,8 +67,8 @@ where
 
     /// Creates an empty session with its own settings, isolated from any shared
     /// config. `clear_private_config` falls back to the original settings.
-    pub fn with_isolated_config(private: Config<KM>) -> Self {
-        Self::with_config_on_shared(SharedConfig::new(private.clone()), private)
+    pub fn with_isolated_config(private: SessionConfig<KM>) -> Self {
+        Self::with_config_on_shared(SharedSessionConfig::new(private.clone()), private)
     }
 
     /// Creates an empty session with its own settings, attached to `shared`.
@@ -77,13 +77,16 @@ where
     /// `shared_config`, so [`Session::clear_private_config`] puts it back on
     /// those settings — the pair of operations an application needs to give one
     /// buffer special treatment for a while and then take it back.
-    pub fn with_config_on_shared(shared_config: SharedConfig<KM>, private: Config<KM>) -> Self {
+    pub fn with_config_on_shared(
+        shared_config: SharedSessionConfig<KM>,
+        private: SessionConfig<KM>,
+    ) -> Self {
         Self {
             composition: Composition::new(),
             active_config: private,
             has_private_config: true,
             shared_config,
-            generation: UNRESOLVED,
+            generation: UNRESOLVED_GENERATION,
         }
     }
 
@@ -92,13 +95,13 @@ where
     /// The settings currently in force: the private config if pinned, otherwise
     /// the shared config snapshot.
     #[inline(always)]
-    pub fn config(&self) -> &Config<KM> {
+    pub fn config(&self) -> &SessionConfig<KM> {
         &self.active_config
     }
 
     /// The shared configuration source all unpinned sessions follow.
     #[inline(always)]
-    pub fn shared_config(&self) -> &SharedConfig<KM> {
+    pub fn shared_config(&self) -> &SharedSessionConfig<KM> {
         &self.shared_config
     }
 
@@ -115,7 +118,7 @@ where
     /// A session that was following the shared config becomes a private one
     /// simply by being given a config; pass [`Session::config`]'s current value
     /// to opt out of following without changing anything.
-    pub fn set_private_config(&mut self, private: Config<KM>) {
+    pub fn set_private_config(&mut self, private: SessionConfig<KM>) {
         self.adopt_config(private);
         self.has_private_config = true;
     }
@@ -127,7 +130,7 @@ where
             return;
         }
         self.has_private_config = false;
-        self.generation = UNRESOLVED;
+        self.generation = UNRESOLVED_GENERATION;
         self.pull_config();
     }
 
@@ -166,7 +169,7 @@ where
     /// The only place that writes `active_config`, and the composition reads
     /// the keymap and tone placement from it on each call, so there is no
     /// second copy to fall out of step.
-    fn adopt_config(&mut self, next: Config<KM>) -> bool {
+    fn adopt_config(&mut self, next: SessionConfig<KM>) -> bool {
         self.active_config = next;
         true
     }

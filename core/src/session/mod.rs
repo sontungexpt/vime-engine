@@ -1,10 +1,10 @@
 //! Sessions, and the shared settings they follow.
 //!
-//! An [`SessionFactory`](crate::SessionFactory) owns one [`SharedConfig`] and mints [`Session`]s
-//! from it. A session is one typing buffer, several can exist at once, and by
-//! default all of them run under the same settings. A session that needs its
-//! own settings takes a private [`Config`] instead, and then stops
-//! following the shared one.
+//! An [`SessionFactory`](crate::SessionFactory) owns one
+//! [`SharedSessionConfig`] and mints [`Session`]s from it. A session is one
+//! typing buffer, several can exist at once, and by default all of them run
+//! under the same settings. A session that needs its own settings takes a
+//! private [`SessionConfig`] instead, and then stops following the shared one.
 //!
 //! # How a change reaches every session
 //!
@@ -28,12 +28,10 @@ mod session;
 
 mod config;
 mod factory;
-mod shared;
 
 #[cfg(test)]
 mod tests;
 
-pub use config::{Config, Settings};
+pub use config::{SessionConfig, Settings, SharedSessionConfig};
 pub use factory::SessionFactory;
 pub use session::Session;
-pub use shared::SharedConfig;

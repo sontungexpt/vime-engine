@@ -7,13 +7,13 @@ mod common;
 use common::*;
 
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
+use vime_engine::{DefaultKeymap, Session, SessionConfig, SessionFactory, Settings};
 
-fn old_telex() -> Config<DefaultKeymap<'static>> {
+fn old_telex() -> SessionConfig<DefaultKeymap<'static>> {
     make_config(DefaultKeymap::telex(), TonePlacement::Old)
 }
 
-fn vni() -> Config<DefaultKeymap<'static>> {
+fn vni() -> SessionConfig<DefaultKeymap<'static>> {
     make_config(DefaultKeymap::vni(), TonePlacement::Modern)
 }
 

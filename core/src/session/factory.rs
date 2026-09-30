@@ -6,7 +6,7 @@
 //! created sessions (and existing ones following the shared config) will use.
 //!
 //! ```
-//! use vime_engine::{Config, DefaultKeymap, SessionFactory, Settings};
+//! use vime_engine::{SessionConfig, DefaultKeymap, SessionFactory, Settings};
 //!
 //! let factory = SessionFactory::from_keymap(Settings::default(), DefaultKeymap::telex());
 //!
@@ -18,7 +18,7 @@
 //! }
 //!
 //! // Both were typed under Telex, so both see this.
-//! factory.set_config(Config::from_keymap(
+//! factory.set_config(SessionConfig::from_keymap(
 //!     Settings::default(),
 //!     DefaultKeymap::vni(),
 //! ));
@@ -28,7 +28,7 @@
 //! }
 //! ```
 use crate::keymap::{DefaultKeymap, Keymap};
-use crate::session::{Config, Session, Settings, SharedConfig};
+use crate::session::{Session, SessionConfig, Settings, SharedSessionConfig};
 
 /// Creates sessions from a shared config.
 ///
@@ -36,15 +36,15 @@ use crate::session::{Config, Session, Settings, SharedConfig};
 /// subsequently created sessions (and existing ones following the shared config)
 /// will use.
 pub struct SessionFactory<KM: Keymap> {
-    config: SharedConfig<KM>,
+    config: SharedSessionConfig<KM>,
 }
 
 impl<KM: Keymap> SessionFactory<KM> {
     /// Creates a factory whose sessions all start from `config`.
     #[inline]
-    pub fn new(config: Config<KM>) -> Self {
+    pub fn new(config: SessionConfig<KM>) -> Self {
         Self {
-            config: SharedConfig::new(config),
+            config: SharedSessionConfig::new(config),
         }
     }
 
@@ -52,12 +52,12 @@ impl<KM: Keymap> SessionFactory<KM> {
     /// using the modern tone-placement convention.
     #[inline]
     pub fn from_keymap(settings: Settings, keymap: KM) -> Self {
-        Self::new(Config::from_keymap(settings, keymap))
+        Self::new(SessionConfig::from_keymap(settings, keymap))
     }
 
     /// The config every session follows unless it has taken a private one.
     #[inline]
-    pub fn config(&self) -> Config<KM> {
+    pub fn config(&self) -> SessionConfig<KM> {
         self.config.snapshot()
     }
 
@@ -68,7 +68,7 @@ impl<KM: Keymap> SessionFactory<KM> {
     /// there is nothing to call on each of them. A session holding a private
     /// config is not one of "every session" and keeps its own settings.
     #[inline]
-    pub fn set_config(&self, config: Config<KM>) -> u64 {
+    pub fn set_config(&self, config: SessionConfig<KM>) -> u64 {
         self.config.replace(config)
     }
 }
@@ -87,7 +87,7 @@ impl<KM: Keymap + PartialEq> SessionFactory<KM> {
     /// [`Session::clear_private_config`] returns it to the shared config as it
     /// stands by then.
     #[inline]
-    pub fn new_session_with(&self, config: Config<KM>) -> Session<KM> {
+    pub fn new_session_with(&self, config: SessionConfig<KM>) -> Session<KM> {
         Session::with_config_on_shared(self.config.clone(), config)
     }
 }

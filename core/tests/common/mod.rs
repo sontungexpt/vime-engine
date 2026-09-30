@@ -6,7 +6,7 @@
 //! written twice. Helpers only one of them uses stay in that file.
 
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, DefaultKeymap, Session, Settings};
+use vime_engine::{DefaultKeymap, Session, SessionConfig, Settings};
 
 /// A session on the default keymap, which is what these tests are about.
 pub type TelexSession = Session<DefaultKeymap<'static>>;
@@ -20,8 +20,8 @@ pub const OLD_HOA: &str = "hóa";
 pub fn make_config(
     keymap: DefaultKeymap<'static>,
     tone: TonePlacement,
-) -> Config<DefaultKeymap<'static>> {
-    Config::new(Settings::default(), keymap, tone)
+) -> SessionConfig<DefaultKeymap<'static>> {
+    SessionConfig::new(Settings::default(), keymap, tone)
 }
 
 /// The word as the session renders it.
