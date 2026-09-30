@@ -26,7 +26,7 @@ pub struct Session<KM: Keymap> {
     /// (when `has_private_config == false`), resolved at `generation`.
     ///
     /// Also the record of what the composition is parsing under, since
-    /// [`Session::adopt_config`] moves the two together and nothing else writes
+    /// [`Session::activate_config`] moves the two together and nothing else writes
     /// either.
     active_config: SessionConfig<KM>,
     /// Whether `active_config` is a pinned private config (`true`) or a
@@ -119,7 +119,7 @@ where
     /// simply by being given a config; pass [`Session::config`]'s current value
     /// to opt out of following without changing anything.
     pub fn set_private_config(&mut self, private: SessionConfig<KM>) {
-        self.adopt_config(private);
+        self.activate_config(private);
         self.has_private_config = true;
     }
 
@@ -157,19 +157,20 @@ where
         if self.has_private_config {
             return false;
         }
-        self.adopt_config(self.shared_config.snapshot())
+        self.activate_config(self.shared_config.snapshot())
     }
 
     /// Makes `next` the settings in force, so every subsequent composition
     /// operation parses and renders under them.
     ///
-    /// Returns whether the session adopted a newer configuration. The caller has
-    /// already seen the generation move, so there is nothing to compare here.
+    /// Returns whether the session activated a newer configuration. The caller
+    /// has already seen the generation move, so there is nothing to compare
+    /// here.
     ///
     /// The only place that writes `active_config`, and the composition reads
     /// the keymap and tone placement from it on each call, so there is no
     /// second copy to fall out of step.
-    fn adopt_config(&mut self, next: SessionConfig<KM>) -> bool {
+    fn activate_config(&mut self, next: SessionConfig<KM>) -> bool {
         self.active_config = next;
         true
     }
