@@ -61,19 +61,18 @@ fn a_shared_change_reaches_every_session() {
 }
 
 /// A session that is not holding a keystroke still adopts the new settings, and
-/// `refresh` is how a caller asks for that without inventing input.
+/// `pull_config` is how a caller asks for that without inventing input.
 #[test]
 fn refresh_picks_up_a_change_without_a_keystroke() {
     let engine = SessionFactory::telex(Settings::default());
     let mut session = engine.new_session();
-    type_str(&mut session, "hoas");
+    assert_eq!(type_str(&mut session, "hoas"), MODERN_HOA);
 
     engine.set_config(old_telex());
-    assert_eq!(
-        rendered_to_string(&mut session),
-        MODERN_HOA,
-        "not until it looks"
-    );
+
+    // Not until it looks. `config` is a plain read, so the new settings are not
+    // in force yet; anything that renders would have adopted them on the way in.
+    assert_eq!(session.config().tone_placement(), TonePlacement::Modern);
 
     assert!(
         session.pull_config(),
