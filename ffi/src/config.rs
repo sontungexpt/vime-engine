@@ -15,28 +15,28 @@
 //! is no way to look before looking.
 //!
 //! So nothing here ever reads a caller's bytes as a `VimeConfig`. Each field is
-//! read at its asserted offset as a plain integer, which has no validity
-//! constraints, and only then checked: the two `u32`s are matched against known
-//! variants by `from_raw`, and the flag byte is compared against zero. Reading
-//! the flag as a `bool` first would reintroduce exactly the hazard the enums are
-//! being avoided for — a `bool` is valid only when it is 0 or 1, and C is free to
-//! write something else.
+//! read at its asserted offset as a plain `u32`, which has no validity
+//! constraints, and only then checked against the known values. Reading a
+//! field directly as the Rust enum it stands for — or, for a `bool`, as a
+//! `bool` — would reintroduce exactly the hazard the enums are being avoided
+//! for: those types are only valid for a subset of the bit patterns, and C is
+//! free to write something else.
 //!
 //! [`VimeConfig::read`] returning `None` for an unknown discriminant is what
 //! lets every caller reject a bad config with the NULL / `false` the header
 //! documents, instead of inventing an enum value.
 
 use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, DefaultKeymap, Settings};
+use vime_engine::{DefaultKeymap, SessionConfig, Settings};
 
 /// The engine this C ABI is fixed to: the three bundled keymaps, statically
 /// dispatched. A C caller cannot supply a keymap, so there is nothing to be
 /// generic over, and `Box<dyn Keymap>` would only add a vtable hop to the
 /// keystroke path.
-pub(crate) type FfiDefaultKeymap = DefaultKeymap<'static>;
+pub(crate) type FfiKeymap = DefaultKeymap<'static>;
 
 /// The engine config a C `VimeConfig` converts to.
-pub(crate) type FfiConfig = Config<FfiDefaultKeymap>;
+pub(crate) type FfiSessionConfig = SessionConfig<FfiKeymap>;
 
 /// Constants matching values defined in C Header (`vime_engine.h`)
 pub type VimeInputMethod = u32;
@@ -83,23 +83,49 @@ impl VimeConfig {
     /// discriminant is `None`: the caller reports the NULL / `false` the header
     /// documents for a bad config instead of guessing a value.
     ///
+    /// Every field comes back as a plain `u32` and is checked before it becomes
+    /// a [`VimeConfig`], which is the only order in which the check is sound —
+    /// see the module docs. The accepted values are spelled against the
+    /// `VIME_*` constants rather than repeated as literals, so a value changing
+    /// in the header cannot leave the check behind.
+    ///
+    /// Not on the keystroke path: only the four entry points that accept a
+    /// `VimeConfig` come through here, so the work is four integer loads and
+    /// two range checks, once per configuration change.
+    ///
     /// # Safety
     ///
     /// `config` must be NULL or point to a readable, correctly aligned
     /// `VimeConfig` that stays readable for the duration of the call.
+    #[inline]
     pub(crate) unsafe fn read(config: *const Self) -> Option<Self> {
-        let ptr = config.cast::<u8>();
-        if ptr.is_null() {
+        // Checked on the typed pointer, before it is used as a base for offset
+        // arithmetic; the cast to `u8` below exists only to apply the offsets.
+        if config.is_null() {
             return Some(Self::init());
         }
+        let base = config.cast::<u8>();
+
         // SAFETY: the caller guarantees a readable, correctly aligned
-        // `VimeConfig` for the duration of the call. `VimeConfig` is 8 bytes
-        // with a 4-byte alignment (asserted below), so the two `u32` reads are
-        // in bounds and aligned. Every field is read as an integer, which has no
-        // validity constraints, so no invalid enum is ever constructed.
-        let input_method = unsafe { ptr.add(INPUT_METHOD_OFFSET).cast::<u32>().read() };
-        let tone_placement = unsafe { ptr.add(TONE_PLACEMENT_OFFSET).cast::<u32>().read() };
-        if !matches!(input_method, 1..=3) || !matches!(tone_placement, 1..=2) {
+        // `VimeConfig` for the duration of the call. `VimeConfig` is 8 bytes with
+        // 4-byte alignment, both asserted below, so each `u32` read is in bounds
+        // and aligned. Reading them as integers means no Rust enum is ever
+        // constructed from an unvalidated value.
+        let input_method = unsafe { base.add(INPUT_METHOD_OFFSET).cast::<u32>().read() };
+        let tone_placement = unsafe { base.add(TONE_PLACEMENT_OFFSET).cast::<u32>().read() };
+
+        // Enumerated against the `VIME_*` constants rather than range-checked,
+        // so the accepted set is exactly the one `to_ffi_session_config` can map. A
+        // range would also admit a value this match does not name, and that
+        // value would reach the `unreachable!()` below — a panic on the way out
+        // of a function whose whole job is to answer `None` for a bad config.
+        if !matches!(
+            input_method,
+            VIME_INPUT_METHOD_TELEX..=VIME_INPUT_METHOD_VIQR
+        ) || !matches!(
+            tone_placement,
+            VIME_TONE_PLACEMENT_MODERN..=VIME_TONE_PLACEMENT_OLD
+        ) {
             return None;
         }
 
@@ -113,11 +139,11 @@ impl VimeConfig {
     ///
     /// Consumes a `VimeConfig` that has already been through [`Self::read`], so
     /// the u32 values are known-good and this cannot fail.
-    pub(crate) fn to_engine_config(self) -> FfiConfig {
+    pub(crate) fn to_ffi_session_config(self) -> FfiSessionConfig {
         let keymap = match self.input_method {
-            VIME_INPUT_METHOD_TELEX => FfiDefaultKeymap::telex(),
-            VIME_INPUT_METHOD_VNI => FfiDefaultKeymap::vni(),
-            VIME_INPUT_METHOD_VIQR => FfiDefaultKeymap::viqr(),
+            VIME_INPUT_METHOD_TELEX => FfiKeymap::telex(),
+            VIME_INPUT_METHOD_VNI => FfiKeymap::vni(),
+            VIME_INPUT_METHOD_VIQR => FfiKeymap::viqr(),
             _ => unreachable!(),
         };
 
@@ -127,7 +153,7 @@ impl VimeConfig {
             _ => unreachable!(),
         };
 
-        FfiConfig::new(Settings::default(), keymap, tone_placement)
+        FfiSessionConfig::new(Settings::default(), keymap, tone_placement)
     }
 }
 
@@ -198,24 +224,59 @@ mod tests {
         }
     }
 
+    /// Every discriminant the header declares is accepted, read the way a C
+    /// caller delivers it — from bytes, not from a typed value.
+    ///
+    /// This drives [`VimeConfig::read`] rather than restating its predicate. The
+    /// previous version asserted `matches!(1u32, 1..=3)`, which proves only that
+    /// `1` is in `1..=3`: a second copy of the check, beside the check, free to
+    /// drift from it.
     #[test]
     fn every_header_discriminant_is_accepted() {
-        // Valid input methods
-        assert!(matches!(1u32, 1..=3));
-        assert!(matches!(2u32, 1..=3));
-        assert!(matches!(3u32, 1..=3));
-        // Valid tone placements
-        assert!(matches!(1u32, 1..=2));
-        assert!(matches!(2u32, 1..=2));
+        for method in [
+            VIME_INPUT_METHOD_TELEX,
+            VIME_INPUT_METHOD_VNI,
+            VIME_INPUT_METHOD_VIQR,
+        ] {
+            for tone in [VIME_TONE_PLACEMENT_MODERN, VIME_TONE_PLACEMENT_OLD] {
+                let raw = Bytes::new(method, tone);
+                // SAFETY: `Bytes` is the same size as `VimeConfig` and aligned the
+                // same way (both asserted above), so this is exactly the pointer a C
+                // caller would hand over.
+                let read = unsafe { VimeConfig::read(raw.as_config()) };
+                assert_eq!(
+                    read,
+                    Some(VimeConfig {
+                        input_method: method,
+                        tone_placement: tone,
+                    }),
+                    "input_method {method}, tone_placement {tone}"
+                );
+            }
+        }
     }
 
     /// A C caller is not bound by the header, so 0 and 4 must both be refused
     /// rather than treated as some default variant.
+    ///
+    /// Each value is tried in both fields, because the two are read from
+    /// different offsets and a check that only guarded one would still pass this
+    /// loop. The extremes matter most: `u32::MAX` is the value most likely to
+    /// wrap an `as`-based conversion into something that looks declared.
     #[test]
     fn out_of_range_discriminants_are_refused() {
         for raw in [0u32, 4, 5, u32::MAX, u32::MAX - 1] {
-            assert!(!matches!(raw, 1..=3), "{raw}");
-            assert!(!matches!(raw, 1..=2), "{raw}");
+            let in_input_method = Bytes::new(raw, VIME_TONE_PLACEMENT_MODERN);
+            let in_tone_placement = Bytes::new(VIME_INPUT_METHOD_TELEX, raw);
+
+            for (field, bytes) in [
+                ("input_method", &in_input_method),
+                ("tone_placement", &in_tone_placement),
+            ] {
+                // SAFETY: as above.
+                let read = unsafe { VimeConfig::read(bytes.as_config()) };
+                assert_eq!(read, None, "{raw} in {field} must be refused");
+            }
         }
     }
 
@@ -225,8 +286,8 @@ mod tests {
         let read = unsafe { VimeConfig::read(core::ptr::null()) };
         assert_eq!(read, Some(VimeConfig::init()));
         assert_eq!(
-            read.unwrap().to_engine_config(),
-            VimeConfig::default().to_engine_config()
+            read.unwrap().to_ffi_session_config(),
+            VimeConfig::default().to_ffi_session_config()
         );
     }
 
@@ -246,7 +307,7 @@ mod tests {
                 let read = unsafe { VimeConfig::read(&config) };
                 assert_eq!(read, Some(config));
 
-                let engine = config.to_engine_config();
+                let engine = config.to_ffi_session_config();
                 let expected_tone = match tone {
                     VIME_TONE_PLACEMENT_MODERN => TonePlacement::Modern,
                     VIME_TONE_PLACEMENT_OLD => TonePlacement::Old,

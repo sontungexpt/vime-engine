@@ -46,11 +46,11 @@ use std::ffi::c_char;
 
 use vime_engine::{Session, SessionFactory};
 
-use crate::config::{FfiConfig, FfiDefaultKeymap};
+use crate::config::{FfiKeymap, FfiSessionConfig};
 use crate::render::{measure, VimeRenderState};
 
 /// The engine session a handle owns.
-type EngineSession = Session<FfiDefaultKeymap>;
+type EngineSession = Session<FfiKeymap>;
 
 /// The text inside a render buffer, without the terminator the fill added.
 ///
@@ -148,18 +148,19 @@ impl VimeSessionHandle {
         self.raw_current = false;
     }
 
-    /// Re-reads the shared configuration and drops the cached text if the core
-    /// reports that the word moved.
+    /// Drops the cached text if the core reports it adopted a newer config.
     ///
-    /// A factory configuration change reaches a session with no call on the
-    /// session at all, so a query that only reads the cache is the only chance to
-    /// notice one. The decision belongs to the core: `refresh_config` re-reads the
-    /// shared configuration and reports whether adopting it re-rendered, and this
-    /// only acts on that answer. Nothing here tracks generations, compares
-    /// settings or predicts what a change would do.
+    /// The core owns config resolution: every config-dependent `Session`
+    /// operation calls `pull_config` for itself. This is not that. It exists
+    /// only because a *shared* config change arrives through the factory, which
+    /// holds no reference to this handle, so there is no other path by which
+    /// this cache can learn that the text it holds has stopped describing the
+    /// session. Without it, `fill_rendered` would return the cached string
+    /// without ever asking the session, and the word on screen would keep the
+    /// old tone placement.
     ///
-    /// Mutations do not call this. The core refreshes inside every operation, so by
-    /// the time a query runs there is nothing left for it to adopt.
+    /// A private-config change does not need this: that runs through
+    /// `set_private_config` on this handle, which invalidates directly.
     #[inline]
     fn sync(&mut self) {
         if self.session.pull_config() {
@@ -184,10 +185,13 @@ impl VimeSessionHandle {
     }
 
     /// The rendered caret, in characters. No rendering: the core knows it.
+    ///
+    /// No `sync` either: the caret counts positions in an already-parsed word,
+    /// and adopting a config does not re-parse the buffer, so a config change
+    /// cannot move it.
     #[inline]
     pub(crate) fn cursor_char_idx(&mut self) -> usize {
-        self.sync();
-        self.session.cursor_pos()
+        self.session.rendered_cursor()
     }
 
     /// The rendered caret, in UTF-8 bytes, derived from the rendered word.
@@ -195,15 +199,14 @@ impl VimeSessionHandle {
     pub(crate) fn cursor_byte_idx(&mut self) -> usize {
         self.sync();
         self.fill_rendered();
-        let (byte_idx, _) = measure(content(&self.rendered), self.session.cursor_pos());
+        let (byte_idx, _) = measure(content(&self.rendered), self.session.rendered_cursor());
         byte_idx
     }
 
     /// The raw caret, in keystrokes. No rendering: the core knows it.
     #[inline]
     pub(crate) fn raw_cursor_char_idx(&mut self) -> usize {
-        self.sync();
-        self.session.raw_cursor_pos()
+        self.session.raw_cursor()
     }
 
     /// The raw caret, in UTF-8 bytes, derived from the raw keystrokes.
@@ -211,14 +214,16 @@ impl VimeSessionHandle {
     pub(crate) fn raw_cursor_byte_idx(&mut self) -> usize {
         self.sync();
         self.fill_raw();
-        let (byte_idx, _) = measure(content(&self.raw), self.session.raw_cursor_pos());
+        let (byte_idx, _) = measure(content(&self.raw), self.session.raw_cursor());
         byte_idx
     }
 
     /// Whether the buffer spells a complete, valid Vietnamese syllable.
+    ///
+    /// No `sync`: validity is a phonotactic question about the parsed syllable,
+    /// which neither the keymap nor the tone-placement scheme takes part in.
     #[inline]
     pub(crate) fn is_valid_vietnamese(&mut self) -> bool {
-        self.sync();
         self.session.is_valid()
     }
 
@@ -237,8 +242,8 @@ impl VimeSessionHandle {
         // character count the next call will need to delete; the raw text gives its
         // own caret offset and nothing else. The core positions are character
         // indices, and each is what its own walk converts to a byte offset.
-        let cursor_chars = self.session.cursor_pos();
-        let raw_cursor_chars = self.session.raw_cursor_pos();
+        let cursor_chars = self.session.rendered_cursor();
+        let raw_cursor_chars = self.session.raw_cursor();
         let rendered = content(&self.rendered);
         let (cursor_byte_idx, len_chars) = measure(rendered, cursor_chars);
         let len_bytes = rendered.len();
@@ -298,11 +303,11 @@ impl VimeSessionHandle {
 /// sessions minted from it.
 #[repr(C)]
 pub struct VimeSessionFactoryHandle {
-    pub(crate) factory: SessionFactory<FfiDefaultKeymap>,
+    pub(crate) factory: SessionFactory<FfiKeymap>,
 }
 
 impl VimeSessionFactoryHandle {
-    pub(crate) fn new(config: FfiConfig) -> Self {
+    pub(crate) fn new(config: FfiSessionConfig) -> Self {
         Self {
             factory: SessionFactory::new(config),
         }
@@ -319,7 +324,7 @@ impl VimeSessionFactoryHandle {
 
     /// A new session with a private configuration, still able to fall back to
     /// the shared one.
-    pub(crate) fn new_session_with(&self, config: FfiConfig) -> EngineSession {
+    pub(crate) fn new_session_with(&self, config: FfiSessionConfig) -> EngineSession {
         self.factory.new_session_with(config)
     }
 }
@@ -411,11 +416,8 @@ mod tests {
 
     fn session() -> VimeSessionHandle {
         VimeSessionHandle::new(
-            SessionFactory::<FfiDefaultKeymap>::from_keymap(
-                Settings::default(),
-                DefaultKeymap::telex(),
-            )
-            .new_session(),
+            SessionFactory::<FfiKeymap>::from_keymap(Settings::default(), DefaultKeymap::telex())
+                .new_session(),
         )
     }
 
