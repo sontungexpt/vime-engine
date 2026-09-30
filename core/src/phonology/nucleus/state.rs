@@ -1,7 +1,7 @@
 //! The Vietnamese nucleus rule table: whether a sequence of base vowels is a
 //! known syllable nucleus, and if so whether it is complete.
 
-use crate::phonology::BaseVowel;
+use super::super::BaseVowel;
 
 use super::slice::BaseVowelSlice;
 

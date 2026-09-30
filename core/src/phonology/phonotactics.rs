@@ -9,7 +9,7 @@
 //! Khi kiểm tra quy tắc chính tả, validator chỉ thực hiện các phép toán bitwise (`&`, `|`)
 //! giúp CPU thực thi không rẽ nhánh (branchless execution) và hoàn toàn tương thích `const fn`.
 
-use crate::phonology::{BaseVowel, BaseVowelSlice, Coda, Onset, Tone};
+use super::{BaseVowel, BaseVowelSlice, Coda, Onset, Tone};
 
 /// Bitmask mã hóa các thuộc tính ÂM VỊ HỌC (phonotactic attributes) của vần.
 ///

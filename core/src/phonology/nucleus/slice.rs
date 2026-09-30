@@ -7,7 +7,7 @@
 //! [`BaseVowel`]s, as [`Vowel`]s (which pack the base vowel together with tone
 //! and case), or in the syllable builder's inline `Nucleus` buffer.
 
-use crate::phonology::{BaseVowel, Vowel};
+use super::super::{BaseVowel, Vowel};
 
 /// A sequence of base vowels that can be inspected positionally.
 pub trait BaseVowelSlice {

@@ -6,12 +6,16 @@
 //! created sessions (and existing ones following the shared config) will use.
 //!
 //! ```
-//! use vime_engine::{Config, DefaultKeymap, SessionFactory, Key, KeyEvent, KeyStates, Settings};
+//! use vime_engine::{Config, DefaultKeymap, SessionFactory, Settings};
 //!
 //! let factory = SessionFactory::from_keymap(Settings::default(), DefaultKeymap::telex());
 //!
 //! let mut first = factory.new_session();
 //! let mut second = factory.new_session();
+//!
+//! for session in [&mut first, &mut second] {
+//!     session.insert('a');
+//! }
 //!
 //! // Both were typed under Telex, so both see this.
 //! factory.set_config(Config::from_keymap(
@@ -20,7 +24,7 @@
 //! ));
 //!
 //! for session in [&mut first, &mut second] {
-//!     session.process_key(KeyEvent { key: Key::Character('a'), states: KeyStates::empty() });
+//!     session.insert('b');
 //! }
 //! ```
 use crate::keymap::{DefaultKeymap, Keymap};
