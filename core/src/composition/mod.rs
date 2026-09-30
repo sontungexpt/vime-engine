@@ -5,8 +5,23 @@ pub use cursor::Cursor;
 use crate::{
     keymap::Keymap,
     phonology::TonePlacement,
-    syllable::{InputEffect, Syllable},
+    syllable::{InputEffect, Syllable, SyllableChars},
+    util::vec::SmallVec,
 };
+
+/// The raw keystroke buffer: one character per key, held inline up to
+/// [`RAW_INLINE`].
+///
+/// The counterpart to [`SyllableChars`], which is the parsed form. Named against
+/// the *raw* form because the module deals in both, and the two may hold
+/// different numbers of characters.
+type RawChars = SmallVec<char, RAW_INLINE>;
+
+/// Inline capacity for raw keystrokes before spilling to the heap.
+///
+/// Fifteen characters cover most ordinary words while keeping the inline
+/// buffer small. Longer input spills to the heap without imposing a limit.
+const RAW_INLINE: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parallel<T> {
@@ -46,10 +61,10 @@ impl<T> Parallel<T> {
 /// tone-placement scheme is a plain argument of the ones that render.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Composition {
-    raw: Vec<char>,
+    raw: RawChars,
 
-    // Kept separately because raw and parsed positions are not necessarily
-    // one-to-one. Most editing/navigation decisions use `parsed_cursor`;
+    // Kept separately because raw and rendered positions are not necessarily
+    // one-to-one. Most editing/navigation decisions use `rendered_cursor`;
     // `raw_cursor` is used to modify the raw keystroke buffer.
     raw_cursor: Cursor,
 
@@ -68,7 +83,7 @@ impl Composition {
     #[inline(always)]
     pub fn new() -> Self {
         Self {
-            raw: Vec::new(),
+            raw: RawChars::new(),
             raw_cursor: Cursor::start(),
             rendered: Syllable::new(),
             rendered_cursor: Cursor::start(),
@@ -124,7 +139,7 @@ impl Composition {
     /// Returns `true` if the parsed cursor moved.
     #[inline]
     pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        // Raw cursor always true if parsed_cursor is true so do not need to check
+        // `raw_cursor` is always true if `rendered_cursor` is, so no check needed
         Parallel {
             rendered: self.rendered_cursor.move_left(),
             raw: self.raw_cursor.move_left(),
@@ -243,19 +258,19 @@ impl Composition {
     ///
     /// This is the caret a frontend shows: the position inside the text
     /// `write_rendered_to` produces. The raw buffer has its own cursor, reported
-    /// by [`Self::raw_cursor_pos`], because the two buffers are not the same
+    /// by [`Self::raw_cursor`], because the two buffers are not the same
     /// length.
     #[inline(always)]
-    pub const fn cursor_pos(&self) -> usize {
+    pub const fn rendered_cursor(&self) -> usize {
         self.rendered_cursor.get()
     }
 
     /// The raw cursor position, in keystrokes from the start of the raw buffer.
     ///
-    /// The counterpart to [`Self::cursor_pos`] for the buffer that records what
+    /// The counterpart to [`Self::rendered_cursor`] for the buffer that records what
     /// was actually typed, which is the buffer editing operations act on.
     #[inline(always)]
-    pub const fn raw_cursor_pos(&self) -> usize {
+    pub const fn raw_cursor(&self) -> usize {
         self.raw_cursor.get()
     }
 
@@ -280,7 +295,7 @@ impl Composition {
     /// While the parse succeeds this is the spelled-out syllable; once it has
     /// failed the raw buffer comes back verbatim.
     #[inline]
-    pub fn rendered(&self, tone_placement: TonePlacement) -> Vec<char> {
+    pub fn rendered(&self, tone_placement: TonePlacement) -> SyllableChars {
         self.rendered.to_chars(tone_placement)
     }
 

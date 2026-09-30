@@ -16,8 +16,9 @@ use crate::{
         BaseVowel, Coda, NucleusState, NucleusStateOf, Onset, PhonotacticError,
         PhonotacticValidator, RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
     },
-    util::InlineVec,
 };
+
+use super::SyllableChars;
 
 mod error;
 mod insert;
@@ -65,7 +66,8 @@ const fn is_i_ignore_case(ch: char) -> bool {
 }
 
 impl BuildingSyllable {
-    const MAX_LEN: usize = Coda::MAX_LEN + NUCLEUS_MAX_LEN + Onset::MAX_LEN;
+    /// The longest word this builder can produce: onset, nucleus, coda.
+    pub(crate) const MAX_LEN: usize = Coda::MAX_LEN + NUCLEUS_MAX_LEN + Onset::MAX_LEN;
 
     // ─────────────────────────── Accessors ───────────────────────────
 
@@ -191,11 +193,14 @@ impl BuildingSyllable {
         self.to_chars(tone_placement).into_iter()
     }
 
-    /// Renders the syllable into an inline buffer: onset, then the tone-marked
-    /// vowels, then the coda. See also [`Self::write_to`], which writes the
-    /// same characters without an intermediate buffer.
-    pub fn to_chars(&self, tone_placement: TonePlacement) -> InlineVec<char, { Self::MAX_LEN }> {
-        let mut output = InlineVec::default();
+    /// Renders the syllable into a [`SyllableChars`] buffer: onset, then the
+    /// tone-marked vowels, then the coda. See also [`Self::write_to`], which
+    /// writes the same characters without an intermediate buffer.
+    ///
+    /// A word the parser can build is at most [`Self::MAX_LEN`] characters,
+    /// which fits the alias's inline capacity, so this never spills.
+    pub fn to_chars(&self, tone_placement: TonePlacement) -> SyllableChars {
+        let mut output = SyllableChars::new();
 
         // 1. Onset (contiguous chars -> one memcpy)
         output.extend_from_slice(&self.onset);

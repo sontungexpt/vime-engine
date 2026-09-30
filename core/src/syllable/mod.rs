@@ -1,11 +1,11 @@
 mod building;
 mod dead;
-mod input_effect;
 mod iter;
 
 use crate::{
     keymap::Keymap,
     phonology::{Coda, Onset, TonePlacement, Vowel},
+    util::vec::SmallVec,
 };
 
 // The two phases are local to this module: `Syllable` is the only way in, and
@@ -13,13 +13,37 @@ use crate::{
 use building::BuildingSyllable;
 use dead::DeadSyllable;
 
-pub use input_effect::InputEffect;
-
 #[cfg(test)]
 mod tests;
 
+/// What one keystroke did to the parsed syllable.
+///
+/// Returned by every editing operation, because a frontend has to know whether
+/// to advance its own caret: a transform consumes the key without lengthening
+/// the word, a structural change adds or removes a character.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputEffect {
+    /// Mutated an existing character into a marked form (e.g. `a` + `w` -> `ă`).
+    Transformed,
+    /// Changed the buffer structure (inserted a new character or removed one).
+    StructurallyChanged,
+}
+
+/// A syllable's rendered characters — the form presented to the user — as a
+/// [`VecLike`] container.
+///
+/// Named after the *rendered* form because this module also keeps characters
+/// that are merely recorded. [`DeadSyllable`] retains the raw input after a
+/// parse fails, which is not the rendered form represented here.
+///
+/// [`BuildingSyllable::MAX_LEN`] covers the longest syllable the parser can
+/// build. One additional slot provides a small inline margin for dead input
+/// following an accepted prefix. Longer input spills to the heap, so this is
+/// an allocation fast path, not a length limit.
+pub type SyllableChars = SmallVec<char, { BuildingSyllable::MAX_LEN + 1 }>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum SyllableState {
+enum Phase {
     /// Parsing phase: accumulating and validating Vietnamese syllable components.
     Building(BuildingSyllable),
 
@@ -27,7 +51,7 @@ enum SyllableState {
     Dead(DeadSyllable),
 }
 
-impl Default for SyllableState {
+impl Default for Phase {
     fn default() -> Self {
         Self::Building(BuildingSyllable::default())
     }
@@ -44,7 +68,7 @@ impl Default for SyllableState {
 /// take them as arguments, the keymap as a generic parameter.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Syllable {
-    state: SyllableState,
+    phase: Phase,
 }
 
 impl Syllable {
@@ -57,7 +81,7 @@ impl Syllable {
     #[inline]
     pub fn new() -> Self {
         Self {
-            state: SyllableState::default(),
+            phase: Phase::default(),
         }
     }
 
@@ -66,15 +90,15 @@ impl Syllable {
     /// Whether the syllable is still in the parsing (building) phase.
     #[inline(always)]
     pub const fn is_building(&self) -> bool {
-        matches!(self.state, SyllableState::Building(_))
+        matches!(self.phase, Phase::Building(_))
     }
 
     /// Number of characters the syllable renders to (`onset + vowels + coda`).
     #[inline(always)]
     pub fn len(&self) -> usize {
-        match &self.state {
-            SyllableState::Building(builder) => builder.len(),
-            SyllableState::Dead(builder) => builder.len(),
+        match &self.phase {
+            Phase::Building(builder) => builder.len(),
+            Phase::Dead(builder) => builder.len(),
         }
     }
 
@@ -102,8 +126,8 @@ impl Syllable {
     #[inline]
     pub fn is_valid(&self) -> bool {
         use crate::phonology::{DefaultPhonotacticValidator, PhonotacticValidator};
-        match &self.state {
-            SyllableState::Building(builder) => {
+        match &self.phase {
+            Phase::Building(builder) => {
                 let nucleus = builder.nucleus();
                 !nucleus.is_empty()
                     && DefaultPhonotacticValidator
@@ -115,7 +139,7 @@ impl Syllable {
                         )
                         .is_ok()
             }
-            SyllableState::Dead(_) => false,
+            Phase::Dead(_) => false,
         }
     }
 
@@ -123,7 +147,7 @@ impl Syllable {
     /// keymap and tone placement had accepted.
     #[inline]
     pub fn reset(&mut self) {
-        self.state = SyllableState::default();
+        self.phase = Phase::default();
     }
 
     // ------------------------------------------------------ part access
@@ -135,45 +159,45 @@ impl Syllable {
     /// The onset characters, `None` once the syllable has fallen back to dead.
     #[inline(always)]
     pub fn onset(&self) -> Option<&[char]> {
-        match &self.state {
-            SyllableState::Building(builder) => Some(builder.onset()),
-            SyllableState::Dead(_) => None,
+        match &self.phase {
+            Phase::Building(builder) => Some(builder.onset()),
+            Phase::Dead(_) => None,
         }
     }
 
     /// The parsed onset variant, `None` once dead.
     #[inline(always)]
     pub fn onset_kind(&self) -> Option<Onset> {
-        match &self.state {
-            SyllableState::Building(builder) => Some(builder.onset_kind()),
-            SyllableState::Dead(_) => None,
+        match &self.phase {
+            Phase::Building(builder) => Some(builder.onset_kind()),
+            Phase::Dead(_) => None,
         }
     }
 
     /// The nucleus vowels, `None` once dead.
     #[inline(always)]
     pub fn nucleus(&self) -> Option<&[Vowel]> {
-        match &self.state {
-            SyllableState::Building(builder) => Some(builder.nucleus()),
-            SyllableState::Dead(_) => None,
+        match &self.phase {
+            Phase::Building(builder) => Some(builder.nucleus()),
+            Phase::Dead(_) => None,
         }
     }
 
     /// The coda characters, `None` once dead.
     #[inline(always)]
     pub fn coda(&self) -> Option<&[char]> {
-        match &self.state {
-            SyllableState::Building(builder) => Some(builder.coda()),
-            SyllableState::Dead(_) => None,
+        match &self.phase {
+            Phase::Building(builder) => Some(builder.coda()),
+            Phase::Dead(_) => None,
         }
     }
 
     /// The parsed coda variant, `None` once dead.
     #[inline(always)]
     pub fn coda_kind(&self) -> Option<Coda> {
-        match &self.state {
-            SyllableState::Building(builder) => Some(builder.coda_kind()),
-            SyllableState::Dead(_) => None,
+        match &self.phase {
+            Phase::Building(builder) => Some(builder.coda_kind()),
+            Phase::Dead(_) => None,
         }
     }
 
@@ -185,10 +209,10 @@ impl Syllable {
     /// `tone_placement` only decides which nucleus vowel carries the tone mark,
     /// so it matters on the building path alone.
     #[inline(always)]
-    pub fn to_chars(&self, tone_placement: TonePlacement) -> Vec<char> {
-        match &self.state {
-            SyllableState::Building(builder) => builder.to_chars(tone_placement).to_vec(),
-            SyllableState::Dead(builder) => builder.to_chars(),
+    pub fn to_chars(&self, tone_placement: TonePlacement) -> SyllableChars {
+        match &self.phase {
+            Phase::Building(builder) => builder.to_chars(tone_placement),
+            Phase::Dead(builder) => builder.to_chars(),
         }
     }
 
@@ -199,9 +223,9 @@ impl Syllable {
     /// intermediate `Vec` on the dead path.
     #[inline(always)]
     pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
-        match &self.state {
-            SyllableState::Building(builder) => builder.write_to(tone_placement, output),
-            SyllableState::Dead(builder) => {
+        match &self.phase {
+            Phase::Building(builder) => builder.write_to(tone_placement, output),
+            Phase::Dead(builder) => {
                 builder.write_to(output);
             }
         }
@@ -211,12 +235,12 @@ impl Syllable {
     /// whether in the building phase (with precomposed tones) or verbatim dead phase.
     #[inline]
     pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
-        use crate::syllable::iter::SyllableChars;
-        match &self.state {
-            SyllableState::Building(builder) => {
-                SyllableChars::Building(builder.iter_chars(tone_placement))
+        use crate::syllable::iter::SyllableCharsIter;
+        match &self.phase {
+            Phase::Building(builder) => {
+                SyllableCharsIter::Building(builder.iter_chars(tone_placement))
             }
-            SyllableState::Dead(builder) => SyllableChars::Dead(builder.iter_chars()),
+            Phase::Dead(builder) => SyllableCharsIter::Dead(builder.iter_chars()),
         }
     }
 
@@ -232,18 +256,18 @@ impl Syllable {
         tone_placement: TonePlacement,
         input: char,
     ) -> InputEffect {
-        match &mut self.state {
-            SyllableState::Dead(builder) => {
+        match &mut self.phase {
+            Phase::Dead(builder) => {
                 builder.push(input);
                 InputEffect::StructurallyChanged
             }
-            SyllableState::Building(builder) => match builder.push(keymap, input) {
+            Phase::Building(builder) => match builder.push(keymap, input) {
                 Ok(effect) => effect,
                 Err(_err) => {
                     let chars = builder.to_chars(tone_placement);
-                    let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
+                    let mut dead = DeadSyllable::from_accepted(&chars);
                     dead.push(input);
-                    self.state = SyllableState::Dead(dead);
+                    self.phase = Phase::Dead(dead);
                     InputEffect::StructurallyChanged
                 }
             },
@@ -260,18 +284,18 @@ impl Syllable {
         index: usize,
         input: char,
     ) -> InputEffect {
-        match &mut self.state {
-            SyllableState::Dead(builder) => {
+        match &mut self.phase {
+            Phase::Dead(builder) => {
                 builder.insert(index, input);
                 InputEffect::StructurallyChanged
             }
-            SyllableState::Building(builder) => match builder.insert(keymap, index, input) {
+            Phase::Building(builder) => match builder.insert(keymap, index, input) {
                 Ok(effect) => effect,
                 Err(_err) => {
                     let chars = builder.to_chars(tone_placement);
-                    let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
+                    let mut dead = DeadSyllable::from_accepted(&chars);
                     dead.insert(index, input);
-                    self.state = SyllableState::Dead(dead);
+                    self.phase = Phase::Dead(dead);
                     InputEffect::StructurallyChanged
                 }
             },
@@ -291,8 +315,8 @@ impl Syllable {
         tone_placement: TonePlacement,
         index: usize,
     ) -> InputEffect {
-        match &mut self.state {
-            SyllableState::Dead(builder) => {
+        match &mut self.phase {
+            Phase::Dead(builder) => {
                 builder.remove(index);
                 if builder.is_all_accepted() {
                     let mut building = BuildingSyllable::default();
@@ -302,11 +326,11 @@ impl Syllable {
                         }
                     }
                     // Every character parsed cleanly: resume building.
-                    self.state = SyllableState::Building(building);
+                    self.phase = Phase::Building(building);
                 }
                 InputEffect::StructurallyChanged
             }
-            SyllableState::Building(builder) => match builder.remove(index, tone_placement) {
+            Phase::Building(builder) => match builder.remove(index, tone_placement) {
                 Ok(effect) => effect,
                 Err(_) => InputEffect::StructurallyChanged,
             },

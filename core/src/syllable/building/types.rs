@@ -1,7 +1,7 @@
 use crate::phonology::{BaseVowel, BaseVowelSlice, Coda, Onset, Vowel, NUCLEUS_MAX_LEN};
-use crate::util::InlineVec;
+use crate::util::vec::ArrayVec;
 
-pub type Nucleus = InlineVec<Vowel, NUCLEUS_MAX_LEN>;
+pub type Nucleus = ArrayVec<Vowel, NUCLEUS_MAX_LEN>;
 
 impl BaseVowelSlice for Nucleus {
     #[inline(always)]
@@ -17,5 +17,5 @@ impl BaseVowelSlice for Nucleus {
     }
 }
 
-pub type OnsetChars = InlineVec<char, { Onset::MAX_LEN }>;
-pub type CodaChars = InlineVec<char, { Coda::MAX_LEN }>;
+pub type OnsetChars = ArrayVec<char, { Onset::MAX_LEN }>;
+pub type CodaChars = ArrayVec<char, { Coda::MAX_LEN }>;

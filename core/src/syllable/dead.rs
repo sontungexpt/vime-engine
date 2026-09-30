@@ -1,3 +1,6 @@
+use super::SyllableChars;
+use crate::util::vec::SmallVec;
+
 /// Which part of the dead buffer a recorded character belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CharState {
@@ -36,9 +39,16 @@ impl CharState {
 /// [`Self::is_all_accepted`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadSyllable {
-    chars: Vec<CharState>,
+    chars: SmallVec<CharState, INLINE_CHARS>,
     rejected_count: usize,
 }
+
+/// How many characters the dead buffer holds before it spills to the heap.
+///
+/// A dead syllable is a whole word — a few characters of accepted prefix plus
+/// whatever the user typed after it — so twelve covers the ordinary case, and
+/// anything longer still works by spilling rather than by panicking.
+const INLINE_CHARS: usize = 12;
 
 impl DeadSyllable {
     /// Builds a buffer in which every character of `valid_chars` is
@@ -47,15 +57,28 @@ impl DeadSyllable {
     /// This is the accepted prefix of the parse that just failed; the
     /// character that caused the rejection is not part of it and is expected to
     /// be [`Self::push`]ed or [`Self::insert`]ed straight after.
+    ///
+    /// Takes the rendered prefix as a plain slice rather than any iterator, so
+    /// a caller with the characters in a container never has to build one. Both
+    /// call sites hand over what
+    /// [`BuildingSyllable::to_chars`](super::BuildingSyllable::to_chars)
+    /// returned — a [`SyllableChars`], which derefs to a slice — so this has no
+    /// idea which container they were held in.
+    ///
+    /// A prefix this short lands in the inline buffer, so the accepted
+    /// characters and the rejecting one that follows usually cost no allocation
+    /// at all.
     #[inline]
-    pub fn from_accepted(valid_chars: impl IntoIterator<Item = char>) -> Self {
-        let iter = valid_chars.into_iter();
-        let (lower, upper) = iter.size_hint();
-        let cap = upper.unwrap_or(lower);
-        // Room for the one character that will end the parse, so the caller
-        // does not reallocate on the first push.
-        let mut chars = Vec::with_capacity(cap + 1);
-        chars.extend(iter.map(CharState::Accepted));
+    pub fn from_accepted(valid_chars: &[char]) -> Self {
+        // The conversion is `CharState`'s own, so an accepted prefix is just the
+        // slice mapped through `From<char>`. Collecting rather than pushing one
+        // at a time means the size hint is exact, so a prefix that outgrows the
+        // inline buffer spills once instead of per character.
+        let chars: SmallVec<CharState, INLINE_CHARS> = valid_chars
+            .iter()
+            .copied()
+            .map(CharState::Accepted)
+            .collect();
 
         Self {
             chars,
@@ -113,10 +136,12 @@ impl DeadSyllable {
     }
 
     /// Collects the buffered characters, accepted and rejected alike, into a
-    /// [`Vec`]. See also [`Self::write_to`], which writes the same characters
-    /// without allocating.
+    /// [`SyllableChars`](super::SyllableChars) buffer — a
+    /// [`VecLike`](crate::util::vec::VecLike)
+    /// that holds a word inline. See also [`Self::write_to`], which writes the
+    /// same characters without an intermediate buffer at all.
     #[inline(always)]
-    pub fn to_chars(&self) -> Vec<char> {
+    pub fn to_chars(&self) -> SyllableChars {
         self.chars.iter().copied().map(CharState::char).collect()
     }
 

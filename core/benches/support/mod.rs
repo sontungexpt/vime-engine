@@ -14,14 +14,14 @@
 //! | --- | --- | --- | --- |
 //! | `bench_composition` append, per push | 20.69 ns | 15.82 ns | 1.31x |
 //! | `bench_composition` caret edits, per edit | 49.68 ns | 57.14 ns | 1.15x |
-//! | `bench_inline_vec` onset, ns/op | 0.734 | 1.032 | 1.41x |
+//! | `bench_array_vec` onset, ns/op | 0.734 | 1.032 | 1.41x |
 //!
 //! That spread is code layout and turbo behaviour, not the algorithm, so a
 //! delta smaller than roughly 30% between two separate runs means nothing. Two
 //! consequences:
 //!
 //! - **Compare candidates in one run.** The benches that compare several
-//!   implementations (`bench_inline_vec`) print them together for exactly this
+//!   implementations (`bench_array_vec`) print them together for exactly this
 //!   reason: same binary, same conditions, one timer.
 //! - **Never quote a ratio taken from two different runs**, and do not commit
 //!   recorded figures as a regression baseline. They will drift with the

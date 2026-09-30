@@ -64,10 +64,9 @@ impl<KM: Keymap> SessionFactory<KM> {
     /// Replaces the config shared by every session, and returns the new
     /// generation.
     ///
-    /// Sessions pick the change up at their next [`Session::process_key`] or
-    /// [`Session::refresh_config`], so there is nothing to call on each of them.
-    /// A session holding a private config is not one of "every session" and keeps
-    /// its own settings.
+    /// Sessions pick the change up at their next config-dependent operation, so
+    /// there is nothing to call on each of them. A session holding a private
+    /// config is not one of "every session" and keeps its own settings.
     #[inline]
     pub fn set_config(&self, config: Config<KM>) -> u64 {
         self.config.replace(config)

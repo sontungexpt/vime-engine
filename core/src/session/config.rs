@@ -79,8 +79,6 @@ impl<KM: Keymap> Config<KM> {
     /// Reachable only from inside the crate, and in practice only through
     /// `SharedConfig::update`, which holds the lock and bumps the generation
     /// around it.
-    // Reached from the `#[cfg(test)]` tests, so it reads as unused in a plain
-    // non-test build.
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn set_keymap(&mut self, keymap: KM) {
@@ -91,8 +89,7 @@ impl<KM: Keymap> Config<KM> {
     /// alone.
     ///
     /// Reachable only from inside the crate, and in practice only through
-    /// `SharedConfig::update`, which holds the lock and bumps the generation
-    /// around it.
+    /// `SharedConfig::update`.
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn set_tone_placement(&mut self, tone_placement: TonePlacement) {

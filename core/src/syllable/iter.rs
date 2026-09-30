@@ -1,10 +1,11 @@
-/// Iterator over rendered syllable characters, handling both building and dead phases.
-pub(crate) enum SyllableChars<I1, I2> {
+/// Iterator over a [`SyllableChars`](super::SyllableChars), handling both
+/// the building and the dead phase without materialising the buffer first.
+pub(crate) enum SyllableCharsIter<I1, I2> {
     Building(I1),
     Dead(I2),
 }
 
-impl<I1, I2> Iterator for SyllableChars<I1, I2>
+impl<I1, I2> Iterator for SyllableCharsIter<I1, I2>
 where
     I1: Iterator<Item = char>,
     I2: Iterator<Item = char>,

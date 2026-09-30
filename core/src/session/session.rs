@@ -3,6 +3,7 @@
 use crate::composition::Composition;
 use crate::composition::Parallel;
 use crate::keymap::Keymap;
+use crate::syllable::SyllableChars;
 
 use super::config::Config;
 use super::shared::{SharedConfig, UNRESOLVED};
@@ -36,7 +37,7 @@ pub struct Session<KM: Keymap> {
     /// generation counter and value.
     shared_config: SharedConfig<KM>,
     /// The shared-config generation `active_config` was read at. `UNRESOLVED`
-    /// means the session must re-read on its next [`refresh_config`].
+    /// means the session must re-read on its next [`Self::pull_config`].
     generation: u64,
 
     /// The composition being parsed by this session.
@@ -130,12 +131,17 @@ where
         self.pull_config();
     }
 
-    /// Re-resolves the settings if the shared config has moved since this
-    /// session last looked.
+    /// Adopts the shared configuration if it has moved since this session last
+    /// looked.
     ///
-    /// Returns `true` when the live composition was re-rendered as a result,
-    /// meaning the word on screen changed without a key being pressed. A
-    /// session with a private config is unaffected and returns `false`.
+    /// Returns `true` when a newer shared configuration was adopted, meaning a
+    /// config-dependent operation is about to behave differently even though no
+    /// key was pressed. A session with a private config is unaffected and
+    /// returns `false`.
+    ///
+    /// Every config-dependent operation calls this for itself, so a caller only
+    /// needs it when it wants to know whether anything moved. Nothing is
+    /// re-rendered here: those operations read `active_config` when they run.
     #[inline(always)]
     pub fn pull_config(&mut self) -> bool {
         let gen = self.shared_config.generation();
@@ -152,7 +158,10 @@ where
     }
 
     /// Makes `next` the settings in force, so every subsequent composition
-    /// operation parses and renders under them. Returns whether the word moved.
+    /// operation parses and renders under them.
+    ///
+    /// Returns whether the session adopted a newer configuration. The caller has
+    /// already seen the generation move, so there is nothing to compare here.
     ///
     /// The only place that writes `active_config`, and the composition reads
     /// the keymap and tone placement from it on each call, so there is no
@@ -160,15 +169,6 @@ where
     fn adopt_config(&mut self, next: Config<KM>) -> bool {
         self.active_config = next;
         true
-    }
-
-    #[inline]
-    fn with_pulled_config<F, R>(&mut self, f: F) -> R
-    where
-        F: FnOnce(&mut Self) -> R,
-    {
-        self.pull_config();
-        f(self)
     }
 
     // ---------------------------------------------------------------- state
@@ -180,26 +180,29 @@ where
     /// failed there is nothing left to apply and the raw keystrokes come back
     /// verbatim.
     ///
-    /// See [`Self::write_parsed_to`] for the version that does not allocate.
+    /// Resolves the configuration first: the tone-placement scheme in force is
+    /// what decides which nucleus vowel carries the tone mark.
+    ///
+    /// See [`Self::write_rendered_to`] for the version that does not allocate.
     #[inline(always)]
-    pub fn rendered(&mut self) -> Vec<char> {
-        self.with_pulled_config(|this| {
-            this.composition
-                .rendered(this.active_config.tone_placement())
-        })
+    pub fn rendered(&mut self) -> SyllableChars {
+        self.pull_config();
+        self.composition
+            .rendered(self.active_config.tone_placement())
     }
 
     /// Writes the parsed word into `output`, replacing its contents.
+    ///
+    /// Resolves the configuration first, for the same reason as [`Self::rendered`].
     ///
     /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
     /// on every keystroke can keep one `String` and reuse its capacity instead
     /// of building a new one each time.
     #[inline(always)]
     pub fn write_rendered_to(&mut self, output: &mut String) {
-        self.with_pulled_config(|this| {
-            this.composition
-                .write_rendered_to(this.active_config.tone_placement(), output)
-        })
+        self.pull_config();
+        self.composition
+            .write_rendered_to(self.active_config.tone_placement(), output);
     }
 
     #[inline(always)]
@@ -231,18 +234,18 @@ where
     // /// The position is a character index, not a byte offset: the caller that
     // /// needs bytes has to walk the text this session renders.
     #[inline(always)]
-    pub const fn cursor_pos(&self) -> usize {
-        self.composition.cursor_pos()
+    pub const fn rendered_cursor(&self) -> usize {
+        self.composition.rendered_cursor()
     }
 
     /// Returns the caret position inside the raw keystroke buffer, in keystrokes.
     ///
-    /// Reported separately from [`Self::cursor_pos`] because a transform consumes
+    /// Reported separately from [`Self::rendered_cursor`] because a transform consumes
     /// a keystroke without lengthening the rendered word, so the two positions
     /// are not interchangeable.
     #[inline(always)]
-    pub const fn raw_cursor_pos(&self) -> usize {
-        self.composition.raw_cursor_pos()
+    pub const fn raw_cursor(&self) -> usize {
+        self.composition.raw_cursor()
     }
 
     /// Whether the buffer currently spells a complete, valid Vietnamese
@@ -257,45 +260,47 @@ where
     }
 
     // ------------------------------------------------------------- editing
+    //
+    // The three edits parse under the keymap and re-render under the
+    // tone-placement scheme, so each resolves the configuration first.
+    // Cursor movement deliberately does not: it only walks positions that
+    // already exist, and reads no configuration at all.
 
     #[inline(always)]
     pub fn insert(&mut self, character: char) {
-        self.with_pulled_config(|this| {
-            this.composition.insert(
-                this.active_config.keymap(),
-                this.active_config.tone_placement(),
-                character,
-            )
-        });
+        self.pull_config();
+        self.composition.insert(
+            self.active_config.keymap(),
+            self.active_config.tone_placement(),
+            character,
+        );
     }
 
     #[inline(always)]
     pub fn backspace(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|this| {
-            this.composition.backspace(
-                this.active_config.keymap(),
-                this.active_config.tone_placement(),
-            )
-        })
+        self.pull_config();
+        self.composition.backspace(
+            self.active_config.keymap(),
+            self.active_config.tone_placement(),
+        )
     }
 
     #[inline(always)]
     pub fn delete(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|this| {
-            this.composition.delete(
-                this.active_config.keymap(),
-                this.active_config.tone_placement(),
-            )
-        })
+        self.pull_config();
+        self.composition.delete(
+            self.active_config.keymap(),
+            self.active_config.tone_placement(),
+        )
     }
 
     #[inline(always)]
     pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|this| this.composition.move_cursor_left())
+        self.composition.move_cursor_left()
     }
 
     #[inline(always)]
     pub fn move_cursor_right(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|this| this.composition.move_cursor_right())
+        self.composition.move_cursor_right()
     }
 }

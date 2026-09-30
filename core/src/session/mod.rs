@@ -12,15 +12,14 @@
 //! rather than pushed to each session, so a session cannot miss an update
 //! because nobody remembered to notify it. Every session caches the settings it
 //! resolved together with the generation it resolved them at;
-//! [`Session::refresh_config`] compares that against the current generation and is
-//! called for you by [`Session::process_key`]. In the steady state that costs
-//! one atomic load, with no lock and no allocation.
+//! [`Session::pull_config`] compares that against the current generation. Every
+//! config-dependent operation calls it, so in the steady state that costs one
+//! atomic load, with no lock and no allocation.
 //!
 //! The counter is not only a cache check. Changing the shared settings can move
 //! the rendered word even when no key was pressed, so a session has to be able
-//! to notice that it happened: [`Session::refresh_config`] reports it, and
-//! `process_key` turns it into a [`Result::Changed`] so the frontend re-reads
-//! the word.
+//! to notice that it happened: [`Session::pull_config`] reports whether it
+//! adopted anything, which is how a caller learns to re-read the word.
 
 // Named after the type it defines, like the rest of the crate. The lint objects
 // to `session::session`, which reads oddly but says the file's contents exactly.

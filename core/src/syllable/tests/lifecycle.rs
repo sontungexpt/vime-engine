@@ -338,3 +338,160 @@ fn keymap_is_supplied_per_operation() {
     assert!(!v.is_building());
     assert_eq!(v.to_chars(TONE).iter().collect::<String>(), "aw");
 }
+
+// ─────────────────────────── the dead buffer past inline ───────────────────────────
+
+/// The accepted prefix a failed parse hands over: the rendered characters, in
+/// the same `ArrayVec` shape `Syllable` produces them in.
+fn accepted(chars: &str) -> crate::util::vec::ArrayVec<char, 8> {
+    chars.chars().collect()
+}
+
+/// The dead buffer keeps a normal word in its inline storage, so recording a
+/// rejected character allocates nothing.
+#[test]
+fn a_short_dead_buffer_stays_inline() {
+    let mut d = crate::syllable::dead::DeadSyllable::from_accepted(&accepted("nga"));
+    d.push('z');
+    assert_eq!(d.iter_chars().collect::<String>(), "ngaz");
+    assert_eq!(d.chars().len(), 4);
+}
+
+/// Past the inline capacity it spills to the heap and keeps working, which is
+/// the case a fixed-capacity buffer could not have handled.
+#[test]
+fn a_long_dead_buffer_spills_and_still_works() {
+    let mut d = crate::syllable::dead::DeadSyllable::from_accepted(&accepted("nga"));
+    for c in "bbbbbbbbbbbbbbbb".chars() {
+        d.push(c);
+    }
+    assert_eq!(d.len(), 3 + 16);
+    assert!(
+        d.chars().len() == 19,
+        "nineteen characters do not fit inline"
+    );
+    assert_eq!(
+        d.iter_chars().collect::<String>(),
+        "nga".to_string() + &"b".repeat(16)
+    );
+}
+
+/// Spilling must not change what removal does: the buffer still reports its
+/// states, and emptying it of rejected characters revives parsing.
+#[test]
+fn a_spilled_buffer_still_reports_and_removes() {
+    let mut d = crate::syllable::dead::DeadSyllable::from_accepted(&accepted("nga"));
+    for c in "cccccccccc".chars() {
+        d.push(c);
+    }
+    assert_eq!(d.chars().len(), 13);
+    assert_eq!(d.rejected_count(), 10);
+    assert!(!d.is_all_accepted());
+
+    assert_eq!(d.remove(0), crate::syllable::dead::CharState::Accepted('n'));
+    assert_eq!(
+        d.rejected_count(),
+        10,
+        "removing an accepted one keeps the count"
+    );
+
+    // The `n` above left `ga` followed by ten rejected characters, so ten
+    // removals at index 2 take the rejected run and leave `ga`.
+    for _ in 0..10 {
+        d.remove(2);
+    }
+    assert!(d.is_all_accepted(), "the rejected characters are gone");
+    assert_eq!(d.iter_chars().collect::<String>(), "ga");
+}
+
+/// Insertion in the middle keeps the accepted prefix in order across a spill.
+#[test]
+fn a_spilled_buffer_still_inserts_in_order() {
+    let mut d = crate::syllable::dead::DeadSyllable::from_accepted(&accepted("nga"));
+    for c in "ddddddddddd".chars() {
+        d.push(c);
+    }
+    d.insert(0, 'x');
+    assert_eq!(
+        d.iter_chars().collect::<String>(),
+        "xnga".to_string() + &"d".repeat(11)
+    );
+    assert_eq!(
+        d.chars()[0],
+        crate::syllable::dead::CharState::Rejected('x')
+    );
+}
+
+/// `from_accepted` takes a slice, so whichever container the caller had the
+/// characters in, deref coercion hands them over without a conversion first.
+#[test]
+fn from_accepted_takes_a_slice() {
+    use crate::util::vec::SmallVec;
+
+    let from_array = crate::syllable::dead::DeadSyllable::from_accepted(&accepted("nga"));
+    assert_eq!(from_array.iter_chars().collect::<String>(), "nga");
+    assert_eq!(from_array.rejected_count(), 0);
+    assert!(from_array.is_all_accepted());
+
+    let small: SmallVec<char, 8> = "nga".chars().collect();
+    let from_small = crate::syllable::dead::DeadSyllable::from_accepted(&small);
+    assert_eq!(from_small.iter_chars().collect::<String>(), "nga");
+    assert!(from_small.is_all_accepted());
+
+    // And a bare slice is accepted on its own, with no container behind it.
+    let chars: Vec<char> = "nga".chars().collect();
+    let from_slice = crate::syllable::dead::DeadSyllable::from_accepted(&chars);
+    assert_eq!(from_slice.iter_chars().collect::<String>(), "nga");
+    assert!(from_slice.is_all_accepted());
+}
+
+/// The alias carries three slots beyond the longest *buildable* word, so the
+/// ordinary dead syllable — that word plus a stray keystroke or two — stays
+/// inline instead of spilling.
+#[test]
+fn an_ordinary_dead_syllable_stays_inline() {
+    use crate::syllable::SyllableChars;
+
+    // The longest word the parser can build, then a few rejected characters.
+    let mut d = crate::syllable::dead::DeadSyllable::from_accepted(&accepted("nguye"));
+    for c in "zz".chars() {
+        d.push(c);
+    }
+
+    let rendered: SyllableChars = d.to_chars();
+    assert!(
+        !rendered.is_spilled(),
+        "{}-character dead syllable should fit inline, got {}",
+        rendered.len(),
+        rendered.capacity()
+    );
+    assert_eq!(
+        rendered.as_slice(),
+        "nguye".chars().chain("zz".chars()).collect::<Vec<_>>()
+    );
+}
+
+/// `BuildingSyllable::to_chars` returns the same `SyllableChars` alias as the outer
+/// `Syllable`, and a buildable word always fits it — so rendering one never
+/// spills and the outer `to_chars` hands it back without a copy.
+#[test]
+fn a_buildable_word_never_spills() {
+    use crate::syllable::SyllableChars;
+
+    // "nghuyen" is onset `ngh` + a three-vowel nucleus + coda `n`, the most
+    // characters any real syllable renders to here.
+    let word = "nghuyen";
+    let mut s = builder();
+    for ch in word.chars() {
+        s.push(&keymap(), TONE, ch);
+    }
+    assert!(s.is_building(), "{word} should still parse");
+
+    let rendered: SyllableChars = s.to_chars(TONE);
+    assert!(
+        !rendered.is_spilled(),
+        "{}-character word must fit inline",
+        rendered.len()
+    );
+    assert_eq!(rendered.as_slice(), word.chars().collect::<Vec<_>>());
+}

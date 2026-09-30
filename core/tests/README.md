@@ -5,9 +5,10 @@ One file per concern, each a standalone `[[test]]` target declared in
 
 | file | covers |
 |------|--------|
+| `array_vec.rs` | `ArrayVec` grow/consume paths |
+| `composition.rs` | `Composition` raw keystroke buffer, inline/spill boundary |
 | `config.rs` | engine construction, tone-placement init/updates |
 | `discriminants.rs` | `repr(u8)` layout pins for `Coda`/`Onset` |
-| `inline_vec.rs` | `InlineVec` grow/consume paths |
 | `keymap.rs` | `Keymap` layer + `u128` bitmask lookups |
 | `nucleus.rs` | exhaustive nucleus `WordState` classification (all 1884 sequences) |
 | `phonotactics.rs` | spelling validator rules |

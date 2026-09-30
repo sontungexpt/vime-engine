@@ -15,16 +15,20 @@ license = "MIT"
 # subdirectories (e.g. tests/common/) never become targets, and so every
 # target is listed rather than some being picked up by auto-discovery.
 [[test]]
+name = "array_vec"
+path = "tests/array_vec.rs"
+
+[[test]]
+name = "composition"
+path = "tests/composition.rs"
+
+[[test]]
 name = "config"
 path = "tests/config.rs"
 
 [[test]]
 name = "discriminants"
 path = "tests/discriminants.rs"
-
-[[test]]
-name = "inline_vec"
-path = "tests/inline_vec.rs"
 
 [[test]]
 name = "keymap"
@@ -43,17 +47,21 @@ name = "session"
 path = "tests/session.rs"
 
 [[test]]
+name = "small_vec"
+path = "tests/small_vec.rs"
+
+[[test]]
 name = "vowel"
 path = "tests/vowel.rs"
 
 # Benches (benches/*.rs). Declared explicitly, for the same reason as the
 # tests: benches/support/ must not become a target.
 [[bench]]
-name = "bench_composition"
-path = "benches/bench_composition.rs"
+name = "bench_array_vec"
+path = "benches/bench_array_vec.rs"
 harness = false
 
 [[bench]]
-name = "bench_inline_vec"
-path = "benches/bench_inline_vec.rs"
+name = "bench_composition"
+path = "benches/bench_composition.rs"
 harness = false

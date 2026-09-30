@@ -56,7 +56,7 @@ impl<KM: Keymap> SharedConfig<KM> {
     }
 
     /// Replaces the shared settings, so that every session following the
-    /// shared config sees them from its next [`Session::refresh_config`].
+    /// shared config sees them from its next config-dependent operation.
     ///
     /// Returns the new generation.
     #[inline]

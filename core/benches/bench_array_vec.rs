@@ -1,21 +1,22 @@
-//! Micro-benchmark of the crate's own [`InlineVec`], the buffer behind nuclei,
+//! Micro-benchmark of the crate's own [`ArrayVec`], the buffer behind nuclei,
 //! onsets and codas.
 //!
-//! `InlineVec` replaced `arrayvec::ArrayVec` as that backing store. The A/B
-//! between the two settled that question and was removed along with the
-//! `arrayvec` dev-dependency; what remains is the thing worth watching over
+//! The crate's own [`ArrayVec`] replaced the `arrayvec` crate's type of the same
+//! name as that backing store. The A/B between the two settled that question and
+//! was removed along with the `arrayvec` dev-dependency; what remains is the thing
+//! worth watching over
 //! time, which is the container's own cost on the edit bursts the syllable
 //! builder actually issues: push-heavy typing, caret insert/remove, backspace
 //! pops, and the read-out that render walks.
 //!
-//!   cargo bench --bench bench_inline_vec
+//!   cargo bench --bench bench_array_vec
 //!
 //! A second section measures the three public ways to fill a buffer from a
 //! slice, plus the mechanism ceiling behind them, so a future `push`-loop
 //! change can be judged against the best the hardware offers.
 
 use vime_engine::phonology::{BaseVowel, Tone, Vowel};
-use vime_engine::util::InlineVec;
+use vime_engine::util::vec::ArrayVec;
 
 mod support;
 use support::{ns_per_unit, rounds, time};
@@ -24,7 +25,7 @@ use support::{ns_per_unit, rounds, time};
 /// candidate fix (pop + push).
 #[inline(always)]
 fn typing_burst<T: Copy, const N: usize>(
-    b: &mut InlineVec<T, N>,
+    b: &mut ArrayVec<T, N>,
     a: T,
     p: T,
     q: T,
@@ -51,7 +52,7 @@ fn typing_burst<T: Copy, const N: usize>(
 
 /// Caret-edit burst: mid-cluster insert, first-slot insert, front removal.
 #[inline(always)]
-fn edit_burst<T: Copy, const N: usize>(b: &mut InlineVec<T, N>, v: T, ops: &mut usize) {
+fn edit_burst<T: Copy, const N: usize>(b: &mut ArrayVec<T, N>, v: T, ops: &mut usize) {
     if b.len() < N && !b.is_empty() {
         b.insert(b.len() / 2, v);
         *ops += 1;
@@ -68,7 +69,7 @@ fn edit_burst<T: Copy, const N: usize>(b: &mut InlineVec<T, N>, v: T, ops: &mut 
 
 /// Backspace burst.
 #[inline(always)]
-fn pop_burst<T: Copy, const N: usize>(b: &mut InlineVec<T, N>, ops: &mut usize) {
+fn pop_burst<T: Copy, const N: usize>(b: &mut ArrayVec<T, N>, ops: &mut usize) {
     for _ in 0..2 {
         if !b.is_empty() {
             let _ = b.pop();
@@ -79,7 +80,7 @@ fn pop_burst<T: Copy, const N: usize>(b: &mut InlineVec<T, N>, ops: &mut usize) 
 
 /// One pass over a population of buffers, exercising every burst.
 fn run_pass<T: Copy, const N: usize>(
-    states: &mut [InlineVec<T, N>],
+    states: &mut [ArrayVec<T, N>],
     a: T,
     p: T,
     q: T,
@@ -102,10 +103,10 @@ fn run_pass<T: Copy, const N: usize>(
 
 /// Benchmarks one population (`N` capacity, `T` element).
 fn bench_pop<T: Copy, const N: usize>(label: &str, specs: &[Vec<T>], (a, p, q, v): (T, T, T, T)) {
-    let mut states: Vec<InlineVec<T, N>> = specs
+    let mut states: Vec<ArrayVec<T, N>> = specs
         .iter()
         .map(|s| {
-            let mut b = InlineVec::<T, N>::default();
+            let mut b = ArrayVec::<T, N>::default();
             b.extend_from_slice(s);
             b
         })
@@ -130,7 +131,7 @@ fn bench_pop<T: Copy, const N: usize>(label: &str, specs: &[Vec<T>], (a, p, q, v
         iters,
     );
 
-    println!("── {label} (InlineVec<T, {N}>, {} states) ──", states.len());
+    println!("── {label} (ArrayVec<T, {N}>, {} states) ──", states.len());
     println!(
         "  {:>7.3} ns/op   ({} ops/pass, best of {rounds})",
         ns_per_unit(t, iters, ops_per_pass as f64),
@@ -154,7 +155,7 @@ fn bench_fill() {
         let t_push = time(
             || {
                 let src = std::hint::black_box(&src);
-                let mut b = InlineVec::<char, 3>::default();
+                let mut b = ArrayVec::<char, 3>::default();
                 for &c in &src[..n] {
                     b.push(c);
                 }
@@ -166,7 +167,7 @@ fn bench_fill() {
         let t_extend = time(
             || {
                 let src = std::hint::black_box(&src);
-                let mut b = InlineVec::<char, 3>::default();
+                let mut b = ArrayVec::<char, 3>::default();
                 b.extend(src[..n].iter().copied());
                 acc = acc.wrapping_add(b.len());
             },
@@ -176,7 +177,7 @@ fn bench_fill() {
         let t_slice = time(
             || {
                 let src = std::hint::black_box(&src);
-                let mut b = InlineVec::<char, 3>::default();
+                let mut b = ArrayVec::<char, 3>::default();
                 b.extend_from_slice(&src[..n]);
                 acc = acc.wrapping_add(b.len());
             },
@@ -190,7 +191,7 @@ fn bench_fill() {
             ("extend_from_slice", ns_per_unit(t_slice, iters, 1.0)),
         ]);
 
-        println!("── fill InlineVec<char, 3> with {n} items (checksum {acc}) ──");
+        println!("── fill ArrayVec<char, 3> with {n} items (checksum {acc}) ──");
         for (name, ns) in rows {
             println!("  {name:<18} {ns:>7.3} ns/op");
         }

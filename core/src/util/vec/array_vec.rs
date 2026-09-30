@@ -1,3 +1,5 @@
+use super::vec_like::VecLike;
+
 use std::{
     fmt,
     iter::FusedIterator,
@@ -9,7 +11,7 @@ use std::{
 /// An inline, fixed-capacity growable sequence.
 ///
 /// The storage lives *inside the struct* — there is no heap allocation and no
-/// pointer indirection. `InlineVec` is `Copy` exactly because its payload is
+/// pointer indirection. `ArrayVec` is `Copy` exactly because its payload is
 /// embedded: moving or cloning the value copies the whole buffer wholesale,
 /// and the type size is the constant `size_of::<[MaybeUninit<T>; N]>() +
 /// size_of::<usize>()`, regardless of `len`.
@@ -32,13 +34,13 @@ use std::{
 /// - `pop`/`remove` hand out values by bitwise read without invalidating the
 ///   slot in `buf`; a `Drop`-owning `T` would be dropped again when the
 ///   buffer is someday reused. `Copy` rules that out.
-/// - Because element copies are free of side effects, `InlineVec` can itself
+/// - Because element copies are free of side effects, `ArrayVec` can itself
 ///   derive [`Copy`] (and `Clone`) and be returned cheaply by value.
 ///
 /// Use a different container (e.g. `Vec<T>` or a `Box`ed array) when the
 /// element type cannot be `Copy`.
 #[derive(Clone, Copy)]
-pub struct InlineVec<T, const N: usize>
+pub struct ArrayVec<T, const N: usize>
 where
     T: Copy,
 {
@@ -46,17 +48,25 @@ where
     len: usize,
 }
 
-impl<T: Copy, const N: usize> Default for InlineVec<T, N> {
+impl<T: Copy, const N: usize> Default for ArrayVec<T, N> {
     #[inline(always)]
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Copy, const N: usize> ArrayVec<T, N> {
+    /// Creates an empty `ArrayVec`.
+    ///
+    /// The backing storage is uninitialized and no heap allocation occurs.
+    #[inline(always)]
+    pub const fn new() -> Self {
         Self {
             buf: [const { MaybeUninit::uninit() }; N],
             len: 0,
         }
     }
-}
 
-impl<T: Copy, const N: usize> InlineVec<T, N> {
     #[inline(always)]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
@@ -73,6 +83,7 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     pub const fn capacity() -> usize {
         N
     }
+
     /// Returns a slice containing the live elements.
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
@@ -93,15 +104,66 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     /// Appends `value` at the end; panics when the array is full.
     #[inline(always)]
     pub fn push(&mut self, value: T) {
-        if self.len == N {
-            panic!("InlineVec overflow: cannot push, capacity is {N}");
-        }
-        // SAFETY: `len < N` was checked, so slot `len` is uninitialized and a
-        // raw `T` write lands inside the backing array.
+        assert!(
+            self.len < N,
+            "ArrayVec overflow: cannot push, capacity is {N}"
+        );
+        // SAFETY: `len < N` was just checked.
+        unsafe { self.push_unchecked(value) };
+    }
+
+    /// Appends `value` at the end without checking that there is room.
+    ///
+    /// For a caller that has already established `len < N` — one that knows the
+    /// buffer has space, so a full-buffer panic would be dead weight. `SmallVec`
+    /// is the case that motivates it: its own guard decides whether to push
+    /// inline or spill, so re-checking inside the push repeats a comparison the
+    /// branch already made.
+    ///
+    /// # Safety
+    ///
+    /// `self.len()` must be less than `N`. Writing into a slot at or past the
+    /// end of the backing array is undefined behaviour, and leaving `len`
+    /// claiming an uninitialized slot makes every later read unsound.
+    #[inline(always)]
+    pub unsafe fn push_unchecked(&mut self, value: T) {
+        debug_assert!(self.len < N, "push_unchecked on a full ArrayVec");
+        // SAFETY: the contract says `len < N`, so slot `len` is inside the
+        // backing array and uninitialized, and a raw `T` write lands there.
         unsafe {
             self.buf.as_mut_ptr().cast::<T>().add(self.len).write(value);
         }
         self.len += 1;
+    }
+
+    /// Appends `value` if there is room, handing it back if there is not.
+    ///
+    /// The recoverable counterpart to [`Self::push`], for a caller that treats a
+    /// full buffer as an outcome rather than a bug. On failure the buffer is
+    /// left exactly as it was and `value` comes back, so it can be routed
+    /// somewhere else instead of unwinding the stack. `T` is `Copy`, so handing
+    /// it back costs nothing.
+    ///
+    /// ```
+    /// use vime_engine::util::vec::ArrayVec;
+    ///
+    /// let mut v: ArrayVec<u8, 2> = ArrayVec::default();
+    /// assert_eq!(v.try_push(1), Ok(()));
+    /// assert_eq!(v.try_push(2), Ok(()));
+    ///
+    /// // Full: the value is returned rather than lost or unwound.
+    /// let rejected = v.try_push(3).unwrap_err();
+    /// assert_eq!(&v[..], &[1, 2], "a refused push leaves the buffer alone");
+    /// assert_eq!(rejected, 3);
+    /// ```
+    #[inline]
+    pub fn try_push(&mut self, value: T) -> Result<(), T> {
+        if self.len == N {
+            return Err(value);
+        }
+        // SAFETY: the branch above proved `len < N`.
+        unsafe { self.push_unchecked(value) };
+        Ok(())
     }
 
     /// Removes and returns the last element, or `None` when empty.
@@ -126,13 +188,34 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
             "insertion index ({index}) out of bounds (len = {})",
             self.len
         );
-        if self.len == N {
-            panic!("InlineVec overflow: cannot insert, capacity is {N}");
-        }
-        // SAFETY: `index <= self.len` and `len < N`, so the copy reads the `len
-        // - index` initialized slots `index..len` and writes them to `index+1..
-        // =len`, which stays within the buffer; `ptr::copy` permits overlap.
-        // Slot `index` is free after the shift, so the raw `T` write is sound.
+        assert!(
+            self.len < N,
+            "ArrayVec overflow: cannot insert, capacity is {N}"
+        );
+        // SAFETY: both bounds were just checked.
+        unsafe { self.insert_unchecked(index, value) };
+    }
+
+    /// Inserts `value` at `index` without checking either bound, shifting the
+    /// tail right by one.
+    ///
+    /// # Safety
+    ///
+    /// `index` must be at most `self.len()`, and `self.len()` must be less than
+    /// `N`. A `index > len` makes the shift read uninitialized slots, and a full
+    /// buffer makes the shift write past the end of the array; either is
+    /// undefined behaviour.
+    #[inline]
+    pub unsafe fn insert_unchecked(&mut self, index: usize, value: T) {
+        debug_assert!(
+            index <= self.len && self.len < N,
+            "insert_unchecked out of bounds on a full ArrayVec"
+        );
+        // SAFETY: the contract says `index <= len` and `len < N`, so the copy
+        // reads the `len - index` initialized slots `index..len` and writes them
+        // to `index+1..=len`, which stays within the buffer; `ptr::copy` permits
+        // overlap. Slot `index` is free after the shift, so the raw `T` write is
+        // sound.
         unsafe {
             let at = self.buf.as_mut_ptr().add(index);
             core::ptr::copy(at, at.add(1), self.len - index);
@@ -173,13 +256,13 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     ///
     /// Uses a single raw copy up front instead of repeated `push` calls. Works
     /// on any `&[T]`, which deref coercion also makes available for
-    /// `&InlineVec<T, N>`.
+    /// `&ArrayVec<T, N>`.
     #[inline(always)]
     pub fn extend_from_slice(&mut self, values: &[T]) {
         let count = values.len();
         assert!(
             count <= N - self.len,
-            "InlineVec overflow: cannot extend with {count} elements, capacity is {N}"
+            "ArrayVec overflow: cannot extend with {count} elements, capacity is {N}"
         );
         // SAFETY: `self.len + count <= N` was checked, so the destination range
         // `self.len..self.len + count` sits inside the backing array and is
@@ -196,7 +279,58 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     }
 }
 
-impl<T: Copy, const N: usize> Deref for InlineVec<T, N> {
+impl<T: Copy, const N: usize> VecLike<T> for ArrayVec<T, N> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline(always)]
+    fn as_slice(&self) -> &[T] {
+        ArrayVec::as_slice(self)
+    }
+
+    #[inline(always)]
+    fn as_mut_slice(&mut self) -> &mut [T] {
+        ArrayVec::as_mut_slice(self)
+    }
+
+    #[inline(always)]
+    fn capacity(&self) -> usize {
+        N
+    }
+
+    #[inline(always)]
+    fn push(&mut self, value: T) {
+        ArrayVec::push(self, value);
+    }
+
+    #[inline(always)]
+    fn pop(&mut self) -> Option<T> {
+        ArrayVec::pop(self)
+    }
+
+    #[inline]
+    fn insert(&mut self, index: usize, value: T) {
+        ArrayVec::insert(self, index, value);
+    }
+
+    #[inline]
+    fn remove(&mut self, index: usize) -> T {
+        ArrayVec::remove(self, index)
+    }
+
+    #[inline(always)]
+    fn clear(&mut self) {
+        ArrayVec::clear(self);
+    }
+
+    #[inline(always)]
+    fn extend_from_slice(&mut self, values: &[T]) {
+        ArrayVec::extend_from_slice(self, values);
+    }
+}
+impl<T: Copy, const N: usize> Deref for ArrayVec<T, N> {
     type Target = [T];
 
     #[inline(always)]
@@ -205,14 +339,14 @@ impl<T: Copy, const N: usize> Deref for InlineVec<T, N> {
     }
 }
 
-impl<T: Copy, const N: usize> DerefMut for InlineVec<T, N> {
+impl<T: Copy, const N: usize> DerefMut for ArrayVec<T, N> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T: Copy, const N: usize, I> Index<I> for InlineVec<T, N>
+impl<T: Copy, const N: usize, I> Index<I> for ArrayVec<T, N>
 where
     I: SliceIndex<[T]>,
 {
@@ -224,7 +358,7 @@ where
     }
 }
 
-impl<T: Copy, const N: usize, I> IndexMut<I> for InlineVec<T, N>
+impl<T: Copy, const N: usize, I> IndexMut<I> for ArrayVec<T, N>
 where
     I: SliceIndex<[T]>,
 {
@@ -234,22 +368,22 @@ where
     }
 }
 
-impl<T: Copy + PartialEq, const N: usize> PartialEq for InlineVec<T, N> {
+impl<T: Copy + PartialEq, const N: usize> PartialEq for ArrayVec<T, N> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         &self[..] == &other[..]
     }
 }
 
-impl<T: Copy + Eq, const N: usize> Eq for InlineVec<T, N> {}
+impl<T: Copy + Eq, const N: usize> Eq for ArrayVec<T, N> {}
 
-impl<T: Copy + fmt::Debug, const N: usize> fmt::Debug for InlineVec<T, N> {
+impl<T: Copy + fmt::Debug, const N: usize> fmt::Debug for ArrayVec<T, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
 }
 
-impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
+impl<T: Copy, const N: usize> Extend<T> for ArrayVec<T, N> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let mut iter = iter.into_iter();
@@ -261,7 +395,7 @@ impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
         if let Some(max) = upper {
             assert!(
                 max <= N - self.len,
-                "InlineVec overflow: cannot extend with {max} elements, capacity is {N}"
+                "ArrayVec overflow: cannot extend with {max} elements, capacity is {N}"
             );
         }
 
@@ -308,7 +442,7 @@ impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
         let mut space_left = space - trusted;
         for value in &mut iter {
             if space_left == 0 {
-                panic!("InlineVec overflow: cannot extend, capacity is {N}");
+                panic!("ArrayVec overflow: cannot extend, capacity is {N}");
             }
             // SAFETY: the `space_left == 0` guard above runs first, so this
             // write targets a free slot and `space_left` counts down to zero
@@ -324,40 +458,19 @@ impl<T: Copy, const N: usize> Extend<T> for InlineVec<T, N> {
     }
 }
 
-impl<T: Copy, const N: usize> FromIterator<T> for InlineVec<T, N> {
+impl<T: Copy, const N: usize> FromIterator<T> for ArrayVec<T, N> {
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut vec = InlineVec::default();
+        let mut vec = ArrayVec::default();
         vec.extend(iter);
         vec
     }
 }
 
-// impl<T: Copy, const N: usize> IntoIterator for InlineVec<T, N> {
-//     type Item = T;
-//     type IntoIter = core::iter::Take<core::array::IntoIter<T, N>>;
-//
-//     #[inline(always)]
-//     fn into_iter(self) -> Self::IntoIter {
-//         let len = self.len;
-//         // 1. Tạo một mảng tạm [MaybeUninit<T>; N] an toàn bằng cách copy buffer
-//         let buf = self.buf;
-//
-//         // 2. Transmute mảng MaybeUninit<T> thành [T; N]
-//         // SAFETY: T: Copy và ta dùng core::array::IntoIter,
-//         // các element chưa khởi tạo ở phần đuôi (từ len..N) sẽ bị .take(len) bỏ qua,
-//         // đồng thời T: Copy nên không lo bị gọi Drop trên dữ liệu rác.
-//         let array: [T; N] = unsafe { core::mem::transmute_copy(&buf) };
-//
-//         // 3. Chuyển thành iterator mảng chuẩn của Rust và chỉ lấy `len` phần tử đầu
-//         array.into_iter().take(len)
-//     }
-// }
-
-/// Owning iterator over an [`InlineVec`]'s live elements.
+/// Owning iterator over an [`ArrayVec`]'s live elements.
 ///
-/// It holds the buffer **by value** instead of pointing into an `InlineVec`
-/// that has already been dropped. That is what makes it sound: `InlineVec`
+/// It holds the buffer **by value** instead of pointing into an `ArrayVec`
+/// that has already been dropped. That is what makes it sound: `ArrayVec`
 /// stores its elements inline, in the struct itself, so an iterator that only
 /// kept `start`/`end` pointers into it would dangle the moment the temporary
 /// was dropped at the end of the `into_iter()` statement.
@@ -428,7 +541,7 @@ impl<T: Copy, const N: usize> DoubleEndedIterator for IntoIter<T, N> {
 
 impl<T: Copy, const N: usize> FusedIterator for IntoIter<T, N> {}
 
-impl<T: Copy, const N: usize> IntoIterator for InlineVec<T, N> {
+impl<T: Copy, const N: usize> IntoIterator for ArrayVec<T, N> {
     type Item = T;
     type IntoIter = IntoIter<T, N>;
 
@@ -440,5 +553,62 @@ impl<T: Copy, const N: usize> IntoIterator for InlineVec<T, N> {
             front: 0,
             back: len,
         }
+    }
+}
+
+impl<T: Copy, const N: usize> From<[T; N]> for ArrayVec<T, N> {
+    #[inline(always)]
+    fn from(array: [T; N]) -> Self {
+        Self {
+            buf: array.map(MaybeUninit::new),
+            len: N,
+        }
+    }
+}
+
+/// The elements a conversion into an `ArrayVec` could not take, handed back.
+///
+/// Named for the reason the conversion fails: a fixed-capacity buffer has no
+/// room, not because anything is wrong with the elements themselves. It is the
+/// error type of the [`TryFrom`] impls below.
+pub type TooLong<T> = Vec<T>;
+
+/// Adopts an [`ArrayVec`] of any capacity, handing the elements back if it is
+/// too long.
+///
+/// The fallible conversion, and the only one into a fixed-capacity buffer: a
+/// `VecLike` may hold more than `N` elements — a spilled
+/// [`SmallVec`](super::SmallVec) is the reachable case — so there is no
+/// `From<&V>` here to panic with.
+impl<T: Copy, const M: usize, const N: usize> TryFrom<&ArrayVec<T, M>> for ArrayVec<T, N> {
+    type Error = TooLong<T>;
+
+    #[inline]
+    fn try_from(src: &ArrayVec<T, M>) -> Result<Self, Self::Error> {
+        if src.len() > N {
+            return Err(src.as_slice().to_vec());
+        }
+        let mut out = Self::new();
+        out.extend_from_slice(src.as_slice());
+        Ok(out)
+    }
+}
+
+/// Adopts a [`SmallVec`](super::SmallVec) of any capacity, handing the elements
+/// back if it is too long.
+///
+/// The case that makes a fallible conversion necessary at all: a `SmallVec` that
+/// has spilled to the heap holds more than a fixed-capacity buffer can take.
+impl<T: Copy, const M: usize, const N: usize> TryFrom<&super::SmallVec<T, M>> for ArrayVec<T, N> {
+    type Error = TooLong<T>;
+
+    #[inline]
+    fn try_from(src: &super::SmallVec<T, M>) -> Result<Self, Self::Error> {
+        if src.len() > N {
+            return Err(src.as_slice().to_vec());
+        }
+        let mut out = Self::new();
+        out.extend_from_slice(src.as_slice());
+        Ok(out)
     }
 }

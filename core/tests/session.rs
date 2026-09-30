@@ -204,14 +204,14 @@ fn the_two_cursors_diverge_across_a_transform() {
 
     type_str(&mut session, "aw");
     assert_eq!(rendered_to_string(&mut session), "ă");
-    assert_eq!(session.cursor_pos(), 1, "one rendered character");
-    assert_eq!(session.raw_cursor_pos(), 2, "but two keystrokes");
+    assert_eq!(session.rendered_cursor(), 1, "one rendered character");
+    assert_eq!(session.raw_cursor(), 2, "but two keystrokes");
 
     // Backspacing once eats the shape key, which puts the raw cursor behind the
     // rendered one — the case where a caller has to be told which caret it is.
     assert!(press_backspace(&mut session));
-    assert_eq!(session.cursor_pos(), 0);
-    assert_eq!(session.raw_cursor_pos(), 1);
+    assert_eq!(session.rendered_cursor(), 0);
+    assert_eq!(session.raw_cursor(), 1);
 }
 
 /// A position is a character index, never a byte offset, so it is exactly as
@@ -226,12 +226,12 @@ fn a_cursor_never_exceeds_the_rendered_word() {
         type_str(&mut session, word);
         let rendered = rendered_to_string(&mut session);
         assert!(
-            session.cursor_pos() <= rendered.chars().count(),
+            session.rendered_cursor() <= rendered.chars().count(),
             "{word:?}: caret {} is past the {}-character render",
-            session.cursor_pos(),
+            session.rendered_cursor(),
             rendered.chars().count(),
         );
-        assert!(session.raw_cursor_pos() <= session.raw().len());
+        assert!(session.raw_cursor() <= session.raw().len());
     }
 }
 
