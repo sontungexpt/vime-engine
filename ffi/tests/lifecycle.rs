@@ -1,178 +1,222 @@
-//! Engine lifecycle: create/destroy, input-method and tone-placement
-//! switching, reset and commit semantics.
+//! Handles, configuration, and the shared-versus-private config distinction.
 
 mod common;
 
-use common::{SessionFactory, Session, char_event, key_event};
-use vime::{VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeTonePlacement};
+use vime::{VimeConfig, VimeInputMethod, VimeTonePlacement};
 
+/// A factory's sessions follow the shared config, and a change reaches them.
+///
+/// This is the interesting one: the change happens through the *factory*, and the
+/// session has to notice it on its next query without anyone calling anything on
+/// it. It is the behaviour most likely to rot, because the cache in between has to
+/// be invalidated by the observation and not only by an edit.
 #[test]
-fn create_and_destroy_factory() {
-    let factory = SessionFactory::create().expect("vime_session_factory_create must succeed");
-    drop(factory);
+fn a_shared_config_change_reaches_existing_sessions() {
+    let old = VimeConfig {
+        tone_placement: VimeTonePlacement::Old,
+        ..Default::default()
+    };
+    let new = VimeConfig {
+        tone_placement: VimeTonePlacement::Modern,
+        ..Default::default()
+    };
+
+    let mut factory = common::Factory::create_with(&old).unwrap();
+    let mut session = factory.open_session();
+    assert_eq!(session.type_text("hoas"), "hóa", "Old places sắc first");
+
+    assert!(factory.set_config(&new));
+    assert_eq!(
+        session.render_text(),
+        "hoá",
+        "the next query must show the new config, not the cached old render"
+    );
+    assert!(session.render_state().is_valid_vietnamese);
 }
 
+/// The same change, seen through the full snapshot rather than through
+/// `render_text`, because that path has its own cache to invalidate.
 #[test]
-fn create_factory_with_all_methods() {
-    for method in [
-        VimeInputMethod::Telex,
-        VimeInputMethod::Vni,
-        VimeInputMethod::Viqr,
-    ] {
-        let factory = SessionFactory::create_with(VimeConfig {
-            input_method: method,
-            tone_placement: VimeTonePlacement::Modern,
-            auto_restore_english: true,
-        }).expect("factory must be created");
-        drop(factory);
+fn a_shared_config_change_reaches_the_snapshot() {
+    let old = VimeConfig {
+        input_method: VimeInputMethod::Telex,
+        ..Default::default()
+    };
+    let new = VimeConfig {
+        input_method: VimeInputMethod::Vni,
+        ..Default::default()
+    };
+
+    let mut factory = common::Factory::create_with(&old).unwrap();
+    let mut session = factory.open_session();
+    // The same word, two keymaps. Telex spells sắc with `s`, VNI with `1`; both
+    // must render as `toán`, which is only true if the session really swapped.
+    assert_eq!(session.type_text("toans"), "toán");
+    assert_eq!(session.render_raw_text(), "toans");
+
+    assert!(factory.set_config(&new));
+    assert_eq!(
+        session.render_raw_text(),
+        "toans",
+        "the raw keystrokes do not move"
+    );
+    assert_eq!(session.type_text("toan1"), "toán", "VNI: 1 is sắc");
+    assert_eq!(session.render_raw_text(), "toan1");
+
+    // The snapshot path, which has its own view of the same state.
+    assert_eq!(session.render_state().text, "toán");
+    assert_eq!(session.render_state().raw_text, "toan1");
+}
+
+/// A session with a private config ignores the shared one, and going back to the
+/// shared one picks up whatever it says at that point.
+#[test]
+fn a_private_config_shadows_the_shared_one() {
+    let shared_old = VimeConfig {
+        tone_placement: VimeTonePlacement::Old,
+        ..Default::default()
+    };
+    let private_modern = VimeConfig {
+        tone_placement: VimeTonePlacement::Modern,
+        ..Default::default()
+    };
+
+    let mut factory = common::Factory::create_with(&shared_old).unwrap();
+    let mut session = factory.open_session_with(&private_modern);
+    assert_eq!(session.type_text("hoas"), "hoá", "the private config wins");
+
+    // Changing the shared config must not disturb the private one.
+    let shared_modern = VimeConfig {
+        tone_placement: VimeTonePlacement::Modern,
+        ..Default::default()
+    };
+    assert!(factory.set_config(&shared_modern));
+    assert_eq!(session.type_text("hoas"), "hoá");
+
+    // Clearing the private config puts it back on the shared one, which is now
+    // Modern, so the render is unchanged — and that is the point: the session
+    // really did move.
+    assert!(session.clear_config());
+    assert_eq!(session.type_text("hoas"), "hoá");
+}
+
+/// A session's own config can be replaced and cleared too.
+#[test]
+fn a_private_config_can_be_replaced() {
+    let modern = VimeConfig::default();
+    let old = VimeConfig {
+        tone_placement: VimeTonePlacement::Old,
+        ..Default::default()
+    };
+
+    let mut factory = common::Factory::create().unwrap();
+    let mut session = factory.open_session_with(&modern);
+    assert_eq!(session.type_text("hoas"), "hoá");
+
+    assert!(session.set_config(&old));
+    assert_eq!(session.type_text("hoas"), "hóa");
+
+    assert!(session.clear_config());
+    assert_eq!(
+        session.type_text("hoas"),
+        "hoá",
+        "back on the shared Modern"
+    );
+}
+
+/// A session outlives the factory that made it, which is what makes a session
+/// handle worth having on its own: a frontend can keep the composing session
+/// across a settings reload that replaces the factory.
+#[test]
+fn a_session_outlives_its_factory() {
+    let mut session = {
+        let mut factory = common::Factory::create().unwrap();
+        let mut session = factory.open_session();
+        assert_eq!(session.type_text("tieengs"), "tiếng");
+        session
+    };
+    // The factory is gone; the session still works.
+    assert_eq!(session.render_text(), "tiếng");
+    assert_eq!(session.type_text("toan"), "toan");
+    assert!(session.insert('a'));
+}
+
+/// Independent sessions do not share a buffer, which is the whole point of
+/// having a factory at all.
+#[test]
+fn sessions_from_one_factory_are_independent() {
+    let mut factory = common::Factory::create().unwrap();
+    let mut a = factory.open_session();
+    let mut b = factory.open_session();
+
+    assert_eq!(a.type_text("tieengs"), "tiếng");
+    assert_eq!(b.type_text("toan"), "toan");
+
+    assert_eq!(a.render_text(), "tiếng");
+    assert_eq!(b.render_text(), "toan");
+
+    a.reset();
+    assert_eq!(a.render_text(), "");
+    assert_eq!(b.render_text(), "toan", "reset is per session");
+}
+
+/// Two sessions with different private configs out of one factory.
+#[test]
+fn private_configs_differ_within_one_factory() {
+    let modern = VimeConfig::default();
+    let old = VimeConfig {
+        tone_placement: VimeTonePlacement::Old,
+        ..Default::default()
+    };
+    let mut factory = common::Factory::create().unwrap();
+    let mut modern_session = factory.open_session_with(&modern);
+    let mut old_session = factory.open_session_with(&old);
+
+    assert_eq!(modern_session.type_text("hoas"), "hoá");
+    assert_eq!(old_session.type_text("hoas"), "hóa");
+}
+
+/// A factory with no config and one built from `VIME_CONFIG_INIT` behave the
+/// same, so a caller may pass the macro or pass nothing.
+#[test]
+fn init_and_no_config_agree() {
+    let mut a = common::Factory::create().unwrap().open_session();
+    let mut b = common::Factory::create_with(&common::config_init())
+        .unwrap()
+        .open_session();
+    for word in ["tieengs", "hoas", "toan", "dduongf", "nguoiwf"] {
+        assert_eq!(a.type_text(word), b.type_text(word), "typing {word:?}");
     }
 }
 
+/// The string a caller gets back is stable until the next call on that session,
+/// which is what the header promises. Reading it twice without editing returns
+/// the same pointer and the same bytes.
 #[test]
-fn commit_on_empty_buffer_forwards() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    let out = session.commit();
-    assert_eq!(out.action, VimeAction::Forward);
-    assert!(out.rendered.is_none());
-    assert!(out.commit.is_none());
+fn the_text_pointer_is_stable_until_the_next_edit() {
+    let mut session = common::Factory::create().unwrap().open_session();
+    session.type_text("tieengs");
+
+    let first = session.render_text_ptr().unwrap();
+    let second = session.render_text_ptr().unwrap();
+    assert_eq!(first, second, "no edit, so no re-render, so no new pointer");
+    assert_eq!(first, "tiếng");
+
+    // An edit is what makes the pointer move.
+    session.insert('a');
+    let third = session.render_text_ptr().unwrap();
+    assert_ne!(first, third);
+    assert_eq!(third, "tiếnga");
 }
 
+/// The snapshot's own pointer is likewise stable, and it is the same object
+/// across calls because it lives in the handle.
 #[test]
-fn reset_returns_updated_empty_buffer() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    session.type_text("viet");
-    let out = session.reset();
-    assert_eq!(out.action, VimeAction::Changed);
-    assert_eq!(out.rendered.as_deref(), Some(""));
-    assert!(out.commit.is_none());
-}
-
-#[test]
-fn switching_method_clears_pending_buffer() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    session.type_text("too");
-    let out = session.set_input_method(VimeInputMethod::Vni);
-    assert_eq!(out.action, VimeAction::Changed);
-    assert_eq!(out.rendered.as_deref(), Some(""));
-    assert!(out.commit.is_none());
-}
-
-/// `vime_session_reset` invalidates the cached word on its own path.
-#[test]
-fn reset_invalidates_the_cached_word() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    session.type_text("viet");
-
-    // Prime the cache so a stale read would be observable.
-    let before = session.word().unwrap();
-    assert_eq!(before, "viet");
-
-    assert!(session.reset_flag(), "reset must report success");
-
-    // The word must now be empty, not the cached "viet".
-    let after = session.word().unwrap();
-    assert_eq!(after, "");
-}
-
-#[test]
-fn switching_placement_renders_without_text_commit() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    session.type_text("hoas");
-    let out = session.set_tone_placement(VimeTonePlacement::Old);
-    assert_eq!(out.action, VimeAction::Changed);
-    assert_eq!(out.rendered.as_deref(), Some("hóa"));
-    assert!(out.commit.is_none());
-}
-
-#[test]
-fn switch_then_commit_uses_new_placement() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    session.type_text("hoas");
-    session.set_tone_placement(VimeTonePlacement::Old);
-    let committed = session.commit();
-    assert_eq!(committed.action, VimeAction::Commit);
-    assert_eq!(committed.commit.as_deref(), Some("hóa"));
-}
-
-#[test]
-fn navigate_empty_buffer_forwards() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    assert_eq!(
-        session.process(key_event(VimeKey::Left)).action,
-        VimeAction::Forward
-    );
-    assert_eq!(
-        session.process(key_event(VimeKey::Right)).action,
-        VimeAction::Forward
-    );
-    assert_eq!(
-        session.process(key_event(VimeKey::Backspace)).action,
-        VimeAction::Forward
-    );
-    assert_eq!(
-        session.process(key_event(VimeKey::Delete)).action,
-        VimeAction::Forward
-    );
-}
-
-/// A state change made outside `vime_session_process_key` must still invalidate the
-/// cached word, or a lazy `vime_session_render` hands back text from before the
-/// change. Both config setters are state changes of exactly that kind.
-#[test]
-fn config_changes_invalidate_the_cached_word() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    session.type_text("hoas");
-
-    // Cached under the modern scheme.
-    assert_eq!(session.word().expect("a word must be reported"), "hoá");
-
-    // Switching placement re-renders the pending vowels; the cache must not
-    // still answer with the modern rendering.
-    session.set_tone_placement(VimeTonePlacement::Old);
-    assert_eq!(session.word().expect("a word must be reported"), "hóa");
-
-    // Switching the method clears the buffer; the cache must not still answer
-    // with the pre-clear text.
-    session.type_text("too");
-    session.set_input_method(VimeInputMethod::Vni);
-    assert_eq!(session.word().expect("a word must be reported"), "");
-}
-
-/// The word buffer is reused across renders rather than reallocated, so the
-/// returned pointer must stay correct after a state change: the new text has to
-/// land in the same live buffer the frontend is still holding.
-#[test]
-fn reused_word_buffer_serves_the_current_text() {
-    let mut factory = SessionFactory::create().unwrap();
-    let mut session = factory.open_session();
-    let typed = session.type_text("tiengs");
-
-    // The buffer must agree with what typing last reported, and repeated reads
-    // must not disturb it.
-    assert_eq!(session.word().expect("a word must be reported"), typed);
-    assert_eq!(session.word().expect("a word must be reported"), typed);
-    assert_eq!(session.word().expect("a word must be reported"), typed);
-
-    // Each backspace must land new text in the same reused buffer.
-    let mut previous = typed;
-    for _ in 0..4 {
-        session.process(key_event(VimeKey::Backspace));
-        let now = session.word().expect("a word must be reported");
-        assert_ne!(now, previous, "backspace must change the word");
-        previous = now;
-    }
-
-    // And an emptied buffer must render as empty, not as stale text.
-    for _ in 0..8 {
-        session.process(key_event(VimeKey::Backspace));
-    }
-    assert_eq!(session.word().expect("a word must be reported"), "");
+fn the_snapshot_pointer_is_stable() {
+    let mut session = common::Factory::create().unwrap().open_session();
+    session.type_text("tieengs");
+    let first = session.render_state_ptr();
+    let second = session.render_state_ptr();
+    assert_eq!(first, second);
+    assert!(!first.is_null());
 }

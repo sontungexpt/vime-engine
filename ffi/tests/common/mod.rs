@@ -1,331 +1,316 @@
 //! Shared harness for the FFI integration tests.
 //!
-//! Wraps the C ABI in an RAII-friendly driver that copies out every piece of
-//! text immediately (pointers are invalidated by the next call on the same
-//! handle) and destroys the handle on drop.
-//!
-//! The word is fetched through `vime_session_render` only when the action says it
-//! changed, which is how a real frontend should use the lazy accessor.
+//! Wraps the two opaque handles in RAII so a test cannot leak one, and copies
+//! every string out before the next call, because a returned `const char *` is
+//! only valid until the next call on the same handle. The point of copying is
+//! that a test comparing two renders needs both at once, which the ABI does not
+//! otherwise allow.
 
 #![allow(dead_code)]
 
-use std::ffi::CStr;
+use std::ffi::{c_char, CStr};
+use std::mem::size_of;
+use std::ptr;
 
 use vime::{
-    VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
-    VimeTonePlacement, VimeSessionFactoryHandle, VimeSessionHandle,
+    vime_session_backspace, vime_session_clear_config, vime_session_create,
+    vime_session_create_with_config, vime_session_delete, vime_session_destroy,
+    vime_session_factory_create, vime_session_factory_create_with_config,
+    vime_session_factory_destroy, vime_session_factory_set_config,
+    vime_session_get_cursor_byte_idx, vime_session_get_cursor_char_idx,
+    vime_session_get_raw_cursor_byte_idx, vime_session_get_raw_cursor_char_idx,
+    vime_session_insert, vime_session_is_valid_vietnamese, vime_session_move_cursor_left,
+    vime_session_move_cursor_right, vime_session_render_raw_text, vime_session_render_state,
+    vime_session_render_text, vime_session_reset, vime_session_set_config, VimeConfig,
+    VimeInputMethod, VimeRenderState, VimeSessionFactoryHandle, VimeSessionHandle,
+    VimeTonePlacement,
 };
 
-/// A processed key/command response with the strings already copied out.
-#[derive(Debug)]
-pub struct Outcome {
-    pub action: VimeAction,
-    pub rendered: Option<String>,
-    pub commit: Option<String>,
+/// Reads a `const char *` the session owns.
+pub fn read_str(ptr: *const c_char) -> String {
+    assert!(!ptr.is_null(), "expected a string, got NULL");
+    // SAFETY: every pointer passed here came from a live session, which owns the
+    // buffer and keeps it alive for the session's lifetime.
+    unsafe { CStr::from_ptr(ptr) }
+        .to_str()
+        .expect("the engine only ever writes UTF-8")
+        .to_owned()
 }
 
-/// A live session factory handle; destroyed automatically when the `SessionFactory` is dropped.
-pub struct SessionFactory(*mut VimeSessionFactoryHandle);
+/// A live session factory, destroyed on drop.
+pub struct Factory(*mut VimeSessionFactoryHandle);
 
-/// A live session handle; destroyed automatically when the `Session` is dropped.
+/// A live session, destroyed on drop.
 pub struct Session(*mut VimeSessionHandle);
 
-/// Builds a character key event (no modifiers, no special key).
-pub fn char_event(ch: char) -> VimeKeyEvent {
-    VimeKeyEvent {
-        key: VimeKey::Character,
-        character: ch as u32,
-        states: 0,
-    }
-}
-
-/// Builds a special-key event (no modifiers, no character payload).
-pub fn key_event(key: VimeKey) -> VimeKeyEvent {
-    VimeKeyEvent {
-        key,
-        character: 0,
-        states: 0,
-    }
-}
-
-unsafe fn read_output(handle: *mut VimeSessionHandle, out: VimeOutput) -> Outcome {
-    let rendered = match out.action {
-        VimeAction::Changed | VimeAction::CursorMoved => {
-            let ptr = unsafe { vime::vime_session_render(handle) };
-            if ptr.is_null() {
-                None
-            } else {
-                Some(CStr::from_ptr(ptr).to_str().unwrap().to_string())
-            }
-        }
-        _ => None,
-    };
-    let commit = if out.commit.is_null() {
-        None
-    } else {
-        Some(CStr::from_ptr(out.commit).to_str().unwrap().to_string())
-    };
-    Outcome {
-        action: out.action,
-        rendered,
-        commit,
-    }
-}
-
-impl SessionFactory {
-    fn from_raw(raw: *mut VimeSessionFactoryHandle) -> Option<Self> {
-        if raw.is_null() {
-            None
-        } else {
-            Some(Self(raw))
-        }
-    }
-
-    /// Creates a default (Telex) factory.
+impl Factory {
+    /// A factory with the header's default configuration.
     pub fn create() -> Option<Self> {
-        Self::from_raw(unsafe { vime::vime_session_factory_create() })
+        Self::from_raw(vime_session_factory_create())
     }
 
-    /// Creates a factory with the given configuration.
-    pub fn create_with(config: VimeConfig) -> Option<Self> {
-        Self::from_raw(unsafe { vime::vime_session_factory_create_with_config(&config) })
+    /// A factory with an explicit configuration.
+    pub fn create_with(config: &VimeConfig) -> Option<Self> {
+        // SAFETY: `config` outlives the call.
+        Self::from_raw(unsafe { vime_session_factory_create_with_config(config) })
     }
 
-    /// Changes the shared input method.
-    pub fn set_input_method(&mut self, method: VimeInputMethod) -> bool {
-        unsafe { vime::vime_session_factory_set_input_method(self.0, method) }
+    /// Replaces the shared configuration. `false` means it was rejected.
+    pub fn set_config(&mut self, config: &VimeConfig) -> bool {
+        // SAFETY: the handle is live and `config` outlives the call.
+        unsafe { vime_session_factory_set_config(self.0, config) }
     }
 
-    /// Changes the shared tone-placement convention.
-    pub fn set_tone_placement(&mut self, tone: VimeTonePlacement) -> bool {
-        unsafe { vime::vime_session_factory_set_tone_placement(self.0, tone) }
-    }
-
-    /// Changes the shared English auto-restore setting.
-    pub fn set_auto_restore_english(&mut self, enabled: bool) -> bool {
-        unsafe { vime::vime_session_factory_set_auto_restore_english(self.0, enabled) }
-    }
-
-    /// Creates a new empty session following the factory's shared configuration.
+    /// A session following the shared configuration.
     pub fn open_session(&mut self) -> Session {
-        Session(unsafe { vime::vime_session_create(self.0) })
+        // SAFETY: the factory handle is live.
+        Session(unsafe { vime_session_create(self.0) })
     }
 
-    /// Creates a session with a private configuration.
-    pub fn open_session_with_config(&mut self, config: VimeConfig) -> Session {
-        Session(unsafe { vime::vime_session_create_with_config(self.0, &config) })
+    /// A session with a private configuration.
+    pub fn open_session_with(&mut self, config: &VimeConfig) -> Session {
+        // SAFETY: the factory handle is live and `config` outlives the call.
+        Session(unsafe { vime_session_create_with_config(self.0, config) })
     }
 
-    /// The raw factory handle, for tests that need to drive the C ABI directly.
+    /// The raw handle, for tests that need to drive the ABI directly.
     pub fn handle(&self) -> *mut VimeSessionFactoryHandle {
         self.0
     }
 }
 
-impl Drop for SessionFactory {
+impl Factory {
+    fn from_raw(raw: *mut VimeSessionFactoryHandle) -> Option<Self> {
+        (!raw.is_null()).then_some(Self(raw))
+    }
+}
+
+impl Drop for Factory {
     fn drop(&mut self) {
-        unsafe { vime::vime_session_factory_destroy(self.0) };
+        // SAFETY: the handle is live and dropped exactly once.
+        unsafe { vime_session_factory_destroy(self.0) };
     }
 }
 
 impl Session {
     fn from_raw(raw: *mut VimeSessionHandle) -> Option<Self> {
-        if raw.is_null() {
-            None
-        } else {
-            Some(Self(raw))
-        }
+        (!raw.is_null()).then_some(Self(raw))
     }
 
-    /// Feeds `text` character-by-character; returns the last word.
+    /// Types `text` one character at a time, resetting first.
     pub fn type_text(&mut self, text: &str) -> String {
-        let mut last = String::new();
+        self.reset();
         for ch in text.chars() {
-            let out = self.process(char_event(ch));
-            assert_eq!(out.action, VimeAction::Changed);
-            if let Some(rendered) = out.rendered {
-                last = rendered;
-            }
+            assert!(self.insert(ch), "insert({ch:?}) should succeed");
         }
-        last
+        self.render_text()
     }
 
-    /// Processes one event, copying the output strings.
-    pub fn process(&mut self, event: VimeKeyEvent) -> Outcome {
-        let out = match event.key {
-            vime::VimeKey::Character => {
-                let ok = unsafe { vime::vime_session_insert(self.0, event.character) };
-                // Create a synthetic output for insert
-                let out = if ok {
-                    VimeOutput { action: VimeAction::Changed, commit: std::ptr::null() }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Backspace => {
-                let ok = unsafe { vime::vime_session_backspace(self.0) };
-                let out = if ok {
-                    VimeOutput { action: VimeAction::Changed, commit: std::ptr::null() }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Delete => {
-                let ok = unsafe { vime::vime_session_delete(self.0) };
-                let out = if ok {
-                    VimeOutput { action: VimeAction::Changed, commit: std::ptr::null() }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Left => {
-                let ok = unsafe { vime::vime_session_move_left(self.0) };
-                let out = if ok {
-                    VimeOutput { action: VimeAction::CursorMoved, commit: std::ptr::null() }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Right => {
-                let ok = unsafe { vime::vime_session_move_right(self.0) };
-                let out = if ok {
-                    VimeOutput { action: VimeAction::CursorMoved, commit: std::ptr::null() }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Enter => {
-                // Enter commits - we need to read the current word and reset
-                let word = unsafe { vime::vime_session_render(self.0) };
-                let word_str = if word.is_null() {
-                    String::new()
-                } else {
-                    unsafe { CStr::from_ptr(word).to_str().unwrap().to_string() }
-                };
-                let ok = unsafe { vime::vime_session_reset(self.0) };
-                let out = if ok {
-                    VimeOutput {
-                        action: VimeAction::Commit,
-                        commit: if word_str.is_empty() { std::ptr::null() } else { std::ptr::null() }
-                    }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Escape => {
-                let ok = unsafe { vime::vime_session_reset(self.0) };
-                let out = if ok {
-                    VimeOutput { action: VimeAction::Changed, commit: std::ptr::null() }
-                } else {
-                    VimeOutput::empty(VimeAction::Forward)
-                };
-                out
-            }
-            vime::VimeKey::Tab => {
-                // Tab commits
-                let word = unsafe { vime::vime_session_render(self.0) };
-                let _ = unsafe { vime::vime_session_reset(self.0) };
-                VimeOutput { action: VimeAction::Commit, commit: std::ptr::null() }
-            }
-            _ => VimeOutput::empty(VimeAction::Forward),
-        };
-        unsafe { read_output(self.0, out) }
+    /// Inserts one character.
+    pub fn insert(&mut self, ch: char) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_insert(self.0, ch as u32) }
     }
 
-    /// Switches the input method for this session (via private config).
-    pub fn set_input_method(&mut self, method: VimeInputMethod) -> Outcome {
-        let ok = unsafe { vime::vime_session_set_config(self.0, &VimeConfig {
-            auto_restore_english: true,
-            input_method: method,
-            tone_placement: VimeTonePlacement::Modern,
-        }) };
-        self.read_flag_output(ok)
+    /// Inserts a raw `uint32_t`, for testing what C can pass.
+    pub fn insert_raw(&mut self, character: u32) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_insert(self.0, character) }
     }
 
-    /// Switches the tone-placement convention for this session (via private config).
-    pub fn set_tone_placement(&mut self, tone: VimeTonePlacement) -> Outcome {
-        let ok = unsafe { vime::vime_session_set_config(self.0, &VimeConfig {
-            auto_restore_english: true,
-            input_method: VimeInputMethod::Telex,
-            tone_placement: tone,
-        }) };
-        self.read_flag_output(ok)
+    pub fn backspace(&mut self) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_backspace(self.0) }
     }
 
-    /// Returns the currently rendered composition.
-    pub fn word(&mut self) -> Option<String> {
-        let ptr = unsafe { vime::vime_session_render(self.0) };
-        if ptr.is_null() {
-            return None;
+    pub fn delete(&mut self) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_delete(self.0) }
+    }
+
+    pub fn move_cursor_left(&mut self) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_move_cursor_left(self.0) }
+    }
+
+    pub fn move_cursor_right(&mut self) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_move_cursor_right(self.0) }
+    }
+
+    /// The rendered word.
+    pub fn render_text(&mut self) -> String {
+        // SAFETY: the handle is live.
+        read_str(unsafe { vime_session_render_text(self.0) })
+    }
+
+    /// The rendered word, or `None` for a NULL return.
+    pub fn render_text_ptr(&mut self) -> Option<String> {
+        // SAFETY: the handle is live.
+        let ptr = unsafe { vime_session_render_text(self.0) };
+        (!ptr.is_null()).then(|| read_str(ptr))
+    }
+
+    /// The raw keystrokes.
+    pub fn render_raw_text(&mut self) -> String {
+        // SAFETY: the handle is live.
+        read_str(unsafe { vime_session_render_raw_text(self.0) })
+    }
+
+    pub fn is_valid_vietnamese(&mut self) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_is_valid_vietnamese(self.0) }
+    }
+
+    pub fn cursor_char_idx(&mut self) -> usize {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_get_cursor_char_idx(self.0) }
+    }
+
+    pub fn cursor_byte_idx(&mut self) -> usize {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_get_cursor_byte_idx(self.0) }
+    }
+
+    pub fn raw_cursor_char_idx(&mut self) -> usize {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_get_raw_cursor_char_idx(self.0) }
+    }
+
+    pub fn raw_cursor_byte_idx(&mut self) -> usize {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_get_raw_cursor_byte_idx(self.0) }
+    }
+
+    /// The full snapshot, with the two strings copied out.
+    pub fn render_state(&mut self) -> Snapshot {
+        // SAFETY: the handle is live.
+        let ptr = unsafe { vime_session_render_state(self.0) };
+        assert!(!ptr.is_null());
+        // SAFETY: the pointer is owned by the live session. The two string fields
+        // are read before anything else can overwrite the buffers, and the scalar
+        // fields are copied out by value.
+        let raw: VimeRenderState = unsafe { *ptr };
+        Snapshot {
+            text: read_str(raw.text),
+            raw_text: read_str(raw.raw_text),
+            cursor_byte_idx: raw.cursor_byte_idx,
+            cursor_char_idx: raw.cursor_char_idx,
+            raw_cursor_byte_idx: raw.raw_cursor_byte_idx,
+            raw_cursor_char_idx: raw.raw_cursor_char_idx,
+            bytes_to_delete: raw.bytes_to_delete,
+            chars_to_delete: raw.chars_to_delete,
+            is_valid_vietnamese: raw.is_valid_vietnamese,
         }
-        Some(unsafe { CStr::from_ptr(ptr).to_str() }.unwrap().to_string())
     }
 
-    /// Clears the current composition.
-    pub fn reset_composition(&mut self) -> Outcome {
-        let ok = unsafe { vime::vime_session_reset(self.0) };
-        self.read_flag_output(ok)
+    /// The snapshot's pointer, for tests that care about address stability.
+    pub fn render_state_ptr(&mut self) -> *const VimeRenderState {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_render_state(self.0) }
     }
 
-    /// Commits the current composition and resets the buffer.
-    pub fn commit(&mut self) -> Outcome {
-        // Read the current word before reset
-        let word = unsafe { vime::vime_session_render(self.0) };
-        let word_str = if word.is_null() {
-            String::new()
-        } else {
-            unsafe { CStr::from_ptr(word).to_str().unwrap().to_string() }
-        };
-        let ok = unsafe { vime::vime_session_reset(self.0) };
-        let out = if ok {
-            VimeOutput {
-                action: if word_str.is_empty() { VimeAction::Forward } else { VimeAction::Commit },
-                commit: if word_str.is_empty() { std::ptr::null() } else { std::ptr::null() },
-            }
-        } else {
-            VimeOutput::empty(VimeAction::Forward)
-        };
-        unsafe { read_output(self.0, out) }
+    pub fn set_config(&mut self, config: &VimeConfig) -> bool {
+        // SAFETY: the handle is live and `config` outlives the call.
+        unsafe { vime_session_set_config(self.0, config) }
     }
 
-    /// Resets the current composition, returning the full outcome.
-    pub fn reset(&mut self) -> Outcome {
-        let ok = unsafe { vime::vime_session_reset(self.0) };
-        self.read_flag_output(ok)
+    pub fn clear_config(&mut self) -> bool {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_clear_config(self.0) }
     }
 
-    /// Resets the current composition, returning only the success flag.
-    pub fn reset_flag(&mut self) -> bool {
-        unsafe { vime::vime_session_reset(self.0) }
+    pub fn reset(&mut self) {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_reset(self.0) };
     }
 
-    /// The raw handle, for tests that need to drive the C ABI directly.
+    /// The raw handle, for tests that need to drive the ABI directly.
     pub fn handle(&self) -> *mut VimeSessionHandle {
         self.0
-    }
-
-    /// The synthetic `VimeOutput` for a status-only entry point.
-    fn read_flag_output(&mut self, ok: bool) -> Outcome {
-        let out = if ok {
-            VimeOutput {
-                action: VimeAction::Changed,
-                commit: std::ptr::null(),
-            }
-        } else {
-            VimeOutput::empty(VimeAction::Forward)
-        };
-        unsafe { read_output(self.0, out) }
     }
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
-        unsafe { vime::vime_session_destroy(self.0) };
+        // SAFETY: the handle is live and dropped exactly once.
+        unsafe { vime_session_destroy(self.0) };
     }
+}
+
+/// A `VimeRenderState` with its strings owned, so a test can hold on to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub text: String,
+    pub raw_text: String,
+    pub cursor_byte_idx: usize,
+    pub cursor_char_idx: usize,
+    pub raw_cursor_byte_idx: usize,
+    pub raw_cursor_char_idx: usize,
+    pub bytes_to_delete: usize,
+    pub chars_to_delete: usize,
+    pub is_valid_vietnamese: bool,
+}
+
+impl Snapshot {
+    /// The snapshot of an empty session, which is what a fresh handle reports.
+    pub fn empty() -> Self {
+        Self {
+            text: String::new(),
+            raw_text: String::new(),
+            cursor_byte_idx: 0,
+            cursor_char_idx: 0,
+            raw_cursor_byte_idx: 0,
+            raw_cursor_char_idx: 0,
+            bytes_to_delete: 0,
+            chars_to_delete: 0,
+            is_valid_vietnamese: false,
+        }
+    }
+}
+
+/// A NULL session handle, for the tests that check the null path.
+pub fn null_session() -> *mut VimeSessionHandle {
+    ptr::null_mut()
+}
+
+/// A NULL factory handle.
+pub fn null_factory() -> *mut VimeSessionFactoryHandle {
+    ptr::null_mut()
+}
+
+/// The header's `VIME_CONFIG_INIT`, spelled out in Rust.
+pub fn config_init() -> VimeConfig {
+    VimeConfig::default()
+}
+
+/// A `VimeConfig` holding an input method outside the header's range.
+///
+/// Built by writing bytes rather than by transmuting an integer into the enum,
+/// because forming the enum at all is what a debug build panics on — and the
+/// adapter's whole job is to survive a C caller that never formed it. This is
+/// exactly what an out-of-range discriminant looks like on the wire: a struct with
+/// the right size and the wrong number in it.
+pub fn config_with_raw_input_method(input_method: u32) -> Vec<u8> {
+    raw_config(input_method, VimeTonePlacement::Modern as u32)
+}
+
+/// A `VimeConfig` holding a tone placement outside the header's range.
+pub fn config_with_raw_tone_placement(tone_placement: u32) -> Vec<u8> {
+    raw_config(VimeInputMethod::Telex as u32, tone_placement)
+}
+
+/// The byte pattern of a `VimeConfig`, `#[repr(C)]`-encoded by hand.
+fn raw_config(input_method: u32, tone_placement: u32) -> Vec<u8> {
+    // Laid out as the header declares it: bool, 3 bytes of padding, int, int.
+    assert_eq!(
+        size_of::<VimeConfig>(),
+        12,
+        "the offsets below assume 12 bytes"
+    );
+    let mut bytes = vec![0u8; size_of::<VimeConfig>()];
+    bytes[0] = 1; // auto_restore_english = true
+    bytes[4..8].copy_from_slice(&input_method.to_ne_bytes());
+    bytes[8..12].copy_from_slice(&tone_placement.to_ne_bytes());
+    bytes
 }

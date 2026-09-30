@@ -1,409 +1,771 @@
+//! The C ABI over the VIME engine.
+//!
+//! `include/vime_engine.h` is the contract. Every symbol in it is defined here
+//! with the same name and the same signature, and nothing else is exported.
+//!
+//! # The shape of the boundary
+//!
+//! ```text
+//! C  ->  validate  ->  handle  ->  VIME core  ->  C-compatible result
+//! ```
+//!
+//! Each exported function does the least that four steps need: check the pointer
+//! and the arguments, take the handle's borrow, call the engine, and turn the
+//! result into the `bool` / `NULL` / `0` the header documents. There is no
+//! Vietnamese logic here at all — no parsing, no transformation, no validation,
+//! no cursor arithmetic. The engine owns all of it, and this layer only moves
+//! data across.
+//!
+//! # What the hot path costs
+//!
+//! A keystroke is
+//!
+//! ```text
+//! validate -> insert -> mark the text cache stale -> return
+//! ```
+//!
+//! and nothing else. No allocation, no rendering, no UTF-8 walking, no lock. The
+//! text is only rendered when a frontend asks for it, and then only if it changed
+//! since the last time somebody asked — which, for the usual
+//! keystroke-then-repaint loop, means it is rendered once per keystroke and never
+//! twice. See [`handle`] for the cache and why it lives in the handle.
+//!
+//! # Failure values
+//!
+//! The header has no error channel beyond `bool`, `NULL`, `""` and `0`, so those
+//! are the whole of it, and each is used where the header says it is:
+//!
+//! - a NULL handle is never dereferenced; every entry point checks first,
+//! - an unknown enum discriminant, a NULL config where one is required, and a
+//!   code point that is not a Unicode scalar all fail the documented way rather
+//!   than being coerced into an enum or a `char`,
+//! - a feature the engine does not have reports the header's neutral value and is
+//!   named in its own doc comment, so a caller can tell "false because invalid"
+//!   from "false because unimplemented" by reading the header, not by guessing.
+//!
+//! # Panics
+//!
+//! A Rust panic must not unwind into C: it would cross a frame the C side never
+//! prepared for, and unwinding out of `extern "C"` aborts the process. Every
+//! exported function is therefore wrapped in [`guard`], which catches a panic and
+//! returns the same value the function returns for bad input. Nothing in the
+//! layer is written to panic — the pointers are checked and the arguments are
+//! validated — so the guard is there to contain a bug in the engine rather than
+//! as a mechanism the code depends on. A handle that has panicked is left
+//! unspecified; destroy it rather than reuse it.
+//!
+//! # Thread safety
+//!
+//! A handle is not synchronized and does not need to be. The ABI never says two
+//! threads may use one handle, so no lock is added, and no handle is `Sync` by
+//! accident. A `VimeSessionFactoryHandle` may be shared across threads only
+//! through the engine's own shared configuration, which is where that support
+//! already lives; sessions created from it are independent buffers and are as
+//! single-threaded as the handle they came from.
+//!
+//! # Stability
+//!
+//! The exported names, signatures, struct layouts and enum values are fixed by
+//! the header and locked by compile-time assertions in [`config`] and [`render`],
+//! plus the C compile-and-link test in `tests/c_abi.rs`.
+
 use std::ffi::c_char;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 
-use vime_engine::composition::syllable::SyllableContext;
-use vime_engine::phonology::TonePlacement;
-use vime_engine::{Config, DefaultKeymap, Key, KeyEvent, KeyStates, Result, Session, SessionFactory, Settings};
+mod config;
+mod handle;
+mod render;
 
-mod convert;
-mod types;
+pub use config::{VimeConfig, VimeInputMethod, VimeTonePlacement};
+pub use handle::{VimeSessionFactoryHandle, VimeSessionHandle};
+pub use render::VimeRenderState;
 
-pub use types::{
-    VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput,
-    VimeSessionFactoryHandle, VimeSessionHandle, VimeTonePlacement,
-};
-
-macro_rules! factory_handle_or {
-    ($ptr:expr, $default:expr) => {
-        match $ptr.as_mut() {
-            Some(handle) => handle,
-            None => return $default,
-        }
-    };
-}
-
-macro_rules! session_handle_or {
-    ($ptr:expr, $default:expr) => {
-        match $ptr.as_mut() {
-            Some(handle) => handle,
-            None => return $default,
-        }
-    };
-}
-
-fn keymap_for(method: VimeInputMethod) -> Option<DefaultKeymap<'static>> {
-    #[allow(unreachable_patterns)]
-    match method {
-        VimeInputMethod::Telex => Some(DefaultKeymap::telex()),
-        VimeInputMethod::Vni => Some(DefaultKeymap::vni()),
-        VimeInputMethod::Viqr => Some(DefaultKeymap::viqr()),
-        _ => None,
+/// Runs `body`, turning a panic into `fallback`.
+///
+/// The C ABI has no way to report a panic, so a panic has to become the same
+/// answer the function gives for invalid input. `AssertUnwindSafe` is what lets a
+/// panic through a function that holds a `&mut` handle; the handle is the only
+/// thing that could be left inconsistent, and the caller is told to destroy it.
+#[inline]
+fn guard<T>(fallback: T, body: impl FnOnce() -> T) -> T {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(_) => fallback,
     }
 }
 
-fn tone_placement_for(tp: VimeTonePlacement) -> Option<TonePlacement> {
-    TonePlacement::try_from(tp).ok()
-}
+// ─────────────────────────── factory lifecycle ───────────────────────────
 
-/// Creates a session factory with the default configuration.
+/// Creates a new Session Factory with default configuration (Telex, Modern tone).
+///
+/// Returns NULL only if the allocation fails, which aborts rather than returning.
+///
+/// # Safety
+///
+/// The returned handle must be released with [`vime_session_factory_destroy`].
 #[no_mangle]
 pub extern "C" fn vime_session_factory_create() -> *mut VimeSessionFactoryHandle {
-    let factory = SessionFactory::new(Config::new(
-        Settings::default(),
-        SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Modern),
-    ));
-    VimeSessionFactoryHandle::new(factory).into_raw()
+    guard(ptr::null_mut(), || {
+        VimeSessionFactoryHandle::new(VimeConfig::init().to_engine_config()).into_raw()
+    })
 }
 
-/// Creates a factory with the supplied configuration.
+/// Creates a new Session Factory with custom initial configuration.
 ///
-/// `config` may be NULL, in which case VIME_CONFIG_INIT is used.
+/// A NULL `config` is `VIME_CONFIG_INIT`, so "no configuration" and "the default
+/// configuration" are the same request. Returns NULL if the configuration carries
+/// an enum value the engine has no meaning for, and NULL if the allocation fails.
 ///
-/// Returns NULL if the configuration contains an invalid enum value.
+/// # Safety
+///
+/// `config` must be NULL or point to a readable `VimeConfig`, and the returned
+/// handle must be released with [`vime_session_factory_destroy`].
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_factory_create_with_config(
     config: *const VimeConfig,
 ) -> *mut VimeSessionFactoryHandle {
-    let config = unsafe { VimeConfig::read(config) };
-    let config = config.to_engine_config();
-    let factory = SessionFactory::new(config);
-    VimeSessionFactoryHandle::new(factory).into_raw()
+    guard(ptr::null_mut(), || {
+        // SAFETY: the caller guarantees `config` is NULL or readable for the call.
+        let Some(config) = (unsafe { VimeConfig::read(config) }) else {
+            return ptr::null_mut();
+        };
+        VimeSessionFactoryHandle::new(config.to_engine_config()).into_raw()
+    })
 }
 
-/// Destroys a factory.
+/// Destroys a Session Factory and frees associated memory.
 ///
-/// Existing sessions created by the factory remain valid.
+/// Existing sessions created by the factory remain valid: they hold their own
+/// reference to the shared configuration, and one taken privately is independent
+/// of the factory entirely. A NULL factory is a no-op.
+///
+/// # Safety
+///
+/// `factory` must be NULL, or a handle from one of the factory constructors that
+/// has not already been destroyed.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_factory_destroy(factory: *mut VimeSessionFactoryHandle) {
-    if !factory.is_null() {
-        drop(Box::from_raw(factory));
-    }
+    // SAFETY: the caller guarantees ownership of the handle passes to this call.
+    drop(unsafe { VimeSessionFactoryHandle::into_box(factory) });
 }
 
-/// Replaces the shared configuration.
+/// Updates the SharedConfig of the Factory.
 ///
-/// Existing sessions that follow the shared configuration observe the change
-/// on their next operation. Sessions with a private configuration are unaffected.
+/// All active sessions sharing this config (without private overrides) update on
+/// their next operation, including a query that only reads the rendered text.
 ///
-/// Returns false for NULL handles or invalid enum values.
+/// Returns false if the factory is NULL or the config carries an unknown enum
+/// value; in the latter case the previous configuration is left in place.
+///
+/// # Safety
+///
+/// `factory` must be a live factory handle, and `config` must be NULL or point to
+/// a readable `VimeConfig`.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_factory_set_config(
     factory: *mut VimeSessionFactoryHandle,
     config: *const VimeConfig,
 ) -> bool {
-    let factory = factory_handle_or!(factory, false);
-    let config = unsafe { VimeConfig::read(config) };
-    let config = config.to_engine_config();
-    factory.factory.set_config(config);
-    true
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionFactoryHandle::from_raw(factory) }) else {
+            return false;
+        };
+        if config.is_null() {
+            return false;
+        }
+        // SAFETY: the caller guarantees `config` is readable for the call.
+        let Some(config) = (unsafe { VimeConfig::read(config) }) else {
+            return false;
+        };
+        handle.factory.set_config(config.to_engine_config());
+        true
+    })
 }
 
-/// Changes the shared input method.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_factory_set_input_method(
-    factory: *mut VimeSessionFactoryHandle,
-    method: VimeInputMethod,
-) -> bool {
-    let factory = factory_handle_or!(factory, false);
-    let Some(keymap) = keymap_for(method) else {
-        return false;
-    };
-    let config = Config::from_keymap(Settings::default(), keymap);
-    factory.factory.set_config(config);
-    true
-}
+// ─────────────────────────── session lifecycle ───────────────────────────
 
-/// Changes the shared tone-placement convention.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_factory_set_tone_placement(
-    factory: *mut VimeSessionFactoryHandle,
-    tone_placement: VimeTonePlacement,
-) -> bool {
-    let factory = factory_handle_or!(factory, false);
-    let Some(_tp) = tone_placement_for(tone_placement) else {
-        return false;
-    };
-    let config = Config::from_keymap(Settings::default(), DefaultKeymap::telex());
-    let mut config = config;
-    config.context = config.context; // keep keymap
-    config.context = SyllableContext::new(
-        *config.context.keymap(),
-        tone_placement_for(tone_placement).unwrap(),
-    );
-    factory.factory.set_config(config);
-    true
-}
-
-/// Changes the shared English auto-restore setting.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_factory_set_auto_restore_english(
-    factory: *mut VimeSessionFactoryHandle,
-    enabled: bool,
-) -> bool {
-    let factory = factory_handle_or!(factory, false);
-    let mut config = factory.factory.config().snapshot();
-    config.settings.auto_restore_english = enabled;
-    factory.factory.set_config(config);
-    true
-}
-
-/// Creates a new empty session following the factory's shared configuration.
+/// Creates a new Session bound to the Factory's SharedConfig.
+///
+/// The session follows later shared-configuration changes. Returns NULL if
+/// `factory` is NULL.
+///
+/// # Safety
+///
+/// `factory` must be NULL or a live factory handle. The returned handle must be
+/// released with [`vime_session_destroy`].
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_create(
     factory: *mut VimeSessionFactoryHandle,
 ) -> *mut VimeSessionHandle {
-    let factory = factory_handle_or!(factory, ptr::null_mut());
-    let session = Session::new(factory.factory.config().clone());
-    VimeSessionHandle::new(session).into_raw()
+    guard(ptr::null_mut(), || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionFactoryHandle::from_raw(factory) }) else {
+            return ptr::null_mut();
+        };
+        VimeSessionHandle::new(handle.new_session()).into_raw()
+    })
 }
 
-/// Creates a new empty session with a private configuration.
+/// Creates a new Session with a private config override.
 ///
 /// The session does not follow subsequent shared configuration changes until
-/// its private configuration is cleared.
+/// [`vime_session_clear_config`] is called. A NULL `config` is `VIME_CONFIG_INIT`;
+/// an unknown enum value fails the call and returns NULL rather than building a
+/// session nobody asked for.
+///
+/// # Safety
+///
+/// `factory` must be NULL or a live factory handle, and `config` must be NULL or
+/// point to a readable `VimeConfig`. The returned handle must be released with
+/// [`vime_session_destroy`].
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_create_with_config(
     factory: *mut VimeSessionFactoryHandle,
     config: *const VimeConfig,
 ) -> *mut VimeSessionHandle {
-    let factory = factory_handle_or!(factory, ptr::null_mut());
-    let config = unsafe { VimeConfig::read(config) };
-    let config = config.to_engine_config();
-    let session = Session::with_config_on_shared(factory.factory.config().clone(), config);
-    VimeSessionHandle::new(session).into_raw()
+    guard(ptr::null_mut(), || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionFactoryHandle::from_raw(factory) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: the caller guarantees `config` is NULL or readable for the call.
+        let Some(config) = (unsafe { VimeConfig::read(config) }) else {
+            return ptr::null_mut();
+        };
+        VimeSessionHandle::new(handle.new_session_with(config.to_engine_config())).into_raw()
+    })
 }
 
-/// Destroys a session.
+/// Destroys a Session and frees its associated rendering caches.
+///
+/// Every pointer previously returned for this session becomes invalid. A NULL
+/// session is a no-op.
+///
+/// # Safety
+///
+/// `session` must be NULL, or a handle from one of the session constructors that
+/// has not already been destroyed.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_destroy(session: *mut VimeSessionHandle) {
-    if !session.is_null() {
-        drop(Box::from_raw(session));
-    }
+    // SAFETY: the caller guarantees ownership of the handle passes to this call.
+    drop(unsafe { VimeSessionHandle::into_box(session) });
 }
 
-/// Replaces this session's configuration with a private configuration.
+// ────────────────────── session config isolation ──────────────────────
+
+/// Sets a private config for the session, unlinking it from Factory SharedConfig.
 ///
-/// After this call, changes to the factory's shared configuration no longer
-/// affect this session.
+/// Takes effect on the next operation. Returns false if the session or the config
+/// is NULL, or if the config carries an unknown enum value — in which case the
+/// session keeps the configuration it had.
+///
+/// # Safety
+///
+/// `session` must be a live session handle, and `config` must be NULL or point to
+/// a readable `VimeConfig`.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_set_config(
     session: *mut VimeSessionHandle,
     config: *const VimeConfig,
 ) -> bool {
-    let session = session_handle_or!(session, false);
-    let config = unsafe { VimeConfig::read(config) };
-    let config = config.to_engine_config();
-    session.session.set_private_config(config);
-    true
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        if config.is_null() {
+            return false;
+        }
+        // SAFETY: the caller guarantees `config` is readable for the call.
+        let Some(config) = (unsafe { VimeConfig::read(config) }) else {
+            return false;
+        };
+        handle.session.set_private_config(config.to_engine_config());
+        // A new configuration can re-render the word, so the cached text is now
+        // stale even though no key was pressed.
+        handle.invalidate();
+        true
+    })
 }
 
-/// Clears the session's private configuration.
+/// Removes private config, reverting session to Factory SharedConfig.
 ///
-/// The session resumes following the factory's current shared configuration.
+/// Returns false if the session is NULL.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_clear_config(session: *mut VimeSessionHandle) -> bool {
-    let session = session_handle_or!(session, false);
-    session.session.clear_private_config();
-    true
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        handle.session.clear_private_config();
+        handle.invalidate();
+        true
+    })
 }
 
-/// Inserts a character.
+// ───────────────────────── input and editing ─────────────────────────
+
+/// Inserts a single Unicode scalar value (UTF-32) at the current cursor position.
 ///
-/// Picks up shared configuration changes before processing.
-/// Returns false if the session is invalid.
+/// Returns false if the session is NULL or `character` is not a Unicode scalar
+/// value, in which case nothing is inserted. A code point that is not a scalar
+/// value — a surrogate, or anything above U+10FFFF — is rejected rather than
+/// truncated into a different character.
+///
+/// U+0000 is a valid scalar value and is inserted like any other; it is the C
+/// string returned by [`vime_session_render_text`] that stops at it, because that
+/// is what a C string is.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_insert(
     session: *mut VimeSessionHandle,
     character: u32,
 ) -> bool {
-    let session = session_handle_or!(session, false);
-    let ch = char::from_u32(character);
-    if ch.is_none() {
-        return false;
-    }
-    let event = KeyEvent::key(Key::Character(ch.unwrap()));
-    matches!(session.session.process_key(event), Result::Changed | Result::Commit(_))
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        let Some(character) = char::from_u32(character) else {
+            return false;
+        };
+        handle.session.insert(character);
+        handle.invalidate();
+        true
+    })
 }
 
-/// Processes a backspace key.
+/// Performs a Backspace operation at the current cursor position.
 ///
-/// Picks up shared configuration changes before processing.
-/// Returns false if the session is invalid or the cursor cannot move left.
+/// Returns true if a character was deleted, false if the buffer is empty or the
+/// session is NULL. True means a character left the rendered word, the raw
+/// keystrokes, or both — the engine deletes from each buffer according to what it
+/// holds, and the two are not always the same length.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_backspace(session: *mut VimeSessionHandle) -> bool {
-    let session = session_handle_or!(session, false);
-    let event = KeyEvent::key(Key::Backspace);
-    matches!(session.session.process_key(event), Result::Changed | Result::Commit(_))
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        let deleted = handle.session.backspace();
+        handle.invalidate();
+        *deleted.rendered() || *deleted.raw()
+    })
 }
 
-/// Processes a delete key.
+/// Performs a Delete operation at the current cursor position.
 ///
-/// Picks up shared configuration changes before processing.
-/// Returns false if the session is invalid or the cursor cannot move right.
+/// Returns true if a character was deleted, false if there is nothing ahead of the
+/// cursor or the session is NULL.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_delete(session: *mut VimeSessionHandle) -> bool {
-    let session = session_handle_or!(session, false);
-    let event = KeyEvent::key(Key::Delete);
-    matches!(session.session.process_key(event), Result::Changed | Result::Commit(_))
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        let deleted = handle.session.delete();
+        handle.invalidate();
+        *deleted.rendered() || *deleted.raw()
+    })
 }
 
-/// Moves the cursor left.
+/// Moves cursor left by 1 character.
 ///
-/// Picks up shared configuration changes before processing.
-/// Returns false if the session is invalid or the cursor cannot move left.
+/// Returns true if the rendered caret moved, false if it is already at the
+/// beginning of the word or the session is NULL. The reported caret is the
+/// rendered one, matching [`vime_session_get_cursor_char_idx`]; the engine's raw
+/// caret follows its own buffer, which can be somewhere else entirely after a
+/// transform key consumed a keystroke.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_move_left(session: *mut VimeSessionHandle) -> bool {
-    let session = session_handle_or!(session, false);
-    let event = KeyEvent::key(Key::Left);
-    matches!(session.session.process_key(event), Result::CursorMoved | Result::Changed | Result::Commit(_))
+pub unsafe extern "C" fn vime_session_move_cursor_left(session: *mut VimeSessionHandle) -> bool {
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        let moved = handle.session.move_cursor_left();
+        handle.invalidate();
+        *moved.rendered()
+    })
 }
 
-/// Moves the cursor right.
+/// Moves cursor right by 1 character.
 ///
-/// Picks up shared configuration changes before processing.
-/// Returns false if the session is invalid or the cursor cannot move right.
+/// Returns true if the rendered caret moved, false if it is already at the end of
+/// the word or the session is NULL. As with
+/// [`vime_session_move_cursor_left`], the rendered caret is the one reported.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_move_right(session: *mut VimeSessionHandle) -> bool {
-    let session = session_handle_or!(session, false);
-    let event = KeyEvent {
-        key: Key::Right,
-        character: 0,
-        states: 0,
-    };
-    matches!(session.session.process_key(event), Result::CursorMoved | Result::Changed | Result::Commit(_))
+pub unsafe extern "C" fn vime_session_move_cursor_right(session: *mut VimeSessionHandle) -> bool {
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        let moved = handle.session.move_cursor_right();
+        handle.invalidate();
+        *moved.rendered()
+    })
 }
 
-/// Returns the currently rendered composition.
+// ────────────────────── render and state queries ──────────────────────
+
+/// [RENDER TEXT] Gets the transformed Vietnamese UTF-8 display string.
 ///
-/// Returns NULL for invalid session, "" for empty composition.
+/// Returns "" for an empty buffer, and NULL if the session is NULL — a NULL
+/// return means "no session", which an empty word does not, so the two are
+/// distinguishable.
 ///
-/// The returned pointer is owned by the session and must not be freed.
-/// Valid until the next operation that changes the session state or vime_session_destroy().
+/// The pointer is owned by the session, must not be freed, and stays valid until
+/// the next call on this session. It is rendered on demand and cached, so calling
+/// this twice with no edit in between costs one render in total.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_render(session: *mut VimeSessionHandle) -> *const c_char {
-    let session = session_handle_or!(session, ptr::null());
-    session.parsed_ptr()
+pub unsafe extern "C" fn vime_session_render_text(
+    session: *mut VimeSessionHandle,
+) -> *const c_char {
+    guard(ptr::null(), || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return ptr::null();
+        };
+        handle.render_text()
+    })
 }
 
-/// Clears the current composition.
+/// [RAW TEXT] Gets the raw UTF-8 sequence typed by user.
 ///
-/// Returns false for a NULL session.
+/// For `a` then `w` the rendered text is `ă` while this is `aw`, because a
+/// transform key is consumed rather than becoming a character of its own. The
+/// same lifetime rules as [`vime_session_render_text`] apply.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_reset(session: *mut VimeSessionHandle) -> bool {
-    let session = session_handle_or!(session, false);
-    session.session.reset();
-    session.invalidate();
-    true
+pub unsafe extern "C" fn vime_session_render_raw_text(
+    session: *mut VimeSessionHandle,
+) -> *const c_char {
+    guard(ptr::null(), || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return ptr::null();
+        };
+        handle.render_raw_text()
+    })
 }
 
-/// Returns the current composition cursor position in Unicode characters.
+/// [VALIDATION] Checks if current buffer conforms to Vietnamese orthography rules.
 ///
-/// Returns SIZE_MAX for an invalid session.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_cursor(session: *mut VimeSessionHandle) -> usize {
-    let session = session_handle_or!(session, usize::MAX);
-    session.cursor_pos()
-}
-
-/// Returns the rendered composition length in Unicode characters.
+/// True when the buffer spells a complete Vietnamese syllable that the engine's
+/// phonotactic rules accept — `ba`, `toan`, `ương` — and false while it is still a
+/// fragment (`b`), while the parse has failed (`qwerty`), and for an empty buffer.
+/// The verdict is the engine's own, so a word the engine's spelling rules reject
+/// is reported invalid rather than being second-guessed here.
 ///
-/// Returns SIZE_MAX for an invalid session.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_length(session: *mut VimeSessionHandle) -> usize {
-    let session = session_handle_or!(session, usize::MAX);
-    session.length()
-}
-
-/// Gets the transformed Vietnamese UTF-8 display string.
+/// Returns false if the session is NULL.
 ///
-/// Returned pointer is managed by Session and remains valid until next session call.
-/// Returns NULL for invalid session or empty string for empty buffer.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_render_text(session: *mut VimeSessionHandle) -> *const c_char {
-    let session = session_handle_or!(session, ptr::null());
-    session.parsed_ptr()
-}
-
-/// Gets the raw UTF-8 sequence typed by user.
+/// # Safety
 ///
-/// Not yet implemented in core engine. Returns NULL.
-#[no_mangle]
-pub unsafe extern "C" fn vime_session_render_raw_text(session: *mut VimeSessionHandle) -> *const c_char {
-    let _ = session_handle_or!(session, ptr::null());
-    ptr::null()
-}
-
-/// Checks if current buffer conforms to Vietnamese orthography rules.
-///
-/// Not yet implemented in core engine. Returns false.
+/// `session` must be a live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_is_valid_vietnamese(session: *mut VimeSessionHandle) -> bool {
-    let _ = session_handle_or!(session, false);
-    false
+    guard(false, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+        handle.is_valid_vietnamese()
+    })
 }
 
-/// Gets rendered cursor position in CodePoints (Unicode characters).
+/// [RENDER CURSOR] Gets rendered cursor position in CodePoints (Unicode characters).
 ///
-/// Returns 0 for invalid session.
+/// A character index into [`vime_session_render_text`], never a byte offset, and
+/// never more than that text's length. Reported for a NULL session as 0.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_get_cursor_char_idx(session: *mut VimeSessionHandle) -> usize {
-    let session = session_handle_or!(session, 0);
-    session.cursor_pos()
+pub unsafe extern "C" fn vime_session_get_cursor_char_idx(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    guard(0, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return 0;
+        };
+        handle.cursor_char_idx()
+    })
 }
 
-/// Gets rendered cursor position in UTF-8 Byte offset.
+/// [RENDER CURSOR] Gets rendered cursor position in UTF-8 Byte offset.
 ///
-/// Not yet implemented in core engine. Returns 0.
+/// A byte offset into [`vime_session_render_text`], always on a character
+/// boundary, so a frontend may slice with it directly. Rendering the word is
+/// what makes it available, and the result is cached, so this costs a render only
+/// when the word has changed. Reported for a NULL session as 0.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_get_cursor_byte_idx(session: *mut VimeSessionHandle) -> usize {
-    let _ = session_handle_or!(session, 0);
-    0
+pub unsafe extern "C" fn vime_session_get_cursor_byte_idx(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    guard(0, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return 0;
+        };
+        handle.cursor_byte_idx()
+    })
 }
 
-/// Gets raw cursor position in CodePoints (Unicode characters).
+/// [RAW CURSOR] Gets raw cursor position in CodePoints (Unicode characters).
 ///
-/// Not yet implemented in core engine. Returns 0.
+/// A keystroke index into [`vime_session_render_raw_text`]. It differs from
+/// [`vime_session_get_cursor_char_idx`] whenever a transform key has been
+/// consumed. Reported for a NULL session as 0.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_get_raw_cursor_char_idx(session: *mut VimeSessionHandle) -> usize {
-    let _ = session_handle_or!(session, 0);
-    0
+pub unsafe extern "C" fn vime_session_get_raw_cursor_char_idx(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    guard(0, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return 0;
+        };
+        handle.raw_cursor_char_idx()
+    })
 }
 
-/// Gets raw cursor position in UTF-8 Byte offset.
+/// [RAW CURSOR] Gets raw cursor position in UTF-8 Byte offset.
 ///
-/// Not yet implemented in core engine. Returns 0.
+/// A byte offset into [`vime_session_render_raw_text`], always on a character
+/// boundary. Reported for a NULL session as 0.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_get_raw_cursor_byte_idx(session: *mut VimeSessionHandle) -> usize {
-    let _ = session_handle_or!(session, 0);
-    0
+pub unsafe extern "C" fn vime_session_get_raw_cursor_byte_idx(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    guard(0, || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return 0;
+        };
+        handle.raw_cursor_byte_idx()
+    })
 }
 
-/// Retrieves a complete snapshot of current session render state.
+/// [ADVANCED STATE] Retrieves a complete snapshot of current session render state.
 ///
-/// Not yet implemented in core engine. Returns NULL.
+/// Cheaper than the six individual getters, because the text is rendered at most
+/// once and the offsets are measured in the same pass that writes it.
+///
+/// # The delete counts
+///
+/// `bytes_to_delete` and `chars_to_delete` are the length of the text this
+/// session reported through *this function* the previous time it was called, in
+/// bytes and in characters. A host integrating at the text level deletes that
+/// much and then writes `text`, which is the whole point of a uinput integration.
+/// Both are 0 on the first call, and the text this call reports becomes the next
+/// call's delete count — so one repaint per keystroke is the cycle they describe.
+/// [`vime_session_render_text`] deliberately does not move them, leaving that to
+/// a caller that reads the text on its own schedule.
+///
+/// The pointer is owned by the session, must not be freed, and stays valid until
+/// the next call on this session. Returns NULL if the session is NULL.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
-pub unsafe extern "C" fn vime_session_render_state(session: *mut VimeSessionHandle) -> *const VimeRenderState {
-    let _ = session_handle_or!(session, ptr::null());
-    ptr::null()
+pub unsafe extern "C" fn vime_session_render_state(
+    session: *mut VimeSessionHandle,
+) -> *const VimeRenderState {
+    guard(ptr::null(), || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return ptr::null();
+        };
+        handle.render_state()
+    })
 }
 
 /// Clears input buffers and resets session state to initial conditions.
 ///
-/// Safe to call with NULL pointer (no-op).
+/// The configuration in force is kept; only the typed input is discarded. A NULL
+/// session is a no-op.
+///
+/// # Safety
+///
+/// `session` must be a live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_reset(session: *mut VimeSessionHandle) {
-    if session.is_null() {
-        return;
-    }
-    let session = &mut *session;
-    session.session.reset();
-    session.invalidate();
+    guard((), || {
+        // SAFETY: the caller guarantees a live handle; NULL is checked inside.
+        let Some(handle) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return;
+        };
+        handle.session.reset();
+        handle.invalidate();
+    })
 }
 
-/// Returns the VIME ABI version.
+// ───────────────────────────── system info ─────────────────────────────
+
+/// Gets the semver string of the VIME Engine C-FFI library.
 ///
-/// The returned string is static and must not be freed.
+/// Statically allocated at compile time, so this never allocates and the pointer
+/// is valid for the life of the process. It is the FFI crate's own version.
+///
+/// # Safety
+///
+/// The returned pointer must not be freed.
 #[no_mangle]
 pub extern "C" fn vime_version() -> *const c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
+    // A `&'static str` built at compile time, NUL-terminated by the literal.
+    const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
+    VERSION.as_ptr().cast()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vime_engine::{Session, SessionFactory};
+
+    /// A session driven through the raw pointers, with no RAII wrapper, so the
+    /// tests exercise the same path a C caller takes.
+    fn raw_session() -> *mut VimeSessionHandle {
+        // SAFETY: a live factory is created, used, and released here; the session
+        // outlives the factory on purpose, which is the documented behaviour.
+        let factory = vime_session_factory_create();
+        assert!(!factory.is_null());
+        let session = unsafe { vime_session_create(factory) };
+        unsafe { vime_session_factory_destroy(factory) };
+        assert!(!session.is_null());
+        session
+    }
+
+    fn render_text(session: *mut VimeSessionHandle) -> String {
+        // SAFETY: `session` is live for the duration of the call.
+        let ptr = unsafe { vime_session_render_text(session) };
+        assert!(!ptr.is_null());
+        // SAFETY: the pointer is owned by the live session.
+        unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    fn type_text(session: *mut VimeSessionHandle, text: &str) -> String {
+        // SAFETY: the handle is live.
+        unsafe { vime_session_reset(session) };
+        for ch in text.chars() {
+            // SAFETY: the handle is live.
+            assert!(unsafe { vime_session_insert(session, ch as u32) });
+        }
+        render_text(session)
+    }
+
+    #[test]
+    fn a_session_outlives_its_factory() {
+        // SAFETY: both handles are live and destroyed exactly once.
+        unsafe {
+            let session = raw_session();
+            assert!(vime_session_insert(session, 'a' as u32));
+            assert_eq!(render_text(session), "a");
+            vime_session_destroy(session);
+        }
+    }
+
+    #[test]
+    fn the_engine_renders_what_the_core_renders() {
+        // SAFETY: the handle is live and destroyed exactly once.
+        unsafe {
+            let session = raw_session();
+            assert_eq!(type_text(session, "hoas"), "hoá");
+            assert_eq!(type_text(session, "uowng"), "ương");
+            // Input the parser cannot read comes back verbatim.
+            assert_eq!(type_text(session, "qwerty"), "qwerty");
+            vime_session_destroy(session);
+        }
+    }
+
+    #[test]
+    fn the_version_is_static_and_nul_terminated() {
+        // SAFETY: the returned pointer is static and must not be freed.
+        let ptr = unsafe_free_version();
+        // SAFETY: `vime_version` documents a static NUL-terminated string.
+        let text = unsafe { std::ffi::CStr::from_ptr(ptr) }.to_str().unwrap();
+        assert_eq!(text, env!("CARGO_PKG_VERSION"));
+        // Stable across calls, because it is the same static.
+        assert_eq!(ptr, unsafe_free_version());
+    }
+
+    fn unsafe_free_version() -> *const c_char {
+        vime_version()
+    }
+
+    #[test]
+    fn a_core_render_and_an_ffi_render_agree() {
+        // The layer must not be able to invent text the engine did not produce.
+        let mut core: Session<vime_engine::DefaultKeymap<'static>> =
+            SessionFactory::telex(vime_engine::Settings::default()).new_session();
+        // SAFETY: the handle is live and destroyed exactly once.
+        let session = raw_session();
+        for word in ["hoas", "uowng", "thuowng", "nguoi", "toan", "qwerty"] {
+            core.reset();
+            // SAFETY: the handle is live.
+            unsafe { vime_session_reset(session) };
+            for ch in word.chars() {
+                core.insert(ch);
+                // SAFETY: the handle is live.
+                assert!(unsafe { vime_session_insert(session, ch as u32) });
+            }
+            let from_core: String = core.rendered().into_iter().collect();
+            assert_eq!(render_text(session), from_core, "{word:?}");
+        }
+        // SAFETY: the handle is live.
+        unsafe { vime_session_destroy(session) };
+    }
 }

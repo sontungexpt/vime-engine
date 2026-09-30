@@ -1,121 +1,115 @@
 //! C ABI layout and enum-value locks.
 //!
-//! These pin the exact byte sizes/offsets and discriminant values that the
-//! `vime_engine.h` header and the Rust backend share, so a mismatch fails the
-//! tests instead of silently corrupting native adapters.
+//! The compile-time assertions in `src/config.rs` and `src/render.rs` already
+//! fail the build on a layout change. These repeat them at run time, next to the
+//! behavioural tests, so `cargo test` alone reports a mismatch as a test failure
+//! rather than as a compiler error somewhere else — and, more usefully, so a
+//! reviewer can read the whole ABI contract in one file.
+//!
+//! The other half of the verification is `tests/c_abi.rs`, which compiles a real C
+//! program against `include/vime_engine.h`. These tests check that Rust agrees
+//! with itself; that one checks that C agrees too.
+
+mod common;
 
 use std::mem::{align_of, offset_of, size_of};
 
-use vime::{
-    VimeAction, VimeConfig, VimeInputMethod, VimeKey, VimeKeyEvent, VimeOutput, VimeTonePlacement,
-};
+use vime::{VimeConfig, VimeInputMethod, VimeRenderState, VimeTonePlacement};
 
+/// `VimeConfig { bool; enum; enum; }` — one byte, three of padding, two enums.
+///
+/// The enums are `int`-sized in C on every 64-bit ABI, which is the assumption
+/// these tests lock; `c_abi.rs` verifies it with a C compiler rather than taking
+/// it on faith.
 #[test]
-fn scalar_enum_widths() {
-    assert_eq!(size_of::<VimeAction>(), 4);
+fn config_layout_matches_the_header() {
+    assert_eq!(size_of::<VimeConfig>(), 12);
+    assert_eq!(align_of::<VimeConfig>(), 4);
+    assert_eq!(offset_of!(VimeConfig, auto_restore_english), 0);
+    assert_eq!(offset_of!(VimeConfig, input_method), 4);
+    assert_eq!(offset_of!(VimeConfig, tone_placement), 8);
+}
+
+/// Two pointers, six `size_t`s, a `bool` — and the `bool` lands on a 72-byte total
+/// with seven bytes of tail padding.
+#[test]
+fn render_state_layout_matches_the_header() {
+    assert_eq!(size_of::<VimeRenderState>(), 72);
+    assert_eq!(align_of::<VimeRenderState>(), 8);
+    assert_eq!(offset_of!(VimeRenderState, text), 0);
+    assert_eq!(offset_of!(VimeRenderState, raw_text), 8);
+    assert_eq!(offset_of!(VimeRenderState, cursor_byte_idx), 16);
+    assert_eq!(offset_of!(VimeRenderState, cursor_char_idx), 24);
+    assert_eq!(offset_of!(VimeRenderState, raw_cursor_byte_idx), 32);
+    assert_eq!(offset_of!(VimeRenderState, raw_cursor_char_idx), 40);
+    assert_eq!(offset_of!(VimeRenderState, bytes_to_delete), 48);
+    assert_eq!(offset_of!(VimeRenderState, chars_to_delete), 56);
+    assert_eq!(offset_of!(VimeRenderState, is_valid_vietnamese), 64);
+}
+
+/// `bool` is one byte in C and in Rust, so the C header's `true`/`false` reach
+/// the engine as the same two values Rust uses. Worth a test, because a `bool`
+/// that is anything but 0/1 is undefined behaviour on the C side.
+#[test]
+fn a_bool_crosses_the_boundary_unchanged() {
+    assert_eq!(size_of::<bool>(), 1);
+    for flag in [true, false] {
+        let config = VimeConfig {
+            auto_restore_english: flag,
+            ..VimeConfig::default()
+        };
+        let bytes: [u8; size_of::<VimeConfig>()] = {
+            let mut out = [0u8; size_of::<VimeConfig>()];
+            // SAFETY: `VimeConfig` is plain old data — a `bool` and two enums,
+            // both `repr(C)` and `Copy` — so every byte pattern is a valid value
+            // and the copy cannot miss a padding byte being uninitialised.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    &config as *const VimeConfig as *const u8,
+                    out.as_mut_ptr(),
+                    out.len(),
+                )
+            };
+            out
+        };
+        assert_eq!(bytes[0], u8::from(flag), "C expects 0 or 1");
+    }
+}
+
+/// The discriminants the header writes. `VimeInputMethod` and `VimeTonePlacement`
+/// start at 1, leaving 0 as "unset".
+#[test]
+fn enum_discriminants_match_the_header() {
+    assert_eq!(VimeInputMethod::Telex as u32, 1);
+    assert_eq!(VimeInputMethod::Vni as u32, 2);
+    assert_eq!(VimeInputMethod::Viqr as u32, 3);
+    assert_eq!(VimeTonePlacement::Modern as u32, 1);
+    assert_eq!(VimeTonePlacement::Old as u32, 2);
+
     assert_eq!(size_of::<VimeInputMethod>(), 4);
     assert_eq!(size_of::<VimeTonePlacement>(), 4);
-    assert_eq!(size_of::<VimeKey>(), size_of::<u32>());
-    assert_eq!(size_of::<VimeKey>(), 4);
 }
 
-/// The header and the backend must agree on the struct, and the default must
-/// be the engine's rather than the C zero for a bool.
+/// `VIME_CONFIG_INIT` is Telex / Modern / auto-restore, and a factory created
+/// with no config at all behaves the same way. Modern puts the sắc on the second
+/// vowel of `hoa`; Old would put it on the first, so the render says which one is
+/// in force.
 #[test]
-fn config_layout() {
-    assert_eq!(size_of::<VimeConfig>(), 1, "VimeConfig is a single bool");
-    assert_eq!(align_of::<VimeConfig>(), 1);
-    assert_eq!(offset_of!(VimeConfig, auto_restore_english), 0);
-}
+fn a_configless_factory_matches_the_headers_init() {
+    let init = VimeConfig::default();
+    assert!(init.auto_restore_english);
+    assert_eq!(init.input_method, VimeInputMethod::Telex);
+    assert_eq!(init.tone_placement, VimeTonePlacement::Modern);
 
-#[test]
-fn key_event_layout() {
-    assert_eq!(size_of::<VimeKeyEvent>(), 12);
-    assert_eq!(offset_of!(VimeKeyEvent, key), 0);
-    assert_eq!(offset_of!(VimeKeyEvent, character), 4);
-    assert_eq!(offset_of!(VimeKeyEvent, states), 8);
-}
+    let mut default_factory = common::Factory::create().expect("a default factory");
+    let mut default_session = default_factory.open_session();
+    assert_eq!(default_session.type_text("hoas"), "hoá", "Telex, modern");
 
-/// `VimeOutput` carries only the commit text; the word is fetched
-/// separately through `vime_parsed` when the frontend wants it.
-#[test]
-fn output_layout() {
-    assert_eq!(size_of::<VimeOutput>(), 16);
-    assert_eq!(align_of::<VimeOutput>(), 8);
-    assert_eq!(offset_of!(VimeOutput, action), 0);
-    assert_eq!(offset_of!(VimeOutput, commit), 8);
-}
-
-/// The discriminant tables the C header declares. Adding a variant to any of
-/// these enums means adding a row here, so a renumbering cannot slip through.
-const ACTIONS: [(VimeAction, u32); 5] = [
-    (VimeAction::Forward, 0),
-    (VimeAction::Noop, 1),
-    (VimeAction::Changed, 2),
-    (VimeAction::Commit, 3),
-    (VimeAction::CursorMoved, 4),
-];
-
-const INPUT_METHODS: [(VimeInputMethod, u32); 3] = [
-    (VimeInputMethod::Telex, 1),
-    (VimeInputMethod::Vni, 2),
-    (VimeInputMethod::Viqr, 3),
-];
-
-const TONE_PLACEMENTS: [(VimeTonePlacement, u32); 2] =
-    [(VimeTonePlacement::Modern, 1), (VimeTonePlacement::Old, 2)];
-
-const KEYS: [(VimeKey, u32); 9] = [
-    (VimeKey::Character, 0),
-    (VimeKey::Backspace, 1),
-    (VimeKey::Delete, 2),
-    (VimeKey::Left, 3),
-    (VimeKey::Right, 4),
-    (VimeKey::Enter, 5),
-    (VimeKey::Escape, 6),
-    (VimeKey::Tab, 7),
-    (VimeKey::Space, 8),
-];
-
-/// Every C-visible enum is `repr(u32)` and the header's `#define`s must match.
-#[test]
-fn c_enum_discriminants_match_the_header() {
-    for (value, expected) in ACTIONS {
-        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
-    }
-    for (value, expected) in INPUT_METHODS {
-        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
-    }
-    for (value, expected) in TONE_PLACEMENTS {
-        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
-    }
-    for (value, expected) in KEYS {
-        assert_eq!(value as u32, expected, "{value:?} discriminant changed");
-    }
-}
-
-/// The discriminant tables are dense and gap-free, so the first row cannot
-/// drift away from the rest.
-#[test]
-fn c_enum_discriminants_are_dense() {
-    // `VimeInputMethod` and `VimeTonePlacement` deliberately start at 1 (0 is
-    // reserved as "unset" in the C header), so only those two are offset.
-    assert_dense("VimeAction", ACTIONS.iter().map(|(_, v)| *v), 0);
-    assert_dense("VimeKey", KEYS.iter().map(|(_, v)| *v), 0);
-    assert_dense("VimeInputMethod", INPUT_METHODS.iter().map(|(_, v)| *v), 1);
-    assert_dense(
-        "VimeTonePlacement",
-        TONE_PLACEMENTS.iter().map(|(_, v)| *v),
-        1,
-    );
-}
-
-/// Asserts `values` are exactly `base..base + len`, in order.
-fn assert_dense(name: &str, values: impl Iterator<Item = u32>, base: u32) {
-    let values: Vec<u32> = values.collect();
-    let expected: Vec<u32> = (base..base + values.len() as u32).collect();
+    let mut init_factory = common::Factory::create_with(&init).expect("a factory from init");
+    let mut init_session = init_factory.open_session();
     assert_eq!(
-        values, expected,
-        "{name} discriminants must stay dense from {base}"
+        init_session.type_text("hoas"),
+        "hoá",
+        "the same as no config"
     );
 }
