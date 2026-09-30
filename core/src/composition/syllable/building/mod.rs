@@ -34,7 +34,7 @@ pub struct BuildingSyllable {
     onset_kind: Onset,
     onset: OnsetChars,
 
-    nucleus: Nucleus,            // All toneless vowels
+    nucleus: Nucleus,            // All toneless vowels; the tone is held in `tone`
     nucleus_state: NucleusState, // cached from check_nucleus(); never `Dead`
 
     coda_kind: Coda,
@@ -95,7 +95,9 @@ impl BuildingSyllable {
         self.coda_kind
     }
 
-    /// Returns the nucleus vowels; each stored vowel has a Flat tone.
+    /// Returns the nucleus vowels; each stored vowel has a Flat tone, because
+    /// every path that grows the nucleus inserts a toneless one. Read the tone
+    /// off [`Self::tone`], or take it from the rendered word.
     #[inline(always)]
     pub fn nucleus(&self) -> &[Vowel] {
         &self.nucleus
@@ -269,8 +271,14 @@ impl BuildingSyllable {
         }
     }
 
-    /// Mutates the nucleus and keeps every stored vowel's tone Flat. Caches
-    /// `nucleus_state` on success, otherwise rolls the change back.
+    /// Mutates the nucleus; caches `nucleus_state` on success, otherwise rolls
+    /// the change back.
+    ///
+    /// The caller owns the tone invariant: `update` must only insert toneless
+    /// vowels (`Vowel::without_tone`), and the syllable's tone is carried in
+    /// `self.tone` and re-applied when the word is rendered. Storing it once
+    /// there is what keeps this function a single validation instead of a
+    /// mutation plus a sweep of the whole nucleus on every keystroke.
     #[inline(always)]
     pub fn try_update_nucleus<F, R, T>(&mut self, update: F, rollback: R) -> bool
     where
@@ -278,12 +286,6 @@ impl BuildingSyllable {
         R: FnOnce(&mut Nucleus, T),
     {
         let undo_data = update(&mut self.nucleus);
-
-        // The syllable stores its tone once, separately from its nucleus, so
-        // every stored vowel is flattened here and the render re-applies it.
-        for vowel in self.nucleus.iter_mut() {
-            vowel.set_tone(Tone::Flat);
-        }
 
         // A single vowel is always a nucleus; there is nothing to check.
         if self.nucleus.len() < 2 {
