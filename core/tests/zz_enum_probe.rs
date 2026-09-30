@@ -1,4 +1,3 @@
-use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::{Config, DefaultKeymap, Keymap, Session};
 
 type KM = DefaultKeymap<'static>;
@@ -27,12 +26,7 @@ struct Today<KM: Keymap + Clone> {
 
 #[test]
 fn probe() {
-    println!("Config<KM>        {}", size_of::<Config<KM>>());
-    println!("  Config                  {}", size_of::<Config<KM>>());
-    println!(
-        "  SyllableContext<KM>     {}",
-        size_of::<SyllableContext<KM>>()
-    );
+    println!("Config<KM>              {}", size_of::<Config<KM>>());
     println!("TwoVariant<KM>           {}", size_of::<TwoVariant<KM>>());
     println!("Hoisted<KM>              {}", size_of::<Hoisted<KM>>());
     println!("cfg + bool (today)       {}", size_of::<Today<KM>>());

@@ -3,7 +3,6 @@
 //! These are the tests that pin the feature down: the change is made once, in
 //! one place, and no session is notified by name.
 
-use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
 
@@ -13,28 +12,22 @@ type TelexSession = Session<DefaultKeymap<'static>>;
 const MODERN_HOA: &str = "hoá";
 const OLD_HOA: &str = "hóa";
 
-fn make_context(
+fn make_config(
     keymap: DefaultKeymap<'static>,
     tone: TonePlacement,
-) -> SyllableContext<DefaultKeymap<'static>> {
-    SyllableContext::new(keymap, tone)
+) -> Config<DefaultKeymap<'static>> {
+    Config::new(Settings::default(), keymap, tone)
 }
 
 fn old_telex() -> Config<DefaultKeymap<'static>> {
-    Config::new(
-        Settings::default(),
-        make_context(DefaultKeymap::telex(), TonePlacement::Old),
-    )
+    make_config(DefaultKeymap::telex(), TonePlacement::Old)
 }
 
 fn vni() -> Config<DefaultKeymap<'static>> {
-    Config::new(
-        Settings::default(),
-        make_context(DefaultKeymap::vni(), TonePlacement::Modern),
-    )
+    make_config(DefaultKeymap::vni(), TonePlacement::Modern)
 }
 
-fn rendered_to_string(session: &TelexSession) -> String {
+fn rendered_to_string(session: &mut TelexSession) -> String {
     session.rendered().into_iter().collect()
 }
 
@@ -70,8 +63,8 @@ fn a_shared_change_reaches_every_session() {
 
     type_str(&mut first, "hoas");
     type_str(&mut second, "hoas");
-    assert_eq!(rendered_to_string(&first), MODERN_HOA);
-    assert_eq!(rendered_to_string(&second), MODERN_HOA);
+    assert_eq!(rendered_to_string(&mut first), MODERN_HOA);
+    assert_eq!(rendered_to_string(&mut second), MODERN_HOA);
 
     // One write, no session named.
     engine.set_config(old_telex());
@@ -98,7 +91,7 @@ fn refresh_picks_up_a_change_without_a_keystroke() {
 
     engine.set_config(old_telex());
     assert_eq!(
-        rendered_to_string(&session),
+        rendered_to_string(&mut session),
         MODERN_HOA,
         "not until it looks"
     );
@@ -107,7 +100,7 @@ fn refresh_picks_up_a_change_without_a_keystroke() {
         session.pull_config(),
         "the re-render is what the frontend must know about"
     );
-    assert_eq!(rendered_to_string(&session), OLD_HOA);
+    assert_eq!(rendered_to_string(&mut session), OLD_HOA);
 }
 
 /// Refreshing is how a session learns something moved, so it must be silent when
@@ -135,7 +128,7 @@ fn a_change_reports_changed_even_when_the_key_would_be_forwarded() {
     // is forwarded. The re-render still happened, so the frontend still has to
     // repaint.
     press_delete(&mut session);
-    assert_eq!(rendered_to_string(&session), OLD_HOA);
+    assert_eq!(rendered_to_string(&mut session), OLD_HOA);
 }
 
 /// With no pending change, the same key is forwarded as it always was.
@@ -159,14 +152,14 @@ fn taking_a_private_config_stops_the_following() {
     session.set_private_config(old_telex());
     assert!(session.has_private_config());
     assert_eq!(
-        rendered_to_string(&session),
+        rendered_to_string(&mut session),
         OLD_HOA,
         "and takes effect at once"
     );
 
     engine.set_config(vni());
     assert!(!session.pull_config());
-    assert_eq!(rendered_to_string(&session), OLD_HOA);
+    assert_eq!(rendered_to_string(&mut session), OLD_HOA);
 }
 
 /// Dropping the private config puts the session back on the shared settings,
@@ -180,11 +173,11 @@ fn clearing_a_private_config_catches_up_with_the_shared_one() {
     // Move the shared config on while the session is ignoring it.
     engine.set_config(vni());
     session.insert('h');
-    assert_eq!(rendered_to_string(&session), "h");
+    assert_eq!(rendered_to_string(&mut session), "h");
 
     session.clear_private_config();
     assert!(!session.has_private_config());
-    assert_eq!(session.config().context.keymap(), &DefaultKeymap::vni());
+    assert_eq!(session.config().keymap(), &DefaultKeymap::vni());
 }
 
 /// A private session created standalone has no engine to follow, so it reports
@@ -207,9 +200,9 @@ fn sessions_do_not_share_their_buffers() {
     let mut second = engine.new_session();
 
     type_str(&mut first, "hoa");
-    assert_eq!(rendered_to_string(&first), "hoa");
+    assert_eq!(rendered_to_string(&mut first), "hoa");
     assert_eq!(
-        rendered_to_string(&second),
+        rendered_to_string(&mut second),
         "",
         "the other session is untouched"
     );
@@ -217,9 +210,9 @@ fn sessions_do_not_share_their_buffers() {
     // And a commit in one leaves the other alone.
     type_str(&mut second, "ba");
     // Commit is now just reading the rendered buffer and resetting
-    assert_eq!(rendered_to_string(&first), "hoa");
+    assert_eq!(rendered_to_string(&mut first), "hoa");
     first.reset();
-    assert_eq!(rendered_to_string(&second), "ba");
+    assert_eq!(rendered_to_string(&mut second), "ba");
 }
 
 // ──────────────────── Positions and validity for a frontend ───────────────────
@@ -232,7 +225,7 @@ fn the_two_cursors_diverge_across_a_transform() {
     let mut session = engine.new_session();
 
     type_str(&mut session, "aw");
-    assert_eq!(rendered_to_string(&session), "ă");
+    assert_eq!(rendered_to_string(&mut session), "ă");
     assert_eq!(session.cursor_pos(), 1, "one rendered character");
     assert_eq!(session.raw_cursor_pos(), 2, "but two keystrokes");
 
@@ -253,7 +246,7 @@ fn a_cursor_never_exceeds_the_rendered_word() {
     for word in ["", "a", "hoas", "uowng", "thuowng"] {
         session.reset();
         type_str(&mut session, word);
-        let rendered = rendered_to_string(&session);
+        let rendered = rendered_to_string(&mut session);
         assert!(
             session.cursor_pos() <= rendered.chars().count(),
             "{word:?}: caret {} is past the {}-character render",

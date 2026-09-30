@@ -1,7 +1,6 @@
 //! Where a session's settings come from: the shared config it is created from,
 //! and the private config it can be given instead.
 
-use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, DefaultKeymap, Session, SessionFactory, Settings};
 
@@ -13,7 +12,7 @@ fn following() -> TelexSession {
     SessionFactory::telex(Settings::default()).new_session()
 }
 
-fn rendered_to_string(session: &TelexSession) -> String {
+fn rendered_to_string(session: &mut TelexSession) -> String {
     session.rendered().into_iter().collect()
 }
 
@@ -24,11 +23,11 @@ fn type_str(session: &mut TelexSession, s: &str) -> String {
     rendered_to_string(session)
 }
 
-fn make_context(
+fn make_config(
     keymap: DefaultKeymap<'static>,
     tone: TonePlacement,
-) -> SyllableContext<DefaultKeymap<'static>> {
-    SyllableContext::new(keymap, tone)
+) -> Config<DefaultKeymap<'static>> {
+    Config::new(Settings::default(), keymap, tone)
 }
 
 // "hoa" + sắc: the two schemes place the mark on different vowels
@@ -44,10 +43,8 @@ fn a_new_session_follows_the_shared_config() {
 
 #[test]
 fn a_session_config_selects_the_tone_placement_at_construction() {
-    let mut session = Session::with_isolated_config(Config::new(
-        Settings::default(),
-        make_context(DefaultKeymap::telex(), TonePlacement::Old),
-    ));
+    let mut session =
+        Session::with_isolated_config(make_config(DefaultKeymap::telex(), TonePlacement::Old));
     assert_eq!(type_str(&mut session, "hoas"), OLD_HOA);
 }
 
@@ -65,10 +62,8 @@ fn the_engines_keymap_reaches_every_session_it_creates() {
 fn a_private_config_overrides_only_its_own_session() {
     let engine = SessionFactory::telex(Settings::default());
     let mut following = engine.new_session();
-    let mut private = engine.new_session_with(Config::new(
-        Settings::default(),
-        make_context(DefaultKeymap::telex(), TonePlacement::Old),
-    ));
+    let mut private =
+        engine.new_session_with(make_config(DefaultKeymap::telex(), TonePlacement::Old));
 
     assert_eq!(type_str(&mut following, "hoas"), MODERN_HOA);
     assert_eq!(type_str(&mut private, "hoas"), OLD_HOA);
@@ -79,10 +74,7 @@ fn only_a_session_with_a_private_config_reports_as_private() {
     let engine = SessionFactory::telex(Settings::default());
     assert!(!engine.new_session().has_private_config());
     assert!(engine
-        .new_session_with(Config::new(
-            Settings::default(),
-            make_context(DefaultKeymap::telex(), TonePlacement::Modern),
-        ))
+        .new_session_with(make_config(DefaultKeymap::telex(), TonePlacement::Modern))
         .has_private_config());
 }
 
@@ -118,16 +110,16 @@ fn caret_predicates_track_the_raw_buffer() {
 fn caret_moves_leave_the_render_unchanged() {
     let mut session = following();
     type_str(&mut session, "hoas");
-    let before = rendered_to_string(&session);
+    let before = rendered_to_string(&mut session);
 
     for _ in 0..3 {
         session.move_cursor_left();
         session.move_cursor_left();
         session.move_cursor_right();
     }
-    assert_eq!(rendered_to_string(&session), before);
+    assert_eq!(rendered_to_string(&mut session), before);
 
     // After a reset the buffer is empty, so there is nowhere to move.
     session.reset();
-    assert_eq!(rendered_to_string(&session), "");
+    assert_eq!(rendered_to_string(&mut session), "");
 }

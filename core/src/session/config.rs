@@ -1,16 +1,7 @@
-//! Session configuration and shared configuration state.
+//! Session configuration: what a session parses and renders under.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-
-use crate::composition::syllable::SyllableContext;
 use crate::keymap::Keymap;
 use crate::phonology::TonePlacement;
-
-/// A `resolved` value that cannot be a real generation, so a fresh session is
-/// forced to resolve once. Generations count up from `0` and the counter is
-/// bumped by a config change, so this is unreachable in practice.
-pub(crate) const UNRESOLVED: u64 = u64::MAX;
 
 /// Small engine/product settings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,120 +15,87 @@ impl Default for Settings {
     }
 }
 
-/// Complete configuration needed by a session: settings + parse/render context.
+/// Complete configuration needed by a session: settings, keymap and the
+/// tone-placement convention.
+///
+/// The keymap decodes transform keys and the tone-placement scheme picks the
+/// nucleus vowel that carries the tone mark. Neither is buffered input, so both
+/// sit beside the settings rather than inside the parse state.
+///
+/// The fields are private and reached through the accessors below, so a config
+/// is only ever built whole — by [`Self::new`], [`Self::from_keymap`], or a
+/// mutation through `SharedConfig::update`, which holds the only handle that
+/// can change one in place.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Config<KM: Keymap> {
     /// SessionFactory-level settings.
-    pub settings: Settings,
-    /// The parse and render context.
-    pub context: SyllableContext<KM>,
+    settings: Settings,
+
+    /// Keymap used for parsing input.
+    keymap: KM,
+
+    /// Convention used when placing tones during rendering.
+    tone_placement: TonePlacement,
 }
 
 impl<KM: Keymap> Config<KM> {
-    /// Pairs engine [`Settings`] with a parse context.
+    /// Pairs engine [`Settings`] with a keymap and a tone-placement scheme.
     #[inline]
-    pub fn new(settings: Settings, context: SyllableContext<KM>) -> Self {
-        Self { settings, context }
+    pub const fn new(settings: Settings, keymap: KM, tone_placement: TonePlacement) -> Self {
+        Self {
+            settings,
+            keymap,
+            tone_placement,
+        }
     }
 
     /// Pairs engine [`Settings`] with a keymap, using the modern
     /// tone-placement convention.
     #[inline]
     pub fn from_keymap(settings: Settings, keymap: KM) -> Self {
-        Self::new(
-            settings,
-            SyllableContext::new(keymap, TonePlacement::Modern),
-        )
+        Self::new(settings, keymap, TonePlacement::Modern)
     }
-}
 
-/// Internal mutable state shared across all sessions following the same config.
-struct SharedState<KM: Keymap> {
-    /// Bumped by every `replace`. Read on the keystroke path, so it is an
-    /// atomic rather than a field behind the lock.
-    generation: AtomicU64,
-    current: RwLock<Config<KM>>,
-}
-
-/// Settings shared by every session that has not taken a private config.
-///
-/// Cloning is a refcount bump, so each session can hold one and still observe a
-/// later [`SharedConfig::replace`].
-pub struct SharedConfig<KM: Keymap> {
-    state: Arc<SharedState<KM>>,
-}
-
-impl<KM: Keymap> Clone for SharedConfig<KM> {
+    /// The session-level settings.
     #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            state: Arc::clone(&self.state),
-        }
+    pub const fn settings(&self) -> &Settings {
+        &self.settings
     }
-}
 
-impl<KM: Keymap> SharedConfig<KM> {
-    /// Shares `config` with every session that does not override it.
+    /// The keymap input is parsed under.
     #[inline]
-    pub fn new(config: Config<KM>) -> Self {
-        Self {
-            state: Arc::new(SharedState {
-                generation: AtomicU64::new(0),
-                current: RwLock::new(config),
-            }),
-        }
+    pub const fn keymap(&self) -> &KM {
+        &self.keymap
     }
 
-    /// The generation of the current settings. Cheap; call it to find out
-    /// whether anything moved since a previous read.
+    /// The tone-placement convention used when rendering.
     #[inline]
-    pub fn generation(&self) -> u64 {
-        self.state.generation.load(Ordering::Acquire)
+    pub const fn tone_placement(&self) -> TonePlacement {
+        self.tone_placement
     }
 
-    /// Replaces the shared settings, so that every session following the
-    /// shared config sees them from its next [`Session::refresh_config`].
+    /// Replaces the keymap, leaving the rest of the config alone.
     ///
-    /// Returns the new generation.
-    pub fn replace(&self, config: Config<KM>) -> u64 {
-        // The value lands before the counter is published, so a session that
-        // observes the new generation is guaranteed to read the new value
-        // rather than the old one.
-        *self
-            .state
-            .current
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = config;
-        self.state.generation.fetch_add(1, Ordering::Release) + 1
+    /// Reachable only from inside the crate, and in practice only through
+    /// `SharedConfig::update`, which holds the lock and bumps the generation
+    /// around it.
+    // Reached from the `#[cfg(test)]` tests, so it reads as unused in a plain
+    // non-test build.
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn set_keymap(&mut self, keymap: KM) {
+        self.keymap = keymap;
     }
-}
 
-impl<KM: Keymap + Clone> SharedConfig<KM> {
-    /// The settings in force right now.
+    /// Replaces the tone-placement convention, leaving the rest of the config
+    /// alone.
     ///
-    /// Takes the lock, so this is for a caller that is not on the keystroke
-    /// path. A session does not use it: it reads [`SharedConfig::generation`]
-    /// first and only looks at the value when something has actually moved.
-    pub fn snapshot(&self) -> Config<KM> {
-        // A poisoned lock means some other thread panicked mid-replace. The
-        // value inside is still a whole `Config<KM>`, because the write is a
-        // single assignment, so recovering beats pushing the panic out to every
-        // keystroke of every session.
-        self.state
-            .current
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-    }
-}
-
-impl<KM: Keymap> std::fmt::Debug for SharedConfig<KM>
-where
-    KM: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SharedConfig")
-            .field("generation", &self.generation())
-            .finish_non_exhaustive()
+    /// Reachable only from inside the crate, and in practice only through
+    /// `SharedConfig::update`, which holds the lock and bumps the generation
+    /// around it.
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn set_tone_placement(&mut self, tone_placement: TonePlacement) {
+        self.tone_placement = tone_placement;
     }
 }

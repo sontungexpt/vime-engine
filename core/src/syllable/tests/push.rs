@@ -1,4 +1,4 @@
-//! Runs the full data-driven corpus through `BuildingSyllableBuilder::push`.
+//! Runs the full data-driven corpus through `BuildingSyllable::push`.
 //!
 //! Behaviour data and the [`Corpus`] runner live under `corpus/`; the shared
 //! `ExpectedSyllable` model and `check_syllable_eq` come from `common`. The

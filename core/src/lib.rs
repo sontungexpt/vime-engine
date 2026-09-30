@@ -3,7 +3,7 @@
 //! Architecture:
 //!
 //! ```text
-//! KeyEvent → Keymap → Composition → SyllableBuilder → phonology → Vietnamese text
+//! KeyEvent → Keymap → Composition → Syllable → phonology → Vietnamese text
 //! ```
 //!
 //! - [`KeyEvent`]: a [`Key`] plus [`KeyStates`]; the only input the engine takes.
@@ -11,7 +11,7 @@
 //!   `d`/`đ` stroke key and decodes it (`DefaultKeymap` for Telex/VNI/VIQR).
 //! - [`Composition`]: the raw keystroke buffer, its cursor, and the incremental
 //!   syllable parser driven by that keymap.
-//! - [`SyllableBuilder`](composition::syllable::SyllableBuilder): the two-phase
+//! - [`Syllable`](syllable::Syllable): the two-phase
 //!   syllable buffer — a validated `BuildingSyllable`, or a verbatim
 //!   `DeadSyllable` once the input can no longer form a Vietnamese syllable.
 //! - [`phonology`]: the shared model both phases rely on — the `Vowel` codec
@@ -37,6 +37,7 @@ pub mod util;
 
 pub mod composition;
 pub mod phonology;
+pub mod syllable;
 
 pub use keymap::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};
 pub use session::{Config, Session, SessionFactory, Settings, SharedConfig};

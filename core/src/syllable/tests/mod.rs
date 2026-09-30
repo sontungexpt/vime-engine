@@ -2,10 +2,10 @@
 //!
 //! Two entry points exercise the builder's public API:
 //!
-//! * [`push`] — the data-driven corpus through `BuildingSyllableBuilder::push`.
-//! * [`insert`] — `BuildingSyllableBuilder::insert` at an explicit cursor.
-//! * [`remove`] — `BuildingSyllableBuilder::remove` at an explicit index.
-//! * [`lifecycle`] — the two-phase `SyllableBuilder` state machine
+//! * [`push`] — the data-driven corpus through `BuildingSyllable::push`.
+//! * [`insert`] — `BuildingSyllable::insert` at an explicit cursor.
+//! * [`remove`] — `BuildingSyllable::remove` at an explicit index.
+//! * [`lifecycle`] — the two-phase `Syllable` state machine
 //!   (building → dead → building again).
 //! * [`render`] — rendered output: tone placement and the precomposed codec.
 //!

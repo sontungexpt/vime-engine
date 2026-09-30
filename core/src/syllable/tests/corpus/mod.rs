@@ -1,9 +1,9 @@
-//! Behaviour corpus for `BuildingSyllableBuilder::push`.
+//! Behaviour corpus for `BuildingSyllable::push`.
 //!
 //! The pipeline under test is just the syllable builder:
 //!
 //! ```text
-//! Keymap + char → BuildingSyllableBuilder::push() → syllable state
+//! Keymap + char → BuildingSyllable::push() → syllable state
 //! ```
 //!
 //! Every case pushes characters one at a time and lets the builder classify and
@@ -113,18 +113,18 @@ pub enum Outcome {
 
 macro_rules! case {
     ([$($ch:expr),* $(,)?], $syllable:expr $(,)?) => {
-        $crate::composition::syllable::tests::corpus::Case {
+        $crate::syllable::tests::corpus::Case {
             input: &[$($ch),*],
-            outcome: $crate::composition::syllable::tests::corpus::Outcome::Alive($syllable),
+            outcome: $crate::syllable::tests::corpus::Outcome::Alive($syllable),
         }
     };
 }
 
 macro_rules! dead_case {
     ([$($ch:expr),* $(,)?], $syllable:expr $(,)?) => {
-        $crate::composition::syllable::tests::corpus::Case {
+        $crate::syllable::tests::corpus::Case {
             input: &[$($ch),*],
-            outcome: $crate::composition::syllable::tests::corpus::Outcome::Dead($syllable),
+            outcome: $crate::syllable::tests::corpus::Outcome::Dead($syllable),
         }
     };
 }
@@ -133,9 +133,9 @@ macro_rules! dead_case {
 /// is `Ok`, but the final syllable is not inspected.
 macro_rules! alive_case {
     ([$($ch:expr),* $(,)?]) => {
-        $crate::composition::syllable::tests::corpus::Case {
+        $crate::syllable::tests::corpus::Case {
             input: &[$($ch),*],
-            outcome: $crate::composition::syllable::tests::corpus::Outcome::AliveOnly,
+            outcome: $crate::syllable::tests::corpus::Outcome::AliveOnly,
         }
     };
 }
@@ -148,8 +148,8 @@ pub(crate) use dead_case;
 // Runners
 // ─────────────────────────────────────────────────────────────────────────────
 
-use crate::composition::syllable::building::BuildingSyllable;
 use crate::keymap::Keymap;
+use crate::syllable::building::BuildingSyllable;
 
 /// Pushes every character in order, requiring each `push` to be accepted, and
 /// hands back the resulting builder.

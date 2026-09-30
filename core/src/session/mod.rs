@@ -25,7 +25,12 @@
 mod config;
 mod factory;
 mod session;
+mod shared;
 
-pub use config::{Config, Settings, SharedConfig};
+#[cfg(test)]
+mod tests;
+
+pub use config::{Config, Settings};
 pub use factory::SessionFactory;
 pub use session::Session;
+pub use shared::SharedConfig;

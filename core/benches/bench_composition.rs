@@ -24,10 +24,13 @@
 
 use std::hint::black_box;
 
-use vime_engine::composition::syllable::{SyllableBuilder, SyllableContext};
 use vime_engine::composition::Composition;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::DefaultKeymap;
+
+/// The tone-placement scheme the benchmark parses under, as a value: the
+/// composition takes it per operation rather than storing it.
+const TONE: TonePlacement = TonePlacement::Modern;
 
 mod support;
 use support::{ns_per_unit, rounds, time};
@@ -50,20 +53,17 @@ const WORKLOAD: &[&str] = &[
 
 /// A fresh engine-equivalent buffer: one `Composition` per word, so no state
 /// leaks between words.
-fn new_composition(keymap: &DefaultKeymap<'static>) -> Composition<DefaultKeymap<'static>> {
-    Composition::new(SyllableBuilder::new(SyllableContext::new(
-        *keymap,
-        TonePlacement::Modern,
-    )))
+fn new_composition() -> Composition {
+    Composition::new()
 }
 
 /// Appends every keystroke of every word, returning the number of pushes.
 fn run_append(keymap: &DefaultKeymap<'static>) -> usize {
     let mut pushes = 0;
     for &word in WORKLOAD {
-        let mut composition = new_composition(keymap);
+        let mut composition = new_composition();
         for ch in word.chars() {
-            black_box(composition.insert(ch));
+            black_box(composition.insert(keymap, TONE, ch));
             pushes += 1;
         }
     }
@@ -79,9 +79,9 @@ fn run_append(keymap: &DefaultKeymap<'static>) -> usize {
 fn run_caret_edits(keymap: &DefaultKeymap<'static>) -> usize {
     let mut edits = 0;
     for &word in WORKLOAD {
-        let mut composition = new_composition(keymap);
+        let mut composition = new_composition();
         for ch in word.chars() {
-            black_box(composition.insert(ch));
+            black_box(composition.insert(keymap, TONE, ch));
         }
 
         let len = word.chars().count();
@@ -94,7 +94,7 @@ fn run_caret_edits(keymap: &DefaultKeymap<'static>) -> usize {
                 for _ in 0..pos {
                     composition.move_cursor_right();
                 }
-                black_box(composition.insert(key));
+                black_box(composition.insert(keymap, TONE, key));
                 edits += 1;
             }
         }

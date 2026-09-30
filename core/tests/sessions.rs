@@ -3,7 +3,7 @@
 // //! The point of these is the awkward part. A registered session has two owners,
 // //! so the tests here are mostly about what that does and does not let happen.
 //
-// use vime_engine::composition::syllable::SyllableContext;
+// use vime_engine::Config;
 // use vime_engine::phonology::TonePlacement;
 // use vime_engine::{Settings,
 //     Config, DefaultKeymap, SessionFactory, Session,
@@ -15,7 +15,8 @@
 // fn old_telex() -> Config<DefaultKeymap<'static>> {
 //     Config::new(
 //         Settings::default(),
-//         SyllableContext::new(DefaultKeymap::telex(), TonePlacement::Old),
+//         DefaultKeymap::telex(),
+//         TonePlacement::Old,
 //     )
 // }
 //
@@ -370,6 +371,6 @@
 //
 //     assert_eq!(type_str(&mut session, "hoas"), MODERN_HOA);
 //     assert!(*session.move_cursor_left().rendered());
-//     assert_eq!(session.config().context.tone_placement(), TonePlacement::Modern);
+//     assert_eq!(session.config().tone_placement, TonePlacement::Modern);
 //     assert!(!session.has_private_config());
 // }

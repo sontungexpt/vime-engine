@@ -1,10 +1,11 @@
 //! Session: one typing buffer with config propagation.
 
-use crate::composition::syllable::SyllableBuilder;
-use crate::composition::{Composition, Parallel};
+use crate::composition::Composition;
+use crate::composition::Parallel;
 use crate::keymap::Keymap;
 
-use super::config::{Config, SharedConfig, UNRESOLVED};
+use super::config::Config;
+use super::shared::{SharedConfig, UNRESOLVED};
 
 /// One typing buffer: the settings in force, and the composition they apply to.
 ///
@@ -39,7 +40,7 @@ pub struct Session<KM: Keymap> {
     generation: u64,
 
     /// The composition being parsed by this session.
-    composition: Composition<KM>,
+    composition: Composition,
 }
 
 impl<KM: Keymap> Session<KM>
@@ -50,7 +51,7 @@ where
     pub fn new(shared: SharedConfig<KM>) -> Self {
         let active_config = shared.snapshot();
         let mut session = Self {
-            composition: Composition::new(SyllableBuilder::new(active_config.context.clone())),
+            composition: Composition::new(),
             active_config,
             has_private_config: false,
             shared_config: shared,
@@ -77,7 +78,7 @@ where
     /// buffer special treatment for a while and then take it back.
     pub fn with_config_on_shared(shared_config: SharedConfig<KM>, private: Config<KM>) -> Self {
         Self {
-            composition: Composition::new(SyllableBuilder::new(private.context.clone())),
+            composition: Composition::new(),
             active_config: private,
             has_private_config: true,
             shared_config,
@@ -89,20 +90,20 @@ where
 
     /// The settings currently in force: the private config if pinned, otherwise
     /// the shared config snapshot.
-    #[inline]
+    #[inline(always)]
     pub fn config(&self) -> &Config<KM> {
         &self.active_config
     }
 
     /// The shared configuration source all unpinned sessions follow.
-    #[inline]
+    #[inline(always)]
     pub fn shared_config(&self) -> &SharedConfig<KM> {
         &self.shared_config
     }
 
     /// Whether this session is pinned to its own config (`true`) or follows
     /// the shared config (`false`).
-    #[inline]
+    #[inline(always)]
     pub fn has_private_config(&self) -> bool {
         self.has_private_config
     }
@@ -135,6 +136,7 @@ where
     /// Returns `true` when the live composition was re-rendered as a result,
     /// meaning the word on screen changed without a key being pressed. A
     /// session with a private config is unaffected and returns `false`.
+    #[inline(always)]
     pub fn pull_config(&mut self) -> bool {
         let gen = self.shared_config.generation();
         if self.generation == gen {
@@ -149,23 +151,18 @@ where
         self.adopt_config(self.shared_config.snapshot())
     }
 
-    /// Makes `next` the settings in force, pushing whatever changed through to
-    /// the live composition. Returns whether the word moved.
+    /// Makes `next` the settings in force, so every subsequent composition
+    /// operation parses and renders under them. Returns whether the word moved.
     ///
-    /// The only place that writes `active_config` or the composition's context, so
-    /// those two cannot disagree about what this session is parsing under.
+    /// The only place that writes `active_config`, and the composition reads
+    /// the keymap and tone placement from it on each call, so there is no
+    /// second copy to fall out of step.
     fn adopt_config(&mut self, next: Config<KM>) -> bool {
-        if self.active_config == next {
-            return false; // Cấu hình không thay đổi -> Không re-render -> Giữ Cache!
-        }
         self.active_config = next;
-
-        self.composition
-            .set_syllable_context(self.active_config.context.clone());
         true
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_pulled_config<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -184,9 +181,12 @@ where
     /// verbatim.
     ///
     /// See [`Self::write_parsed_to`] for the version that does not allocate.
-    #[inline]
+    #[inline(always)]
     pub fn rendered(&mut self) -> Vec<char> {
-        self.with_pulled_config(|this| this.composition.rendered())
+        self.with_pulled_config(|this| {
+            this.composition
+                .rendered(this.active_config.tone_placement())
+        })
     }
 
     /// Writes the parsed word into `output`, replacing its contents.
@@ -194,12 +194,15 @@ where
     /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
     /// on every keystroke can keep one `String` and reuse its capacity instead
     /// of building a new one each time.
-    #[inline]
+    #[inline(always)]
     pub fn write_rendered_to(&mut self, output: &mut String) {
-        self.with_pulled_config(|this| this.composition.write_rendered_to(output))
+        self.with_pulled_config(|this| {
+            this.composition
+                .write_rendered_to(this.active_config.tone_placement(), output)
+        })
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn raw(&self) -> &[char] {
         self.composition.raw()
     }
@@ -209,7 +212,7 @@ where
     /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
     /// on every keystroke can keep one `String` and reuse its capacity instead
     /// of building a new one each time.
-    #[inline]
+    #[inline(always)]
     pub fn write_raw_to(&self, output: &mut String) {
         self.composition.write_raw_to(output);
     }
@@ -217,7 +220,7 @@ where
     // ----------------------------------------------------------- key event
 
     /// Resets the session's composition to its initial empty state.
-    #[inline]
+    #[inline(always)]
     pub fn reset(&mut self) {
         self.composition.reset();
     }
@@ -245,38 +248,54 @@ where
     /// Whether the buffer currently spells a complete, valid Vietnamese
     /// syllable.
     ///
-    /// See [`SyllableBuilder::is_valid`](crate::composition::syllable::SyllableBuilder::is_valid)
+    /// See [`Syllable::is_valid`](crate::syllable::Syllable::is_valid)
     /// for what "valid" means here; in short, a building syllable with a nucleus
     /// that the phonotactic rules accept.
-    #[inline]
+    #[inline(always)]
     pub fn is_valid(&self) -> bool {
         self.composition.is_valid()
     }
 
     // ------------------------------------------------------------- editing
 
-    #[inline]
+    #[inline(always)]
     pub fn insert(&mut self, character: char) {
-        self.with_pulled_config(|c| c.composition.insert(character));
+        self.with_pulled_config(|this| {
+            this.composition.insert(
+                this.active_config.keymap(),
+                this.active_config.tone_placement(),
+                character,
+            )
+        });
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn backspace(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|c| c.composition.backspace())
+        self.with_pulled_config(|this| {
+            this.composition.backspace(
+                this.active_config.keymap(),
+                this.active_config.tone_placement(),
+            )
+        })
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn delete(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|c| c.composition.delete())
+        self.with_pulled_config(|this| {
+            this.composition.delete(
+                this.active_config.keymap(),
+                this.active_config.tone_placement(),
+            )
+        })
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|c| c.composition.move_cursor_left())
+        self.with_pulled_config(|this| this.composition.move_cursor_left())
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn move_cursor_right(&mut self) -> Parallel<bool> {
-        self.with_pulled_config(|c| c.composition.move_cursor_right())
+        self.with_pulled_config(|this| this.composition.move_cursor_right())
     }
 }

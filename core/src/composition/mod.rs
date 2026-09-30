@@ -1,11 +1,11 @@
 pub mod cursor;
-pub mod syllable;
 
 pub use cursor::Cursor;
 
 use crate::{
-    composition::syllable::{InputEffect, SyllableBuilder, SyllableContext},
     keymap::Keymap,
+    phonology::TonePlacement,
+    syllable::{InputEffect, Syllable},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,9 +26,9 @@ impl<T> Parallel<T> {
     }
 }
 
-/// Incremental syllable composition driven by a [`Keymap`].
+/// Incremental syllable composition of raw keystrokes into Vietnamese text.
 ///
-/// Keeps the user's raw keystrokes alongside the parsed [`SyllableBuilder`].
+/// Keeps the user's raw keystrokes alongside the parsed [`Syllable`].
 /// The two buffers may have different lengths because input transformations
 /// can collapse multiple keystrokes into a single parsed character
 /// (`a` + `w` → `ă`), while a dead syllable preserves subsequent input
@@ -40,8 +40,12 @@ impl<T> Parallel<T> {
 /// The raw buffer is authoritative for composition emptiness and for deciding
 /// whether editing or navigation can be handled by the IME. The parsed buffer
 /// is authoritative for rendered output.
+///
+/// Like the builder, a composition owns state only and is not generic: the
+/// keymap is a generic parameter of the operations that parse under it, and the
+/// tone-placement scheme is a plain argument of the ones that render.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Composition<KM: Keymap> {
+pub struct Composition {
     raw: Vec<char>,
 
     // Kept separately because raw and parsed positions are not necessarily
@@ -49,47 +53,35 @@ pub struct Composition<KM: Keymap> {
     // `raw_cursor` is used to modify the raw keystroke buffer.
     raw_cursor: Cursor,
 
-    rendered: SyllableBuilder<KM>,
+    rendered: Syllable,
     rendered_cursor: Cursor,
 }
 
-impl<KM: Keymap> Composition<KM> {
+impl Composition {
     // --------------------------------------------------------- constructor
 
-    /// Creates an empty composition from an already-constructed
-    /// [`SyllableBuilder`].
+    /// Creates an empty composition in the building phase.
     ///
-    /// The builder supplies the keymap, tone-placement scheme and initial
-    /// parser state. Both buffers and both cursors start empty at position 0.
+    /// A fresh [`Syllable`] supplies the initial parser state. Both buffers and
+    /// both cursors start empty at position 0; the keymap and tone-placement
+    /// scheme are passed to the operations that need them.
     #[inline(always)]
-    pub fn new(syllable_builder: SyllableBuilder<KM>) -> Self {
+    pub fn new() -> Self {
         Self {
             raw: Vec::new(),
             raw_cursor: Cursor::start(),
-            rendered: syllable_builder,
+            rendered: Syllable::new(),
             rendered_cursor: Cursor::start(),
         }
-    }
-
-    // --------------------------------------------------------------- context
-
-    /// Replaces the parse context without modifying the buffered composition
-    /// or either cursor.
-    ///
-    /// The new keymap and tone-placement scheme are used by subsequent parsing
-    /// and rendering.
-    #[inline]
-    pub fn set_syllable_context(&mut self, context: SyllableContext<KM>) {
-        self.rendered.set_context(context);
     }
 
     // ------------------------------------------------------------ state
 
     /// Resets the composition to an empty building state.
     ///
-    /// The raw buffer, parsed state and both cursors are cleared. The parse
-    /// context is preserved because it is configuration rather than input
-    /// state.
+    /// The raw buffer, parsed state and both cursors are cleared. The keymap
+    /// and tone-placement scheme are configuration rather than input state, so
+    /// the operations that follow keep the ones they are given.
     #[inline]
     pub fn reset(&mut self) {
         self.raw.clear();
@@ -153,12 +145,13 @@ impl<KM: Keymap> Composition<KM> {
 
     // ----------------------------------------------------------- mutation
 
-    /// Inserts `input` at the current cursor position.
+    /// Inserts `input` at the current cursor position, parsing it under
+    /// `keymap` and rendering it under `tone_placement`.
     ///
     /// The raw buffer always gains one character. The parsed buffer may either
     /// gain a character or consume the input as a transformation, so the
     /// parsed cursor advances only for [`InputEffect::StructurallyChanged`].
-    pub fn insert(&mut self, input: char) {
+    pub fn insert<KM: Keymap>(&mut self, keymap: &KM, tone_placement: TonePlacement, input: char) {
         self.raw.insert(self.raw_cursor.get(), input);
 
         // SAFETY: insertion always increases the raw buffer length by one, so
@@ -167,7 +160,10 @@ impl<KM: Keymap> Composition<KM> {
             self.raw_cursor.move_right_unchecked();
         }
 
-        match self.rendered.insert(self.rendered_cursor.get(), input) {
+        match self
+            .rendered
+            .insert(keymap, tone_placement, self.rendered_cursor.get(), input)
+        {
             InputEffect::StructurallyChanged => {
                 // SAFETY: a structural insertion increases the parsed buffer
                 // length by one, making the next cursor position valid. A
@@ -181,13 +177,18 @@ impl<KM: Keymap> Composition<KM> {
         }
     }
 
-    /// Removes the character immediately before each cursor.
+    /// Removes the character immediately before each cursor, parsing the
+    /// removal under `keymap` and rendering it under `tone_placement`.
     ///
     /// The raw buffer removes one keystroke, while the parsed buffer removes
     /// the corresponding parsed character. A transformed input may therefore
     /// affect the parsed buffer differently from the raw buffer.
     #[inline]
-    pub fn backspace(&mut self) -> Parallel<bool> {
+    pub fn backspace<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        tone_placement: TonePlacement,
+    ) -> Parallel<bool> {
         let mut result = Parallel {
             rendered: false,
             raw: false,
@@ -199,18 +200,25 @@ impl<KM: Keymap> Composition<KM> {
         }
 
         if self.rendered_cursor.move_left() {
-            self.rendered.remove(self.rendered_cursor.get());
+            self.rendered
+                .remove(keymap, tone_placement, self.rendered_cursor.get());
             result.rendered = true;
         }
         result
     }
 
-    /// Removes the character at each cursor without moving either cursor.
+    /// Removes the character at each cursor without moving either cursor,
+    /// parsing the removal under `keymap` and rendering it under
+    /// `tone_placement`.
     ///
     /// The character immediately following the cursor is removed, so the
     /// cursor remains at the same position.
     #[inline]
-    pub fn delete(&mut self) -> Parallel<bool> {
+    pub fn delete<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        tone_placement: TonePlacement,
+    ) -> Parallel<bool> {
         let mut result = Parallel {
             rendered: false,
             raw: false,
@@ -222,7 +230,8 @@ impl<KM: Keymap> Composition<KM> {
         }
 
         if !self.rendered_cursor.is_at_end(self.rendered.len()) {
-            self.rendered.remove(self.rendered_cursor.get());
+            self.rendered
+                .remove(keymap, tone_placement, self.rendered_cursor.get());
             result.rendered = true;
         }
         result
@@ -253,7 +262,7 @@ impl<KM: Keymap> Composition<KM> {
     /// Whether the buffered syllable spells a complete, valid Vietnamese
     /// syllable.
     ///
-    /// See [`SyllableBuilder::is_valid`] for what "valid" means.
+    /// See [`Syllable::is_valid`] for what "valid" means.
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.rendered.is_valid()
@@ -261,7 +270,7 @@ impl<KM: Keymap> Composition<KM> {
 
     // ----------------------------------------------------------- rendering
 
-    /// Renders the current parsed composition.
+    /// Renders the current parsed composition under `tone_placement`.
     ///
     /// While the syllable is valid, rendering produces its Vietnamese form.
     /// Once parsing enters the dead state, rendering preserves the dead
@@ -271,18 +280,19 @@ impl<KM: Keymap> Composition<KM> {
     /// While the parse succeeds this is the spelled-out syllable; once it has
     /// failed the raw buffer comes back verbatim.
     #[inline]
-    pub fn rendered(&self) -> Vec<char> {
-        self.rendered.to_chars()
+    pub fn rendered(&self, tone_placement: TonePlacement) -> Vec<char> {
+        self.rendered.to_chars(tone_placement)
     }
 
     /// Writes the parsed word into `output`, replacing its contents: the
-    /// rendered syllable while parsing, the verbatim buffer once dead.
+    /// rendered syllable under `tone_placement` while parsing, the verbatim
+    /// buffer once dead.
     ///
     /// The allocation-free counterpart to [`Self::parsed`], for a caller that
     /// writes on every keystroke and can reuse one buffer.
     #[inline]
-    pub fn write_rendered_to(&self, output: &mut String) {
-        self.rendered.write_to(output);
+    pub fn write_rendered_to(&self, tone_placement: TonePlacement, output: &mut String) {
+        self.rendered.write_to(tone_placement, output);
     }
 
     #[inline]

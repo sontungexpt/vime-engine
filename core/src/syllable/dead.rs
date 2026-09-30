@@ -30,7 +30,7 @@ impl CharState {
 /// When the building phase rejects a character, the accepted prefix it had
 /// produced so far is frozen into one of these, the rejecting character is
 /// appended, and
-/// [`SyllableBuilder`](crate::composition::syllable::SyllableBuilder) switches
+/// [`Syllable`](crate::syllable::Syllable) switches
 /// state. From then on nothing is parsed: every further character is recorded
 /// verbatim, in order, until a removal revives parsing (see
 /// [`Self::is_all_accepted`]).
@@ -70,6 +70,7 @@ impl DeadSyllable {
     }
 
     /// Returns `true` when nothing has been buffered.
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.chars.is_empty()
@@ -77,6 +78,7 @@ impl DeadSyllable {
 
     /// How many buffered characters are `Rejected`, i.e. how many are not part
     /// of the accepted syllable.
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn rejected_count(&self) -> usize {
         self.rejected_count
@@ -97,6 +99,7 @@ impl DeadSyllable {
     }
 
     /// The buffered characters with their state, in input order.
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn chars(&self) -> &[CharState] {
         &self.chars
@@ -130,6 +133,7 @@ impl DeadSyllable {
 
     /// Empties the buffer, dropping both the characters and the rejected
     /// count.
+    #[allow(dead_code)]
     #[inline]
     pub fn reset(&mut self) {
         self.chars.clear();

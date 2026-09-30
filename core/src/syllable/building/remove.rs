@@ -5,7 +5,7 @@
 //! syllable unchanged.
 
 use super::*;
-use crate::{composition::syllable::InputEffect, phonology::TonePlacement};
+use crate::{phonology::TonePlacement, syllable::InputEffect};
 
 impl BuildingSyllable {
     // ─────────────────────────── Remove ───────────────────────────

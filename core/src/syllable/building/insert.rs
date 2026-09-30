@@ -6,9 +6,9 @@
 
 use super::*;
 use crate::{
-    composition::syllable::InputEffect,
     keymap::Keymap,
     phonology::{BaseVowel, Onset, Tone, Vowel, NUCLEUS_MAX_LEN},
+    syllable::InputEffect,
 };
 
 impl BuildingSyllable {

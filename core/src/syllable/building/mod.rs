@@ -116,6 +116,7 @@ impl BuildingSyllable {
     // ─────────────────────────── Lifecycle ───────────────────────────
 
     /// Returns the syllable to its empty state, dropping every part.
+    #[allow(dead_code)]
     #[inline]
     pub fn reset(&mut self) {
         self.onset_kind = Onset::None;
@@ -237,6 +238,7 @@ impl BuildingSyllable {
     ///
     /// An incomplete nucleus fails before the validator is consulted, so a
     /// half-typed syllable never reaches a phonotactic rule.
+    #[allow(dead_code)]
     pub fn validate<V>(&self, validator: V) -> Result<(), PhonotacticError>
     where
         V: PhonotacticValidator,

@@ -1,17 +1,18 @@
 mod building;
-mod context;
 mod dead;
 mod input_effect;
 mod iter;
 
 use crate::{
     keymap::Keymap,
-    phonology::{Coda, Onset, Vowel},
+    phonology::{Coda, Onset, TonePlacement, Vowel},
 };
 
-pub use building::BuildingSyllable;
-pub use context::SyllableContext;
-pub use dead::DeadSyllable;
+// The two phases are local to this module: `Syllable` is the only way in, and
+// nothing outside `syllable` names `BuildingSyllable` or `DeadSyllable`.
+use building::BuildingSyllable;
+use dead::DeadSyllable;
+
 pub use input_effect::InputEffect;
 
 #[cfg(test)]
@@ -35,39 +36,29 @@ impl Default for SyllableState {
 /// Incremental Vietnamese syllable buffer with a two-phase lifecycle:
 /// parsing (building) first, falling back to a verbatim (dead) buffer once
 /// the input can no longer form a valid syllable.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyllableBuilder<KM: Keymap> {
-    context: SyllableContext<KM>,
+///
+/// A [`Syllable`] owns the incremental syllable parsing state and nothing
+/// else, which is why it is not generic: the [`Keymap`] that decodes transform
+/// keys and the [`TonePlacement`] scheme that picks the tone-bearing nucleus
+/// vowel are configuration rather than input, so the operations that need them
+/// take them as arguments, the keymap as a generic parameter.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Syllable {
     state: SyllableState,
 }
 
-impl<KM: Keymap> SyllableBuilder<KM> {
+impl Syllable {
     // --------------------------------------------------------- constructor
 
-    /// Creates a building syllable that parses and renders under `context`.
+    /// Creates an empty syllable in the building phase.
+    ///
+    /// The keymap and tone-placement scheme are not captured here: they are
+    /// supplied to the operations that need them.
     #[inline]
-    pub fn new(context: SyllableContext<KM>) -> Self {
+    pub fn new() -> Self {
         Self {
-            context,
             state: SyllableState::default(),
         }
-    }
-
-    // --------------------------------------------------------- context
-
-    /// The context this syllable is parsed and rendered under.
-    #[inline(always)]
-    pub const fn context(&self) -> &SyllableContext<KM> {
-        &self.context
-    }
-
-    /// Replaces the context wholesale, leaving the buffered syllable in its
-    /// current phase. The new keymap and tone-placement scheme take effect
-    /// from the next parse or render; already-buffered characters are not
-    /// re-parsed.
-    #[inline]
-    pub fn set_context(&mut self, context: SyllableContext<KM>) {
-        self.context = context;
     }
 
     // ---------------------------------------------------------- state
@@ -128,8 +119,8 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         }
     }
 
-    /// Resets the syllable to an empty building state, keeping the
-    /// [`SyllableContext`] (keymap and tone placement) as it is.
+    /// Resets the syllable to an empty building state, discarding whatever the
+    /// keymap and tone placement had accepted.
     #[inline]
     pub fn reset(&mut self) {
         self.state = SyllableState::default();
@@ -190,12 +181,13 @@ impl<KM: Keymap> SyllableBuilder<KM> {
 
     /// Renders the syllable as Vietnamese characters, either precomposed
     /// (building) or as the verbatim dead-buffer contents.
+    ///
+    /// `tone_placement` only decides which nucleus vowel carries the tone mark,
+    /// so it matters on the building path alone.
     #[inline(always)]
-    pub fn to_chars(&self) -> Vec<char> {
+    pub fn to_chars(&self, tone_placement: TonePlacement) -> Vec<char> {
         match &self.state {
-            SyllableState::Building(builder) => {
-                builder.to_chars(self.context.tone_placement()).to_vec()
-            }
+            SyllableState::Building(builder) => builder.to_chars(tone_placement).to_vec(),
             SyllableState::Dead(builder) => builder.to_chars(),
         }
     }
@@ -206,11 +198,9 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     /// Appends rather than replaces, and unlike [`Self::to_chars`] needs no
     /// intermediate `Vec` on the dead path.
     #[inline(always)]
-    pub fn write_to(&self, output: &mut String) {
+    pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
         match &self.state {
-            SyllableState::Building(builder) => {
-                builder.write_to(self.context.tone_placement(), output)
-            }
+            SyllableState::Building(builder) => builder.write_to(tone_placement, output),
             SyllableState::Dead(builder) => {
                 builder.write_to(output);
             }
@@ -220,11 +210,11 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     /// Returns a lazy Iterator over the rendered characters of the syllable,
     /// whether in the building phase (with precomposed tones) or verbatim dead phase.
     #[inline]
-    pub fn iter_chars(&self) -> impl Iterator<Item = char> + '_ {
-        use crate::composition::syllable::iter::SyllableChars;
+    pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
+        use crate::syllable::iter::SyllableChars;
         match &self.state {
             SyllableState::Building(builder) => {
-                SyllableChars::Building(builder.iter_chars(self.context.tone_placement()))
+                SyllableChars::Building(builder.iter_chars(tone_placement))
             }
             SyllableState::Dead(builder) => SyllableChars::Dead(builder.iter_chars()),
         }
@@ -232,15 +222,17 @@ impl<KM: Keymap> SyllableBuilder<KM> {
 
     // -------------------------------------------------------- mutation
 
-    /// Appends `input` at the end. When the building phase rejects it, the
-    /// accepted prefix is frozen into a dead buffer and the input appended
-    /// verbatim.
+    /// Appends `input` at the end under `keymap`. When the building phase
+    /// rejects it, the accepted prefix is frozen into a dead buffer, rendered
+    /// with `tone_placement`, and the input appended verbatim.
     #[allow(dead_code)]
-    pub(crate) fn push(&mut self, input: char) -> InputEffect {
-        // Split the borrow: `context` is read while `state` is mutated.
-        let Self { context, state } = self;
-        let keymap = context.keymap();
-        match state {
+    pub(crate) fn push<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        tone_placement: TonePlacement,
+        input: char,
+    ) -> InputEffect {
+        match &mut self.state {
             SyllableState::Dead(builder) => {
                 builder.push(input);
                 InputEffect::StructurallyChanged
@@ -248,7 +240,7 @@ impl<KM: Keymap> SyllableBuilder<KM> {
             SyllableState::Building(builder) => match builder.push(keymap, input) {
                 Ok(effect) => effect,
                 Err(_err) => {
-                    let chars = builder.to_chars(context.tone_placement());
+                    let chars = builder.to_chars(tone_placement);
                     let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
                     dead.push(input);
                     self.state = SyllableState::Dead(dead);
@@ -258,28 +250,31 @@ impl<KM: Keymap> SyllableBuilder<KM> {
         }
     }
 
-    /// Inserts `input` at `index`, falling back to the dead buffer on an
-    /// out-of-range index or a rejected parse, exactly as [`Self::push`] does.
-    pub(crate) fn insert(&mut self, index: usize, input: char) -> InputEffect {
-        // Split the borrow: `context` is read while `state` is mutated.
-        let Self { context, state } = self;
-        match state {
+    /// Inserts `input` at `index` under `keymap`, falling back to the dead
+    /// buffer on an out-of-range index or a rejected parse, exactly as
+    /// [`Self::push`] does.
+    pub(crate) fn insert<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        tone_placement: TonePlacement,
+        index: usize,
+        input: char,
+    ) -> InputEffect {
+        match &mut self.state {
             SyllableState::Dead(builder) => {
                 builder.insert(index, input);
                 InputEffect::StructurallyChanged
             }
-            SyllableState::Building(builder) => {
-                match builder.insert(context.keymap(), index, input) {
-                    Ok(effect) => effect,
-                    Err(_err) => {
-                        let chars = builder.to_chars(context.tone_placement());
-                        let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
-                        dead.insert(index, input);
-                        self.state = SyllableState::Dead(dead);
-                        InputEffect::StructurallyChanged
-                    }
+            SyllableState::Building(builder) => match builder.insert(keymap, index, input) {
+                Ok(effect) => effect,
+                Err(_err) => {
+                    let chars = builder.to_chars(tone_placement);
+                    let mut dead = DeadSyllable::from_accepted(chars.iter().copied());
+                    dead.insert(index, input);
+                    self.state = SyllableState::Dead(dead);
+                    InputEffect::StructurallyChanged
                 }
-            }
+            },
         }
     }
 
@@ -288,31 +283,33 @@ impl<KM: Keymap> SyllableBuilder<KM> {
     /// Transactional on the building path: a deletion that leaves the syllable
     /// invalid is rolled back and the builder keeps its previous contents. On
     /// the dead path it is the reverse — once every character is accepted
-    /// again, the buffer is re-parsed and the building phase resumes.
-    pub(crate) fn remove(&mut self, index: usize) -> InputEffect {
-        // Split the borrow: `context` is read while `state` is mutated.
-        let Self { context, state } = self;
-        match state {
+    /// again, the buffer is re-parsed under `keymap` and the building phase
+    /// resumes.
+    pub(crate) fn remove<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        tone_placement: TonePlacement,
+        index: usize,
+    ) -> InputEffect {
+        match &mut self.state {
             SyllableState::Dead(builder) => {
                 builder.remove(index);
                 if builder.is_all_accepted() {
                     let mut building = BuildingSyllable::default();
                     for ch in builder.iter_chars() {
-                        if building.push(context.keymap(), ch).is_err() {
+                        if building.push(keymap, ch).is_err() {
                             return InputEffect::StructurallyChanged;
                         }
                     }
                     // Every character parsed cleanly: resume building.
-                    *state = SyllableState::Building(building);
+                    self.state = SyllableState::Building(building);
                 }
                 InputEffect::StructurallyChanged
             }
-            SyllableState::Building(builder) => {
-                match builder.remove(index, context.tone_placement()) {
-                    Ok(effect) => effect,
-                    Err(_) => InputEffect::StructurallyChanged,
-                }
-            }
+            SyllableState::Building(builder) => match builder.remove(index, tone_placement) {
+                Ok(effect) => effect,
+                Err(_) => InputEffect::StructurallyChanged,
+            },
         }
     }
 }

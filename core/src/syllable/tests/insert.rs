@@ -1,9 +1,9 @@
-//! Insert-path corpus: `BuildingSyllableBuilder::insert` at an explicit cursor.
+//! Insert-path corpus: `BuildingSyllable::insert` at an explicit cursor.
 //!
 //! The pipeline under test is:
 //!
 //! ```text
-//! Keymap + (base pushes) → BuildingSyllableBuilder → insert(keymap, at, key) → syllable
+//! Keymap + (base pushes) → BuildingSyllable → insert(keymap, at, key) → syllable
 //! ```
 //!
 //! The insertion index is absolute over the concatenation
@@ -22,10 +22,10 @@
 
 use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
 
-use crate::composition::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::composition::syllable::InputEffect;
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone};
+use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
+use crate::syllable::InputEffect;
 
 struct InsertCase {
     base: &'static [char],

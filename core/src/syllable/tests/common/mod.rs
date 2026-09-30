@@ -3,17 +3,17 @@
 //! Two entry-point tests exercise the builder through its public API:
 //!
 //! * [`push`](../push/index.html) sweeps the behaviour corpus under
-//!   [`corpus`](../corpus/index.html) through `BuildingSyllableBuilder::push`.
-//! * [`insert`](../insert/index.html) drives `BuildingSyllableBuilder::insert`
+//!   [`corpus`](../corpus/index.html) through `BuildingSyllable::push`.
+//! * [`insert`](../insert/index.html) drives `BuildingSyllable::insert`
 //!   at an explicit cursor.
 //!
 //! Both compare the resulting syllable against an [`ExpectedSyllable`] and
 //! report every mismatch through [`check_syllable_eq`], so a failure prints
 //! the expected and actual onset / vowels / tone / coda side by side.
 
-use crate::composition::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::composition::syllable::InputEffect;
 use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
+use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
+use crate::syllable::InputEffect;
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
 /// much faster than `(BaseVowel::VowelCase::Lower)`.

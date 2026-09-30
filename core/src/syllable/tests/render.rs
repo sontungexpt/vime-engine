@@ -19,9 +19,9 @@ use super::corpus::{
     uo_sequences, uppercase, Case, Outcome,
 };
 
-use crate::composition::syllable::building::BuildingSyllable;
 use crate::keymap::{DefaultKeymap, Keymap};
 use crate::phonology::{decode_vowel, is_vowel, Tone, TonePlacement};
+use crate::syllable::building::BuildingSyllable;
 
 /// Every Telex corpus slice, borrowed straight from the shared data files.
 ///

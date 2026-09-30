@@ -26,7 +26,6 @@
 //! lets every caller reject a bad config with the NULL / `false` the header
 //! documents, instead of inventing an enum value.
 
-use vime_engine::composition::syllable::SyllableContext;
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{Config, DefaultKeymap, Settings};
 
@@ -128,10 +127,7 @@ impl VimeConfig {
             _ => unreachable!(),
         };
 
-        FfiConfig::new(
-            Settings::default(),
-            SyllableContext::new(keymap, tone_placement),
-        )
+        FfiConfig::new(Settings::default(), keymap, tone_placement)
     }
 }
 
@@ -256,7 +252,7 @@ mod tests {
                     VIME_TONE_PLACEMENT_OLD => TonePlacement::Old,
                     _ => unreachable!(),
                 };
-                assert_eq!(engine.context.tone_placement(), expected_tone);
+                assert_eq!(engine.tone_placement(), expected_tone);
             }
         }
     }

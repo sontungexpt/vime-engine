@@ -1,9 +1,9 @@
-//! Remove-path corpus: `BuildingSyllableBuilder::remove` at an explicit index.
+//! Remove-path corpus: `BuildingSyllable::remove` at an explicit index.
 //!
 //! The pipeline under test is:
 //!
 //! ```text
-//! Keymap + (base pushes) → BuildingSyllableBuilder → remove(at) → syllable
+//! Keymap + (base pushes) → BuildingSyllable → remove(at) → syllable
 //! ```
 //!
 //! The removal index is absolute over the concatenation
@@ -22,10 +22,10 @@
 
 use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
 
-use crate::composition::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::composition::syllable::InputEffect;
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone, TonePlacement};
+use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
+use crate::syllable::InputEffect;
 
 struct RemoveCase {
     base: &'static [char],
