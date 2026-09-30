@@ -36,38 +36,38 @@ const ALL_VOWELS: &[BaseVowel] = &[
     BaseVowel::OHorn,
 ];
 
-/// Every nucleus of length 1..=3: 12 + 144 + 1728 = 1884 sequences.
-fn all_nuclei() -> Vec<Vec<BaseVowel>> {
-    let mut out = Vec::new();
-    for &a in ALL_VOWELS {
-        out.push(vec![a]);
-    }
-    for &a in ALL_VOWELS {
-        for &b in ALL_VOWELS {
-            out.push(vec![a, b]);
-        }
-    }
-    for &a in ALL_VOWELS {
-        for &b in ALL_VOWELS {
-            for &c in ALL_VOWELS {
-                out.push(vec![a, b, c]);
-            }
-        }
-    }
-    out
+/// Every nucleus of length 1..=3: 12 + 144 + 1728 = 1884 sequences, in that
+/// order.
+///
+/// Yields `(buffer, len)` rather than a `Vec` per sequence. The state table
+/// only ever reads the slice, so the old shape — building 1884 throwaway
+/// `Vec<BaseVowel>` to hand it one — allocated once per case for nothing. The
+/// buffer is a fixed array, so this walks the same 1884 sequences in the same
+/// order without touching the allocator at all.
+fn all_nuclei() -> impl Iterator<Item = ([BaseVowel; NUCLEUS_MAX_LEN], usize)> {
+    let one = ALL_VOWELS.iter().map(|&a| ([a; NUCLEUS_MAX_LEN], 1));
+    let two = ALL_VOWELS
+        .iter()
+        .flat_map(|&a| ALL_VOWELS.iter().map(move |&b| ([a, b, b], 2)));
+    let three = ALL_VOWELS.iter().flat_map(|&a| {
+        ALL_VOWELS
+            .iter()
+            .flat_map(move |&b| ALL_VOWELS.iter().map(move |&c| ([a, b, c], 3)))
+    });
+    one.chain(two).chain(three)
 }
 
 /// The state distribution is pinned, so a table refactor that silently
 /// reclassifies a family cannot pass unnoticed.
 #[test]
 fn nucleus_state_population_is_pinned() {
-    let all = all_nuclei();
-
+    let mut total = 0;
     let mut valid = 0;
     let mut incomplete = 0;
     let mut dead = 0;
-    for nucleus in &all {
-        match nucleus_state(nucleus.as_slice()) {
+    for (nucleus, len) in all_nuclei() {
+        total += 1;
+        match nucleus_state(&nucleus[..len]) {
             NucleusState::Valid => valid += 1,
             NucleusState::InComplete => incomplete += 1,
             NucleusState::Dead => dead += 1,
@@ -75,7 +75,7 @@ fn nucleus_state_population_is_pinned() {
     }
 
     assert_eq!(
-        (all.len(), valid, incomplete, dead),
+        (total, valid, incomplete, dead),
         (1884, 56, 17, 1811),
         "nucleus table drifted: 12 + 12^2 + 12^3 = 1884 sequences, \
          of which 56 are real nuclei and 17 are real-but-unfinished"

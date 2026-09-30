@@ -1086,7 +1086,7 @@ fn decoder_and_classifier_agree_across_the_whole_unicode_range() {
 #[test]
 fn latin_extended_a_is_vowel_and_decodes_consistently() {
     let latin_extended_a: Vec<char> = (0x0100..=0x017F)
-        .filter_map(|cp| char::from_u32(cp))
+        .filter_map(char::from_u32)
         .filter(|ch| is_vowel(*ch))
         .collect();
     assert!(

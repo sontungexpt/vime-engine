@@ -70,6 +70,26 @@ const VIQR_SHAPES: [(char, RootVowel, Shape); 6] = [
     ('+', RootVowel::U, Shape::Horn),
 ];
 
+/// The VIQR punctuation keys, each with the one role it holds: `(key,
+/// is_shape, is_tone)`.
+///
+/// `to_ascii_lowercase` folds only A-Z, so a key is stored under the bit its
+/// *own* byte occupies. For punctuation that bit already has 0x20 set, which is
+/// exactly what makes an arithmetic fold (`| 0x20`) collapse these keys onto
+/// each other. Pinned to the exact role rather than to "some role", so a key
+/// that lands in the wrong mask fails even though it is still bound to
+/// something.
+const VIQR_PUNCTUATION: [(char, bool, bool); 8] = [
+    ('^', true, false),
+    ('(', true, false),
+    ('+', true, false),
+    ('`', false, true),
+    ('\'', false, true),
+    ('?', false, true),
+    ('~', false, true),
+    ('.', false, true),
+];
+
 /// ASCII characters bound to no role in any shipped layout.
 const NEUTRAL: [char; 14] = [
     'b', 'c', 'g', 'h', 'k', 'l', 'm', 'n', 'p', 'q', 't', 'u', 'y', 'v',
@@ -248,16 +268,16 @@ fn viqr_stroke_key_matches_layout() {
 
 // ----------------------------------------------------------- cross-layout mask
 
+/// Every VIQR punctuation key is bound, and to exactly one mask. Punctuation has
+/// no upper case, so there is no fold to survive here — the property under test
+/// is the one the `0x20` bit would break: a key whose bit already has that bit
+/// set must not be reachable through the neighbour it would fold onto.
 #[test]
-fn mask_is_case_insensitive_for_punctuation_too() {
-    // `to_ascii_lowercase` only folds A-Z; punctuation/digits are stored with
-    // bit 0x20 possibly set, so they must map to themselves in the bitmask.
+fn viqr_punctuation_keys_hold_exactly_one_role() {
     let viqr = DefaultKeymap::viqr();
-    for &ch in &['^', '`', '~', '(', '+', '?', '.'] {
-        assert!(
-            viqr.is_shape_key(ch) || viqr.is_tone_key(ch),
-            "viqr {ch:?} must be bound"
-        );
+    for &(ch, is_shape, is_tone) in &VIQR_PUNCTUATION {
+        assert_eq!(viqr.is_shape_key(ch), is_shape, "viqr {ch:?}: shape role");
+        assert_eq!(viqr.is_tone_key(ch), is_tone, "viqr {ch:?}: tone role");
     }
 }
 
@@ -310,70 +330,98 @@ fn unbound_keys_are_rejected_in_every_layout() {
 
 // ------------------------------------------------------------------ validation
 
-/// Asserts `build` panics with a layout-invalid message.
-fn assert_invalid(build: impl FnOnce() -> Rules<'static>) {
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(build));
-    assert!(panicked.is_err(), "invalid layout must panic");
+/// Asserts `build` is rejected, with `expected` somewhere in the panic message.
+///
+/// The message is the assertion, not the panic. Every guard in `Rules::new`
+/// panics with its own text, so matching it is what says *which* rule rejected
+/// the layout. A bare `is_err()` would pass just as happily if the constructor
+/// panicked for an unrelated reason — a bad index, say — which is precisely the
+/// class of bug these guards exist to make unreachable.
+fn assert_invalid(build: impl FnOnce() -> Rules<'static>, expected: &str) {
+    let payload = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(_) => panic!("an invalid layout must be rejected, not accepted"),
+        Err(payload) => payload,
+    };
+
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or_else(|| panic!("the panic payload was not a string"));
+
+    assert!(
+        message.contains(expected),
+        "expected the rejection to mention {expected:?}, got {message:?}"
+    );
 }
 
 #[test]
 fn rules_reject_duplicate_tone_key() {
-    assert_invalid(|| {
-        Rules::new(
-            &[
-                ToneRule {
-                    key: b's',
-                    tone: Tone::Acute,
-                },
-                ToneRule {
-                    key: b's',
-                    tone: Tone::Grave,
-                },
-            ],
-            &[],
-            &[],
-        )
-    });
+    assert_invalid(
+        || {
+            Rules::new(
+                &[
+                    ToneRule {
+                        key: b's',
+                        tone: Tone::Acute,
+                    },
+                    ToneRule {
+                        key: b's',
+                        tone: Tone::Grave,
+                    },
+                ],
+                &[],
+                &[],
+            )
+        },
+        "a tone key maps to multiple tones",
+    );
 }
 
 #[test]
 fn rules_reject_tone_shape_collision() {
-    assert_invalid(|| {
-        Rules::new(
-            &[ToneRule {
-                key: b's',
-                tone: Tone::Acute,
-            }],
-            &[ShapeRule {
-                key: b's',
-                on: RootVowel::A,
-                shape: Shape::Breve,
-            }],
-            &[],
-        )
-    });
+    assert_invalid(
+        || {
+            Rules::new(
+                &[ToneRule {
+                    key: b's',
+                    tone: Tone::Acute,
+                }],
+                &[ShapeRule {
+                    key: b's',
+                    on: RootVowel::A,
+                    shape: Shape::Breve,
+                }],
+                &[],
+            )
+        },
+        "a key maps to both a tone and a shape",
+    );
 }
 
 #[test]
 fn rules_reject_shape_same_owner_duplicate() {
-    assert_invalid(|| {
-        Rules::new(
-            &[],
-            &[
-                ShapeRule {
-                    key: b'w',
-                    on: RootVowel::A,
-                    shape: Shape::Breve,
-                },
-                ShapeRule {
-                    key: b'w',
-                    on: RootVowel::A,
-                    shape: Shape::Circumflex,
-                },
-            ],
-            &[],
-        )
-    });
+    assert_invalid(
+        || {
+            Rules::new(
+                &[],
+                &[
+                    ShapeRule {
+                        key: b'w',
+                        on: RootVowel::A,
+                        shape: Shape::Breve,
+                    },
+                    ShapeRule {
+                        key: b'w',
+                        on: RootVowel::A,
+                        shape: Shape::Circumflex,
+                    },
+                ],
+                &[],
+            )
+        },
+        "a shape key applies multiple shapes to one owner",
+    );
 }
 
 #[test]
@@ -405,36 +453,42 @@ fn rules_allow_multi_owner_shape_reuse() {
 
 #[test]
 fn rules_reject_duplicate_stroke() {
-    assert_invalid(|| Rules::new(&[], &[], &[b'z', b'z']));
+    assert_invalid(|| Rules::new(&[], &[], b"zz"), "a stroke key is duplicated");
 }
 
 #[test]
 fn rules_reject_stroke_tone_collision() {
-    assert_invalid(|| {
-        Rules::new(
-            &[ToneRule {
-                key: b'z',
-                tone: Tone::Acute,
-            }],
-            &[],
-            &[b'z'],
-        )
-    });
+    assert_invalid(
+        || {
+            Rules::new(
+                &[ToneRule {
+                    key: b'z',
+                    tone: Tone::Acute,
+                }],
+                &[],
+                b"z",
+            )
+        },
+        "a stroke key maps to both a stroke and a tone",
+    );
 }
 
 #[test]
 fn rules_reject_stroke_shape_collision() {
-    assert_invalid(|| {
-        Rules::new(
-            &[],
-            &[ShapeRule {
-                key: b'z',
-                on: RootVowel::A,
-                shape: Shape::Breve,
-            }],
-            &[b'z'],
-        )
-    });
+    assert_invalid(
+        || {
+            Rules::new(
+                &[],
+                &[ShapeRule {
+                    key: b'z',
+                    on: RootVowel::A,
+                    shape: Shape::Breve,
+                }],
+                b"z",
+            )
+        },
+        "a stroke key maps to both a stroke and a shape",
+    );
 }
 
 #[test]
@@ -461,9 +515,12 @@ fn rules_reject_non_ascii_key() {
         shape: Shape::Breve,
     }];
 
-    for rules in &HIGH_TONES {
-        assert_invalid(|| Rules::new(std::slice::from_ref(rules), &[], &[]));
+    for rule in &HIGH_TONES {
+        assert_invalid(
+            || Rules::new(std::slice::from_ref(rule), &[], &[]),
+            "key must be ASCII",
+        );
     }
-    assert_invalid(|| Rules::new(&[], &HIGH_SHAPE, &[]));
-    assert_invalid(|| Rules::new(&[], &[], &[0x80]));
+    assert_invalid(|| Rules::new(&[], &HIGH_SHAPE, &[]), "key must be ASCII");
+    assert_invalid(|| Rules::new(&[], &[], &[0x80]), "key must be ASCII");
 }
