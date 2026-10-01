@@ -82,6 +82,31 @@ fn caret_predicates_track_the_raw_buffer() {
     assert!(!*session.move_cursor_right().rendered());
 }
 
+/// Counted movement is the same movement, N times: the session delegates to the
+/// composition rather than keeping a second path, so a frontend can implement
+/// word-at-a-time jumps without asking the engine for new behaviour.
+///
+/// The over-count matters more than the exact step here — it is what says the
+/// endpoints are reached rather than overshot.
+#[test]
+fn counted_caret_movement_reaches_the_same_endpoints() {
+    let mut session = following();
+    type_str(&mut session, "nga");
+    assert_eq!(session.rendered_cursor(), 3);
+
+    // Four back from a three-character word clamps at the start.
+    assert!(*session.move_cursor_left_by(4).rendered());
+    assert_eq!((session.rendered_cursor(), session.raw_cursor()), (0, 0));
+
+    // Nothing left to give, so a frontend forwards the key.
+    assert!(!*session.move_cursor_left_by(1).rendered());
+
+    // And right by an over-count lands on the end, never past it.
+    assert!(*session.move_cursor_right_by(99).rendered());
+    assert_eq!((session.rendered_cursor(), session.raw_cursor()), (3, 3));
+    assert!(!*session.move_cursor_right_by(99).rendered());
+}
+
 /// Moving the caret must not alter the rendered text, and resetting must put
 /// the caret back to the start.
 #[test]

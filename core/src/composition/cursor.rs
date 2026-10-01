@@ -8,8 +8,8 @@
 /// indexes.
 ///
 /// Ordering is by position.
-#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[repr(transparent)]
 pub struct Cursor(usize);
 
 impl Cursor {
@@ -51,44 +51,86 @@ impl Cursor {
     }
 
     /// Moves the cursor one position to the left.
-    /// Returns the new cursor position.
+    ///
+    /// Returns whether it moved, so `false` means the caret was already at the
+    /// start. See [`Self::move_left_by`] for moving several positions at once.
     #[inline(always)]
     pub const fn move_left(&mut self) -> bool {
-        if self.is_at_start() {
-            return false;
-        }
-        self.0 -= 1;
-        true
+        self.move_left_by(1)
+    }
+
+    /// Moves `by` positions left, skipping the clamp [`Self::move_left_by`] does.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee `by <= self.get()`. There is no `len` here to
+    /// compare against, so a larger `by` underflows and every later
+    /// [`Self::get`] is then an out-of-bounds index.
+    #[inline(always)]
+    pub const unsafe fn move_left_unchecked_by(&mut self, by: usize) {
+        self.0 -= by;
+    }
+
+    /// Moves up to `by` positions left, clamping at the start.
+    ///
+    /// Returns whether the cursor moved: `true` even when `by` overshoots and
+    /// the caret stops early, `false` only when there was nowhere to go —
+    /// including `by == 0`, which is a request to move nowhere.
+    #[inline(always)]
+    pub const fn move_left_by(&mut self, by: usize) -> bool {
+        // One rule for every `by`: clamp down, then report whether the position
+        // actually changed. Testing `by == 0` up front would be a second case to
+        // keep in step, and the saturated subtract is already the clamp.
+        let target = self.0.saturating_sub(by);
+        let moved = target != self.0;
+        self.0 = target;
+        moved
     }
 
     /// Moves the cursor one position to the right, bounded by `len`.
     ///
     /// A no-op once the cursor has reached `len`, so this never moves past the
     /// end of the sequence.
-    /// Returns the new cursor position.
+    ///
+    /// Returns whether it moved. See [`Self::move_right_by`] for moving several
+    /// positions at once.
     #[inline(always)]
     pub const fn move_right(&mut self, len: usize) -> bool {
-        if self.is_at_end(len) {
-            return false;
-        }
-        self.0 += 1;
-        true
+        self.move_right_by(1, len)
     }
 
-    /// Moves the cursor one position to the right, skipping the bound check
-    /// that [`Self::move_right`] performs.
+    /// Moves `by` positions right with no bounds check, returning the new
+    /// position. Skips the clamp [`Self::move_right_by`] does.
     ///
     /// # Safety
     ///
-    /// The caller must guarantee that the cursor is strictly inside the
-    /// sequence, that is `self.get() < len`. `len` is not a parameter here, so
-    /// the increment is unconditional and lands one past the end when the
-    /// cursor already sat at `len`; every later [`Self::get`] is then an
-    /// out-of-bounds slice index.
+    /// The caller must guarantee `self.get() + by` stays inside the sequence.
+    /// `len` is not a parameter, so the addition overshoots unchecked and every
+    /// later [`Self::get`] is then an out-of-bounds index.
     #[inline(always)]
-    pub const unsafe fn move_right_unchecked(&mut self) -> usize {
-        self.0 += 1;
+    pub const unsafe fn move_right_unchecked_by(&mut self, by: usize) -> usize {
+        self.0 += by;
         self.0
+    }
+
+    /// Moves up to `by` positions right, clamping at `len`.
+    ///
+    /// Returns whether the cursor moved: `true` even when `by` overshoots and
+    /// the caret stops at `len`, `false` when `by` is `0` or the cursor already
+    /// sits there.
+    #[inline(always)]
+    pub const fn move_right_by(&mut self, by: usize, len: usize) -> bool {
+        if self.is_at_end(len) || by == 0 {
+            return false;
+        }
+
+        let remaining = len - self.0;
+        if by < remaining {
+            self.0 += by;
+        } else {
+            self.0 = len;
+        }
+        true
     }
 
     /// Moves the cursor to the beginning (position 0).

@@ -307,4 +307,14 @@ where
     pub fn move_cursor_right(&mut self) -> Parallel<bool> {
         self.composition.move_cursor_right()
     }
+
+    #[inline(always)]
+    pub fn move_cursor_left_by(&mut self, by: usize) -> Parallel<bool> {
+        self.composition.move_cursor_left_by(by)
+    }
+
+    #[inline(always)]
+    pub fn move_cursor_right_by(&mut self, by: usize) -> Parallel<bool> {
+        self.composition.move_cursor_right_by(by)
+    }
 }

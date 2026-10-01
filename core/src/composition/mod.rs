@@ -158,6 +158,29 @@ impl Composition {
         }
     }
 
+    /// Moves both cursors up to `by` positions left, clamping each at the start.
+    ///
+    /// Raw and parsed positions are not one-to-one, so one cursor can reach its
+    /// end while the other still has room; each field reports whether *that*
+    /// cursor moved.
+    #[inline]
+    pub fn move_cursor_left_by(&mut self, by: usize) -> Parallel<bool> {
+        Parallel {
+            rendered: self.rendered_cursor.move_left_by(by),
+            raw: self.raw_cursor.move_left_by(by),
+        }
+    }
+
+    /// Moves both cursors up to `by` positions right, clamping each at its own
+    /// buffer length.
+    #[inline]
+    pub fn move_cursor_right_by(&mut self, by: usize) -> Parallel<bool> {
+        Parallel {
+            rendered: self.rendered_cursor.move_right_by(by, self.rendered.len()),
+            raw: self.raw_cursor.move_right_by(by, self.raw.len()),
+        }
+    }
+
     // ----------------------------------------------------------- mutation
 
     /// Inserts `input` at the current cursor position, parsing it under
@@ -172,7 +195,7 @@ impl Composition {
         // SAFETY: insertion always increases the raw buffer length by one, so
         // advancing the cursor by one stays within the new bounds.
         unsafe {
-            self.raw_cursor.move_right_unchecked();
+            self.raw_cursor.move_right_unchecked_by(1);
         }
 
         match self
@@ -185,7 +208,7 @@ impl Composition {
                 // transformed key consumes the input without lengthening the
                 // buffer, which is why this arm is the only one that moves.
                 unsafe {
-                    self.rendered_cursor.move_right_unchecked();
+                    self.rendered_cursor.move_right_unchecked_by(1);
                 }
             }
             InputEffect::Transformed => {}
