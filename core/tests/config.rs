@@ -68,18 +68,18 @@ fn caret_predicates_track_the_raw_buffer() {
 
     // Type "toa": the caret sits after the final character.
     type_str(&mut session, "toa");
-    assert!(*session.move_cursor_left().rendered());
-    assert!(*session.move_cursor_left().rendered());
-    assert!(*session.move_cursor_left().rendered());
+    assert!(*session.move_cursor_left_by(1).rendered());
+    assert!(*session.move_cursor_left_by(1).rendered());
+    assert!(*session.move_cursor_left_by(1).rendered());
 
     // Caret now at position 0: further left is forwarded, not consumed.
-    assert!(!*session.move_cursor_left().rendered());
+    assert!(!*session.move_cursor_left_by(1).rendered());
 
     // And back to the end, where right is forwarded.
-    assert!(*session.move_cursor_right().rendered());
-    assert!(*session.move_cursor_right().rendered());
-    assert!(*session.move_cursor_right().rendered());
-    assert!(!*session.move_cursor_right().rendered());
+    assert!(*session.move_cursor_right_by(1).rendered());
+    assert!(*session.move_cursor_right_by(1).rendered());
+    assert!(*session.move_cursor_right_by(1).rendered());
+    assert!(!*session.move_cursor_right_by(1).rendered());
 }
 
 /// Counted movement is the same movement, N times: the session delegates to the
@@ -116,9 +116,9 @@ fn caret_moves_leave_the_render_unchanged() {
     let before = rendered_to_string(&mut session);
 
     for _ in 0..3 {
-        session.move_cursor_left();
-        session.move_cursor_left();
-        session.move_cursor_right();
+        session.move_cursor_left_by(1);
+        session.move_cursor_left_by(1);
+        session.move_cursor_right_by(1);
     }
     assert_eq!(rendered_to_string(&mut session), before);
 

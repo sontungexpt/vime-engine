@@ -8,7 +8,6 @@ use super::*;
 use crate::{
     keymap::Keymap,
     phonology::{BaseVowel, Onset, Tone, Vowel, NUCLEUS_MAX_LEN},
-    syllable::InputEffect,
 };
 
 impl BuildingSyllable {
@@ -18,17 +17,33 @@ impl BuildingSyllable {
         &mut self,
         keymap: &KM,
         key: char,
-    ) -> Result<InputEffect, SyllableBuildError> {
+    ) -> Result<EditEffect, SyllableBuildError> {
+        let mut effect = EditEffect::StructurallyChanged;
+
         // ─────────────────────────── Onset ───────────────────────────
         // No nucleus or coda yet: try a D/Đ stroke, then extend the onset,
         // then try the key as the first vowel.
         if self.coda.is_empty() && self.nucleus.is_empty() {
-            if self.try_toggle_d_stroke(keymap, key) == TransformResult::Applied {
-                return Ok(InputEffect::Transformed);
+            match self.try_toggle_d_stroke(keymap, key) {
+                TransformResult::Applied(target) => {
+                    return Ok(EditEffect::Transformed {
+                        target: target,
+                        reverted: false,
+                    });
+                }
+
+                TransformResult::Reverted(target) => {
+                    effect = EditEffect::Transformed {
+                        target: target,
+                        reverted: true,
+                    };
+                }
+
+                TransformResult::NotApplicable => {}
             }
 
             if self.push_onset(key) {
-                return Ok(InputEffect::StructurallyChanged);
+                return Ok(effect);
             }
 
             // A pending Q can only continue as QU.
@@ -44,13 +59,25 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
 
-            return Ok(InputEffect::StructurallyChanged);
+            return Ok(effect);
         }
 
         // ─────────────────────────── Nucleus ───────────────────────────
         // After the first vowel, transforms get first chance at each key.
-        if self.try_transform(keymap, key, None) == TransformResult::Applied {
-            return Ok(InputEffect::Transformed);
+        match self.try_transform(keymap, key, None) {
+            TransformResult::Applied(target) => {
+                return Ok(EditEffect::Transformed {
+                    target: target,
+                    reverted: false,
+                });
+            }
+            TransformResult::Reverted(target) => {
+                effect = EditEffect::Transformed {
+                    target: target,
+                    reverted: true,
+                };
+            }
+            TransformResult::NotApplicable => {}
         }
 
         if self.coda.is_empty() {
@@ -60,7 +87,7 @@ impl BuildingSyllable {
                 if self.push_coda(key) {
                     // Once a coda starts, normalize `uơ` / `ưo` to `ươ`.
                     self.normalize_uo_horn();
-                    return Ok(InputEffect::StructurallyChanged);
+                    return Ok(effect);
                 }
 
                 return Err(SyllableBuildError::InvalidCoda);
@@ -71,12 +98,12 @@ impl BuildingSyllable {
             }
 
             self.normalize_uo_horn();
-            return Ok(InputEffect::StructurallyChanged);
+            return Ok(effect);
         }
 
         // A coda has started, so only another coda character can follow.
         if self.push_coda(key) {
-            return Ok(InputEffect::StructurallyChanged);
+            return Ok(effect);
         }
 
         Err(SyllableBuildError::InvalidCoda)

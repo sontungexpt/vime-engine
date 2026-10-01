@@ -5,7 +5,7 @@
 //! syllable unchanged.
 
 use super::*;
-use crate::{phonology::TonePlacement, syllable::InputEffect};
+use crate::{phonology::TonePlacement, syllable::EditEffect};
 
 impl BuildingSyllable {
     // ─────────────────────────── Remove ───────────────────────────
@@ -14,7 +14,7 @@ impl BuildingSyllable {
         &mut self,
         index: usize,
         tone_placement: TonePlacement,
-    ) -> Result<InputEffect, SyllableBuildError> {
+    ) -> Result<EditEffect, SyllableBuildError> {
         let onset_len = self.onset.len();
         let vowels_len = self.nucleus.len();
         let total_len = onset_len + vowels_len + self.coda.len();
@@ -29,7 +29,7 @@ impl BuildingSyllable {
         if index < onset_len {
             if self.onset_kind == Onset::Gi {
                 if self.remove_gi_onset(index) {
-                    return Ok(InputEffect::StructurallyChanged);
+                    return Ok(EditEffect::StructurallyChanged);
                 }
                 return Err(SyllableBuildError::InvalidNucleus);
             }
@@ -38,7 +38,7 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidOnset);
             }
 
-            return Ok(InputEffect::StructurallyChanged);
+            return Ok(EditEffect::StructurallyChanged);
         }
 
         // ─────────────────────────── Vowel ───────────────────────────
@@ -50,7 +50,7 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
 
-            return Ok(InputEffect::StructurallyChanged);
+            return Ok(EditEffect::StructurallyChanged);
         }
 
         // ─────────────────────────── Coda ───────────────────────────
@@ -61,7 +61,7 @@ impl BuildingSyllable {
             return Err(SyllableBuildError::InvalidCoda);
         }
 
-        Ok(InputEffect::StructurallyChanged)
+        Ok(EditEffect::StructurallyChanged)
     }
 
     /// Removes one character from the onset, restoring it if the result is invalid.

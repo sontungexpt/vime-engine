@@ -224,7 +224,7 @@ impl VimeSessionHandle {
     /// which neither the keymap nor the tone-placement scheme takes part in.
     #[inline]
     pub(crate) fn is_valid_vietnamese(&mut self) -> bool {
-        self.session.is_valid()
+        self.session.is_phonotactically_valid()
     }
 
     /// A complete snapshot of everything a frontend needs for one repaint.
@@ -258,7 +258,7 @@ impl VimeSessionHandle {
             raw_cursor_char_idx: raw_cursor_chars,
             bytes_to_delete: self.delivered_bytes,
             chars_to_delete: self.delivered_chars,
-            is_valid_vietnamese: self.session.is_valid(),
+            is_valid_vietnamese: self.session.is_phonotactically_valid(),
         };
 
         // What the host is told to erase is the text it was last handed, so this
@@ -516,7 +516,7 @@ mod tests {
         let mut handle = session();
         type_text(&mut handle, "dduongf");
         assert_eq!(text_of(handle.render_text()), "đùong");
-        assert!(*handle.session.move_cursor_left().rendered());
+        assert!(*handle.session.move_cursor_left_by(1).rendered());
         assert_eq!(text_of(handle.render_text()), "đùong");
         assert_eq!(handle.cursor_char_idx(), 4);
         // 'đ' and 'ù' are two bytes each, so four characters in is six bytes.

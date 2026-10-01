@@ -1,8 +1,44 @@
 use crate::phonology::{BaseVowel, BaseVowelSlice, Coda, Onset, Vowel, NUCLEUS_MAX_LEN};
 use crate::util::vec::ArrayVec;
 
-pub type OnsetChars = ArrayVec<char, { Onset::MAX_LEN }>;
-pub type CodaChars = ArrayVec<char, { Coda::MAX_LEN }>;
+// ─────────────────────────── Transform ───────────────────────────
+
+/// Effect of applying a transform key (shape/tone mark) to the syllable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformTarget {
+    DStroke,
+    Nucleus(usize),
+    UoNucleus,
+    LazyTone,
+}
+
+/// Describes how the logical rendered buffer changed.
+///
+/// Indices address `onset ++ nucleus ++ coda`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditEffect {
+    StructurallyChanged,
+
+    // Usize here is the smallest index affected by the transform.
+    Transformed {
+        target: TransformTarget,
+        reverted: bool,
+    },
+}
+
+/// Effect of applying a transform key (shape/tone mark) to the syllable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TransformResult {
+    /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
+    Applied(TransformTarget),
+    /// Undid an existing mark back to base (e.g. `ă` + `w` -> `a`).
+    Reverted(TransformTarget),
+    /// The key cannot transform the current state; pass through as a literal char.
+    NotApplicable,
+}
+
+pub(super) type OnsetChars = ArrayVec<char, { Onset::MAX_LEN }>;
+pub(super) type CodaChars = ArrayVec<char, { Coda::MAX_LEN }>;
 
 /// A lightweight helper wrapper pairing toneless nucleus vowels with their cached state.
 ///
@@ -12,7 +48,7 @@ pub type CodaChars = ArrayVec<char, { Coda::MAX_LEN }>;
 ///
 /// The syllable's actual tone remains exclusively managed by `BuildingSyllable`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FlatNucleus {
+pub(super) struct FlatNucleus {
     vowels: ArrayVec<Vowel, NUCLEUS_MAX_LEN>,
 }
 

@@ -89,10 +89,10 @@ fn run_caret_edits(keymap: &DefaultKeymap<'static>) -> usize {
             let positions = if key == 'w' { 0..=len } else { 1..=len };
             for pos in positions {
                 for _ in 0..=len {
-                    composition.move_cursor_left();
+                    composition.move_cursor_left_by(1);
                 }
                 for _ in 0..pos {
-                    composition.move_cursor_right();
+                    composition.move_cursor_right_by(1);
                 }
                 black_box(composition.insert(keymap, TONE, key));
                 edits += 1;

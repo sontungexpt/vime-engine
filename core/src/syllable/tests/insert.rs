@@ -17,7 +17,7 @@
 //! * otherwise the cursor sits in the coda.
 //!
 //! Every case is a `base` push order plus one `(at, key)` insert, checked for
-//! the returned `InputEffect`/`SyllableBuildError` **and** the final syllable
+//! the returned `EditEffect`/`SyllableBuildError` **and** the final syllable
 //! (transform side-effects that survive an `Err` are asserted exactly).
 
 use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
@@ -25,7 +25,7 @@ use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone};
 use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::syllable::InputEffect;
+use crate::syllable::{EditEffect, TransformTarget};
 
 struct InsertCase {
     base: &'static [char],
@@ -41,7 +41,22 @@ macro_rules! ok_case {
             base: $base,
             at: $at,
             key: $key,
-            effect: Effect::Ok(InputEffect::$eff),
+            effect: Effect::Ok(EditEffect::$eff),
+            expected: $expected,
+        }
+    };
+    (
+        $base:expr,
+        $at:expr,
+        $key:expr,
+        $eff:ident { $($field:ident : $value:expr),+ $(,)? },
+        $expected:expr
+    ) => {
+        InsertCase {
+            base: $base,
+            at: $at,
+            key: $key,
+            effect: Effect::Ok(EditEffect::$eff { $($field: $value),+ }),
             expected: $expected,
         }
     };
@@ -65,7 +80,10 @@ const CASES: &[InsertCase] = &[
         &['a'],
         1,
         's',
-        Transformed,
+        Transformed {
+            target: TransformTarget::LazyTone,
+            reverted: false,
+        },
         ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Acute)
     ),
     ok_case!(
@@ -313,21 +331,30 @@ const CASES: &[InsertCase] = &[
         &['o', 'i'],
         1,
         'w',
-        Transformed,
+        Transformed {
+            target: TransformTarget::Nucleus(0),
+            reverted: false,
+        },
         ExpectedSyllable::vowel(&[(V::OHorn, C::Lower), (V::I, C::Lower)], Tone::Flat)
     ),
     ok_case!(
         &['o', 'i'],
         1,
         's',
-        Transformed,
+        Transformed {
+            target: TransformTarget::LazyTone,
+            reverted: false,
+        },
         ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::I, C::Lower)], Tone::Acute)
     ),
     ok_case!(
         &['u', 'o'],
         1,
         'w',
-        Transformed,
+        Transformed {
+            target: TransformTarget::Nucleus(1),
+            reverted: false,
+        },
         ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)
     ),
     // ─────────────────────────────── Error / dead ───────────────────────────────
@@ -433,14 +460,20 @@ const CASES: &[InsertCase] = &[
         &['u', 'o'],
         2,
         'w',
-        Transformed,
+        Transformed {
+            target: TransformTarget::Nucleus(1),
+            reverted: false,
+        },
         ExpectedSyllable::vowel(&[(V::U, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)
     ),
     ok_case!(
         &['u', 'ơ'],
         2,
         'w',
-        Transformed,
+        Transformed {
+            target: TransformTarget::Nucleus(0),
+            reverted: false,
+        },
         ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)
     ),
     // ────────────────────── Mid-nucleus insert near a coda ──────────────────────
@@ -504,7 +537,10 @@ const CASES: &[InsertCase] = &[
         &['d', 'a'],
         0,
         'd',
-        Transformed,
+        Transformed {
+            target: TransformTarget::DStroke,
+            reverted: false,
+        },
         ExpectedSyllable::onset_vowel(Onset::DStroke, &['đ'], &[(V::A, C::Lower)], Tone::Flat)
     ),
     // Coda growth through append: `ac` + `h@2` → `ach`.

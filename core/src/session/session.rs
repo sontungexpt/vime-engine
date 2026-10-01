@@ -259,8 +259,8 @@ where
     /// for what "valid" means here; in short, a building syllable with a nucleus
     /// that the phonotactic rules accept.
     #[inline(always)]
-    pub fn is_valid(&self) -> bool {
-        self.composition.is_valid()
+    pub fn is_phonotactically_valid(&self) -> bool {
+        self.composition.is_phonotactically_valid()
     }
 
     // ------------------------------------------------------------- editing
@@ -296,16 +296,6 @@ where
             self.active_config.keymap(),
             self.active_config.tone_placement(),
         )
-    }
-
-    #[inline(always)]
-    pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        self.composition.move_cursor_left()
-    }
-
-    #[inline(always)]
-    pub fn move_cursor_right(&mut self) -> Parallel<bool> {
-        self.composition.move_cursor_right()
     }
 
     #[inline(always)]

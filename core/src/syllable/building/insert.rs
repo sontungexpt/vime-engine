@@ -8,7 +8,7 @@ use super::*;
 use crate::{
     keymap::Keymap,
     phonology::{BaseVowel, Onset, Tone, Vowel, NUCLEUS_MAX_LEN},
-    syllable::InputEffect,
+    syllable::EditEffect,
 };
 
 impl BuildingSyllable {
@@ -19,7 +19,7 @@ impl BuildingSyllable {
         keymap: &KM,
         index: usize,
         key: char,
-    ) -> Result<InputEffect, SyllableBuildError> {
+    ) -> Result<EditEffect, SyllableBuildError> {
         let onset_len = self.onset.len();
         let vowels_len = self.nucleus.len();
         // Absolute indices at the boundaries between syllable parts.
@@ -38,15 +38,30 @@ impl BuildingSyllable {
 
         // ─────────────────────────── Onset ───────────────────────────
 
+        let mut effect = EditEffect::StructurallyChanged;
         if index <= onset_len {
             // Give the d/đ stroke transform priority over literal insertion.
-            if self.try_toggle_d_stroke(keymap, key) == TransformResult::Applied {
-                return Ok(InputEffect::Transformed);
+            match self.try_toggle_d_stroke(keymap, key) {
+                TransformResult::Applied(target) => {
+                    return Ok(EditEffect::Transformed {
+                        target: target,
+                        reverted: false,
+                    });
+                }
+
+                TransformResult::Reverted(target) => {
+                    effect = EditEffect::Transformed {
+                        target: target,
+                        reverted: true,
+                    };
+                }
+
+                TransformResult::NotApplicable => {}
             }
 
             // Try the key as an onset character first.
             if self.insert_onset(index, key) {
-                return Ok(InputEffect::StructurallyChanged);
+                return Ok(effect);
             }
 
             // Only the position after the onset can start the nucleus.
@@ -56,7 +71,7 @@ impl BuildingSyllable {
 
             if let Some(vowel) = Vowel::from_char(key) {
                 if self.insert_vowel(0, vowel) {
-                    return Ok(InputEffect::StructurallyChanged);
+                    return Ok(effect);
                 }
                 return Err(SyllableBuildError::InvalidNucleus);
             }
@@ -70,13 +85,25 @@ impl BuildingSyllable {
             let vowel_index = index - onset_len;
 
             // At a vowel position, try transforms before literal insertion.
-            if self.try_transform(keymap, key, Some(vowel_index)) == TransformResult::Applied {
-                return Ok(InputEffect::Transformed);
+            match self.try_transform(keymap, key, Some(vowel_index)) {
+                TransformResult::Applied(target) => {
+                    return Ok(EditEffect::Transformed {
+                        target: target,
+                        reverted: false,
+                    });
+                }
+                TransformResult::Reverted(target) => {
+                    effect = EditEffect::Transformed {
+                        target: target,
+                        reverted: true,
+                    };
+                }
+                TransformResult::NotApplicable => {}
             }
 
             if let Some(decoded) = Vowel::from_char(key) {
                 if self.insert_vowel(vowel_index, decoded) {
-                    return Ok(InputEffect::StructurallyChanged);
+                    return Ok(effect);
                 }
                 return Err(SyllableBuildError::InvalidNucleus);
             }
@@ -88,21 +115,33 @@ impl BuildingSyllable {
 
             if self.insert_coda(0, key) {
                 self.normalize_uo_horn();
-                return Ok(InputEffect::StructurallyChanged);
+                return Ok(effect);
             }
             return Err(SyllableBuildError::InvalidCoda);
         }
 
         // ─────────────────────────── Coda ───────────────────────────
 
-        if self.try_transform(keymap, key, None) == TransformResult::Applied {
-            return Ok(InputEffect::Transformed);
+        match self.try_transform(keymap, key, None) {
+            TransformResult::Applied(target) => {
+                return Ok(EditEffect::Transformed {
+                    target: target,
+                    reverted: false,
+                });
+            }
+            TransformResult::Reverted(target) => {
+                effect = EditEffect::Transformed {
+                    target: target,
+                    reverted: true,
+                };
+            }
+            TransformResult::NotApplicable => {}
         }
 
         let coda_index = index - vowel_boundary;
 
         if self.insert_coda(coda_index, key) {
-            return Ok(InputEffect::StructurallyChanged);
+            return Ok(effect);
         }
 
         Err(SyllableBuildError::InvalidCoda)

@@ -5,7 +5,7 @@ pub use cursor::Cursor;
 use crate::{
     keymap::Keymap,
     phonology::TonePlacement,
-    syllable::{InputEffect, Syllable, SyllableChars},
+    syllable::{EditEffect, Syllable, SyllableChars},
     util::vec::SmallVec,
 };
 
@@ -132,32 +132,6 @@ impl Composition {
         }
     }
 
-    /// Moves both cursors one position to the left.
-    ///
-    /// Each cursor is clamped independently at position 0 because the raw and
-    /// parsed buffers may have different lengths.
-    /// Returns `true` if the parsed cursor moved.
-    #[inline]
-    pub fn move_cursor_left(&mut self) -> Parallel<bool> {
-        // `raw_cursor` is always true if `rendered_cursor` is, so no check needed
-        Parallel {
-            rendered: self.rendered_cursor.move_left(),
-            raw: self.raw_cursor.move_left(),
-        }
-    }
-
-    /// Moves both cursors one position to the right.
-    ///
-    /// Each cursor is bounded by its own buffer length because raw and parsed
-    /// positions are not necessarily one-to-one.
-    #[inline]
-    pub fn move_cursor_right(&mut self) -> Parallel<bool> {
-        Parallel {
-            rendered: self.rendered_cursor.move_right(self.rendered.len()),
-            raw: self.raw_cursor.move_right(self.raw.len()),
-        }
-    }
-
     /// Moves both cursors up to `by` positions left, clamping each at the start.
     ///
     /// Raw and parsed positions are not one-to-one, so one cursor can reach its
@@ -202,7 +176,7 @@ impl Composition {
             .rendered
             .insert(keymap, tone_placement, self.rendered_cursor.get(), input)
         {
-            InputEffect::StructurallyChanged => {
+            EditEffect::StructurallyChanged => {
                 // SAFETY: a structural insertion increases the parsed buffer
                 // length by one, making the next cursor position valid. A
                 // transformed key consumes the input without lengthening the
@@ -211,7 +185,7 @@ impl Composition {
                     self.rendered_cursor.move_right_unchecked_by(1);
                 }
             }
-            InputEffect::Transformed => {}
+            _ => {} // EditEffect::Transformed => {}
         }
     }
 
@@ -302,8 +276,8 @@ impl Composition {
     ///
     /// See [`Syllable::is_valid`] for what "valid" means.
     #[inline]
-    pub fn is_valid(&self) -> bool {
-        self.rendered.is_valid()
+    pub fn is_phonotactically_valid(&self) -> bool {
+        self.rendered.is_phonotactically_valid()
     }
 
     // ----------------------------------------------------------- rendering

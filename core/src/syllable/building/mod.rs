@@ -13,8 +13,8 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        BaseVowel, Coda, NucleusState, NucleusStateResolver, Onset, PhonotacticError,
-        PhonotacticValidator, RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
+        validate_phonotactics, BaseVowel, Coda, NucleusState, NucleusStateResolver, Onset,
+        RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
     },
 };
 
@@ -26,9 +26,10 @@ mod push;
 mod remove;
 mod types;
 
-pub use error::SyllableBuildError;
-
 use types::*;
+
+pub use error::SyllableBuildError;
+pub use types::{EditEffect, TransformTarget};
 
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -43,17 +44,6 @@ pub struct BuildingSyllable {
     coda: CodaChars,
 
     tone: Tone,
-}
-
-/// Effect of applying a transform key (shape/tone mark) to the syllable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TransformResult {
-    /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
-    Applied,
-    /// Undid an existing mark back to base (e.g. `ă` + `w` -> `a`).
-    Reverted,
-    /// The key cannot transform the current state; pass through as a literal char.
-    NotApplicable,
 }
 
 #[inline(always)]
@@ -252,20 +242,18 @@ impl BuildingSyllable {
     /// An incomplete nucleus fails before the validator is consulted, so a
     /// half-typed syllable never reaches a phonotactic rule.
     #[allow(dead_code)]
-    pub fn validate<V>(&self, validator: V) -> Result<(), PhonotacticError>
-    where
-        V: PhonotacticValidator,
-    {
+    pub fn is_phonotactically_valid(&self) -> bool {
         if self.nucleus_state.is_incomplete() {
-            return Err(PhonotacticError::IncompleteNucleus);
+            return false;
         }
-        validator.validate(self.onset_kind, &self.nucleus, self.coda_kind, self.tone)
+
+        validate_phonotactics(self.onset_kind, &self.nucleus, self.tone, self.coda_kind).is_ok()
     }
 
     /// Mutates the onset; updates `onset_kind` on success, otherwise undoes
     /// the change with the undo data.
     #[inline(always)]
-    pub fn try_update_onset<F, R, T>(&mut self, update: F, rollback: R) -> bool
+    fn try_update_onset<F, R, T>(&mut self, update: F, rollback: R) -> bool
     where
         F: FnOnce(&mut OnsetChars) -> T,
         R: FnOnce(&mut OnsetChars, T),
@@ -295,7 +283,7 @@ impl BuildingSyllable {
     /// there is what keeps this function a single validation instead of a
     /// mutation plus a sweep of the whole nucleus on every keystroke.
     #[inline(always)]
-    pub fn try_update_nucleus<F, R, T>(&mut self, update: F, rollback: R) -> bool
+    fn try_update_nucleus<F, R, T>(&mut self, update: F, rollback: R) -> bool
     where
         F: FnOnce(&mut FlatNucleus) -> T,
         R: FnOnce(&mut FlatNucleus, T),
@@ -323,7 +311,7 @@ impl BuildingSyllable {
     /// Mutates the coda; updates `coda_kind` on success, otherwise undoes the
     /// change with the undo data.
     #[inline(always)]
-    pub fn try_update_coda<F, R, T>(&mut self, update: F, rollback: R) -> bool
+    fn try_update_coda<F, R, T>(&mut self, update: F, rollback: R) -> bool
     where
         F: FnOnce(&mut CodaChars) -> T,
         R: FnOnce(&mut CodaChars, T),
@@ -506,7 +494,7 @@ impl BuildingSyllable {
                 );
                 self.onset[0] = if self.onset[0] == 'd' { 'đ' } else { 'Đ' };
                 self.onset_kind = Onset::DStroke;
-                TransformResult::Applied
+                TransformResult::Applied(TransformTarget::DStroke)
             }
             Onset::DStroke => {
                 debug_assert!(
@@ -517,7 +505,7 @@ impl BuildingSyllable {
 
                 self.onset[0] = if self.onset[0] == 'đ' { 'd' } else { 'D' };
                 self.onset_kind = Onset::D;
-                TransformResult::Reverted
+                TransformResult::Reverted(TransformTarget::DStroke)
             }
             _ => TransformResult::NotApplicable,
         }
@@ -534,11 +522,11 @@ impl BuildingSyllable {
         }
         if self.tone == tone {
             self.tone = Tone::Flat;
-            return TransformResult::Reverted;
+            return TransformResult::Reverted(TransformTarget::LazyTone);
         }
 
         self.tone = tone;
-        TransformResult::Applied
+        TransformResult::Applied(TransformTarget::LazyTone)
     }
 
     /// Applies `shape` to the vowel at `index`, re-validating the nucleus.
@@ -557,7 +545,7 @@ impl BuildingSyllable {
         // Shape already present -> revert to base.
         if old.is_shape(shape) && shape.is_some() {
             self.nucleus[vowel_index].set_base(old.remove_shape());
-            return TransformResult::Reverted;
+            return TransformResult::Reverted(TransformTarget::Nucleus(vowel_index));
         }
 
         // Try applying the new shape.
@@ -573,7 +561,7 @@ impl BuildingSyllable {
                 nucleus[vowel_index].set_base(old);
             },
         ) {
-            return TransformResult::Applied;
+            return TransformResult::Applied(TransformTarget::Nucleus(vowel_index));
         }
 
         TransformResult::NotApplicable
@@ -592,7 +580,7 @@ impl BuildingSyllable {
                 (UHorn, OHorn) => {
                     self.nucleus[0].set_base(U);
                     self.nucleus[1].set_base(O);
-                    TransformResult::Reverted
+                    TransformResult::Reverted(TransformTarget::UoNucleus)
                 }
 
                 // uơ -> Horn index 0 (becomes ươ).
@@ -608,7 +596,7 @@ impl BuildingSyllable {
                 // uô -> uo (revert).
                 (U, OCircumflex) => {
                     self.nucleus[1].set_base(BaseVowel::O);
-                    TransformResult::Reverted
+                    TransformResult::Reverted(TransformTarget::Nucleus(1))
                 }
 
                 // uo, uơ -> uô (Circumflex on index 1).
@@ -628,7 +616,7 @@ impl BuildingSyllable {
                             nucleus[1].set_base(old_o);
                         },
                     ) {
-                        return TransformResult::Applied;
+                        return TransformResult::Applied(TransformTarget::UoNucleus);
                     }
 
                     return TransformResult::NotApplicable;

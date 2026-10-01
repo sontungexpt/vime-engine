@@ -132,6 +132,11 @@ pub enum BaseVowelId {
 impl BaseVowelId {
     pub const COUNT: usize = 12;
 
+    #[inline(always)]
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
+
     /// Converts a raw `u8` ID into `Self` without performing boundary checks.
     ///
     /// # Safety

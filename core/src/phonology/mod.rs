@@ -17,5 +17,5 @@ pub use vowel::{
 };
 
 pub use onset::{Onset, OnsetParseError};
-pub use phonotactics::{DefaultPhonotacticValidator, PhonotacticError, PhonotacticValidator};
+pub use phonotactics::{validate_phonotactics, PhonotacticError};
 pub use tone_placement::TonePlacement;

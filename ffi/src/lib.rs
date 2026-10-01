@@ -422,7 +422,7 @@ pub unsafe extern "C" fn vime_session_delete(session: *mut VimeSessionHandle) ->
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_move_cursor_left(session: *mut VimeSessionHandle) -> bool {
     with_session(session, false, |handle| {
-        let moved = handle.session.move_cursor_left();
+        let moved = handle.session.move_cursor_left_by(1);
         *moved.rendered()
     })
 }
@@ -439,7 +439,7 @@ pub unsafe extern "C" fn vime_session_move_cursor_left(session: *mut VimeSession
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_move_cursor_right(session: *mut VimeSessionHandle) -> bool {
     with_session(session, false, |handle| {
-        let moved = handle.session.move_cursor_right();
+        let moved = handle.session.move_cursor_right_by(1);
         *moved.rendered()
     })
 }

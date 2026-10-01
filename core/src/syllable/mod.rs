@@ -8,26 +8,13 @@ use crate::{
     util::vec::SmallVec,
 };
 
-// The two phases are local to this module: `Syllable` is the only way in, and
-// nothing outside `syllable` names `BuildingSyllable` or `DeadSyllable`.
 use building::BuildingSyllable;
 use dead::DeadSyllable;
 
+pub use building::{EditEffect, SyllableBuildError, TransformTarget};
+
 #[cfg(test)]
 mod tests;
-
-/// What one keystroke did to the parsed syllable.
-///
-/// Returned by every editing operation, because a frontend has to know whether
-/// to advance its own caret: a transform consumes the key without lengthening
-/// the word, a structural change adds or removes a character.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputEffect {
-    /// Mutated an existing character into a marked form (e.g. `a` + `w` -> `ă`).
-    Transformed,
-    /// Changed the buffer structure (inserted a new character or removed one).
-    StructurallyChanged,
-}
 
 /// A syllable's rendered characters — the form presented to the user — as a
 /// [`VecLike`] container.
@@ -124,13 +111,9 @@ impl Syllable {
     /// consulting it — so it answers "may this edit stand?", not "is this word
     /// finished?".
     #[inline]
-    pub fn is_valid(&self) -> bool {
-        use crate::phonology::DefaultPhonotacticValidator;
-
+    pub fn is_phonotactically_valid(&self) -> bool {
         match &self.phase {
-            Phase::Building(builder) => builder
-                .validate(DefaultPhonotacticValidator::default())
-                .is_ok(),
+            Phase::Building(builder) => builder.is_phonotactically_valid(),
             Phase::Dead(_) => false,
         }
     }
@@ -247,11 +230,11 @@ impl Syllable {
         keymap: &KM,
         tone_placement: TonePlacement,
         input: char,
-    ) -> InputEffect {
+    ) -> EditEffect {
         match &mut self.phase {
             Phase::Dead(builder) => {
                 builder.push(input);
-                InputEffect::StructurallyChanged
+                EditEffect::StructurallyChanged
             }
             Phase::Building(builder) => match builder.push(keymap, input) {
                 Ok(effect) => effect,
@@ -260,7 +243,7 @@ impl Syllable {
                     let mut dead = DeadSyllable::from_accepted(&chars);
                     dead.push(input);
                     self.phase = Phase::Dead(dead);
-                    InputEffect::StructurallyChanged
+                    EditEffect::StructurallyChanged
                 }
             },
         }
@@ -275,11 +258,11 @@ impl Syllable {
         tone_placement: TonePlacement,
         index: usize,
         input: char,
-    ) -> InputEffect {
+    ) -> EditEffect {
         match &mut self.phase {
             Phase::Dead(builder) => {
                 builder.insert(index, input);
-                InputEffect::StructurallyChanged
+                EditEffect::StructurallyChanged
             }
             Phase::Building(builder) => match builder.insert(keymap, index, input) {
                 Ok(effect) => effect,
@@ -288,7 +271,7 @@ impl Syllable {
                     let mut dead = DeadSyllable::from_accepted(&chars);
                     dead.insert(index, input);
                     self.phase = Phase::Dead(dead);
-                    InputEffect::StructurallyChanged
+                    EditEffect::StructurallyChanged
                 }
             },
         }
@@ -306,7 +289,7 @@ impl Syllable {
         keymap: &KM,
         tone_placement: TonePlacement,
         index: usize,
-    ) -> InputEffect {
+    ) -> EditEffect {
         match &mut self.phase {
             Phase::Dead(builder) => {
                 builder.remove(index);
@@ -314,17 +297,17 @@ impl Syllable {
                     let mut building = BuildingSyllable::default();
                     for ch in builder.iter_chars() {
                         if building.push(keymap, ch).is_err() {
-                            return InputEffect::StructurallyChanged;
+                            return EditEffect::StructurallyChanged;
                         }
                     }
                     // Every character parsed cleanly: resume building.
                     self.phase = Phase::Building(building);
                 }
-                InputEffect::StructurallyChanged
+                EditEffect::StructurallyChanged
             }
             Phase::Building(builder) => match builder.remove(index, tone_placement) {
                 Ok(effect) => effect,
-                Err(_) => InputEffect::StructurallyChanged,
+                Err(_) => EditEffect::StructurallyChanged,
             },
         }
     }

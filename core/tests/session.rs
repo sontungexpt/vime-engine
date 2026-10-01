@@ -245,7 +245,7 @@ fn validity_answers_whether_the_buffer_is_a_word() {
     let verdict = |session: &mut TelexSession, word: &str| {
         session.reset();
         type_str(session, word);
-        session.is_valid()
+        session.is_phonotactically_valid()
     };
 
     assert!(!verdict(&mut session, ""), "nothing typed");

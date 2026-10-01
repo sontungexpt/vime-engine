@@ -1,400 +1,434 @@
-//! Chính tả (spelling) validation: kiểm tra sự kết hợp hợp lệ của các thành phần
-//! trong vần tiếng Việt — phụ âm đầu (onset), nguyên âm (nucleus), phụ âm cuối
-//! (coda) và thanh điệu (tone).
+//! Vietnamese phonotactic validation.
 //!
-//! # Cơ chế Tối ưu bằng Bitmask:
-//! Thay vì giải mã các enum `RootVowel`, `Shape` hoặc gọi hàm so sánh runtime,
-//! toàn bộ thuộc tính âm vị học được mã hóa thành các cờ bit trong `PhonotacticFlags`.
+//! A Vietnamese syllable is built from four parts, and this module answers one
+//! question: can these four appear together?
 //!
-//! Khi kiểm tra quy tắc chính tả, validator chỉ thực hiện các phép toán bitwise (`&`, `|`)
-//! giúp CPU thực thi không rẽ nhánh (branchless execution) và hoàn toàn tương thích `const fn`.
+//! ```text
+//! onset + nucleus + coda + tone
+//!  kh     oa       ng     huyền
+//! ```
+//!
+//! Nearly every rule has the same shape — *"is this onset one of these?"*,
+//! *"is this vowel one of those?"*. Such questions are written as **membership
+//! tests against a bitmask**. Each phonology enum is `#[repr(u8)]` with dense
+//! IDs, so one item becomes one bit:
+//!
+//! ```text
+//! vowel_bit(I)  ==  1 << 2  ==  0b0000_0100
+//! ```
+//!
+//! A set of items is several bits joined with `|`; a value belongs to the set
+//! when `value_bit & set != 0`. With only 12 vowels, 28 onsets and 9 codas the
+//! masks are 16, 32 and 16 bits wide — small enough that the compiler turns them
+//! into single register operations.
+//!
+//! A mask records *which* items are present, never *what order* they are in.
+//! The few rules that care about order (`qu` + `u`, a vowel before `ng`)
+//! therefore read the first or last vowel directly instead of going through a
+//! mask.
+//!
+//! `Onset::None` and `Coda::None` are ID `0`, so their bit is bit `0` too. No
+//! rule mask includes it, and "no onset" / "no coda" is asked with `is_none()`.
 
-use super::{BaseVowel, BaseVowelSlice, Coda, Onset, Tone};
+use crate::phonology::{BaseVowelId, BaseVowelSlice, Coda, Onset, Tone};
 
-/// Bitmask mã hóa các thuộc tính ÂM VỊ HỌC (phonotactic attributes) của vần.
+type VowelMask = u16;
+type OnsetMask = u32;
+type CodaMask = u16;
+
+// `BaseVowelSlice` comes from the phonology/composition layer and is
+// intentionally not redefined here.
+
+// ============================================================================
+// Bit helpers
+// ============================================================================
+
+/// One item, as one bit. See the module docs for why.
+#[inline(always)]
+const fn vowel_bit(vowel: BaseVowelId) -> VowelMask {
+    1u16 << vowel.id()
+}
+
+/// One onset, as one bit.
+#[inline(always)]
+const fn onset_bit(onset: Onset) -> OnsetMask {
+    1u32 << onset.id()
+}
+
+/// One coda, as one bit.
+#[inline(always)]
+const fn coda_bit(coda: Coda) -> CodaMask {
+    1u16 << coda.id()
+}
+
+// ============================================================================
+// Vowel sets
+// ============================================================================
+//
+// Each constant below is a *set*: "any of these vowels". They are named after
+// the rule that uses them rather than after the letters, so a rule and its set
+// read together.
+
+// ============================================================================
+// Onset sets
+// ============================================================================
+
+// ============================================================================
+// Coda sets
+// ============================================================================
+
+/// Vowels counted as "front": `i`, `e`, `ê`, `y`.
 ///
-/// Định dạng: 16-bit integer (u16)
-/// - Bits 0..5  : Dành cho Nguyên âm (Vowel/Nucleus properties)
-/// - Bits 6..8  : Dành cho Phụ âm đầu (Onset constraints)
-/// - Bits 9..10 : Dành cho Phụ âm cuối (Coda constraints)
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct PhonotacticFlags(u16);
+/// Used by the two onset rules below, which are really one statement and its
+/// opposite — the same set, required by some onsets and banned by others.
+pub const FRONT_VOWELS: VowelMask = vowel_bit(BaseVowelId::I)
+    | vowel_bit(BaseVowelId::E)
+    | vowel_bit(BaseVowelId::ECircumflex)
+    | vowel_bit(BaseVowelId::Y);
 
-impl PhonotacticFlags {
-    // ─────────────── Bitmask Nguyên âm (Nucleus / Vowel Flags: Bits 0..5) ───────────────
+/// Vowels allowed right before a palatal coda (`ch`, `nh`): `i`, `e`, `ê`,
+/// `y`, `a`.
+///
+/// So `lịch` and `kính` are fine, but `o` + `ch` is not.
+pub const PALATAL_CODA_VOWELS: VowelMask = vowel_bit(BaseVowelId::I)
+    | vowel_bit(BaseVowelId::E)
+    | vowel_bit(BaseVowelId::ECircumflex)
+    | vowel_bit(BaseVowelId::Y)
+    | vowel_bit(BaseVowelId::A);
 
-    /// Nguyên âm hàng trước (Front Vowels): `i`, `y`, `e`, `ê`.
-    /// Chi phối luật kết hợp với các phụ âm đầu như `k/gh/ngh` và `c/g/ng`.
-    pub const VOWEL_FRONT: Self = Self(1 << 0);
+/// Vowels that cannot sit directly before `ch`: `u`, `ư`.
+///
+/// See [`PhonotacticError::RoundedVowelBeforeCh`] — currently unreachable,
+/// because the palatal set above already excludes both of them.
+pub const ROUNDED_BEFORE_CH: VowelMask = vowel_bit(BaseVowelId::U) | vowel_bit(BaseVowelId::UHorn);
 
-    /// Nguyên âm ngắn (Short Vowels): `ă`, `â`.
-    /// Bắt buộc phải có âm đóng (phụ âm cuối) đi kèm, không được đứng mở ở cuối vần.
-    pub const VOWEL_SHORT: Self = Self(1 << 1);
+/// `ơ`, used as the whole nucleus — see
+/// [`PhonotacticError::OpenVowelCodaMismatch`].
+pub const BARE_OPEN_VOWEL: VowelMask = vowel_bit(BaseVowelId::OHorn);
 
-    /// Nguyên âm cho phép phụ âm ngạc đi kèm: `i`, `y`, `e`, `ê`, `a`.
-    /// Dùng để kiểm tra luật phụ âm cuối ngạc (`ch`, `nh`).
-    pub const VOWEL_ALLOWS_PALATAL: Self = Self(1 << 2);
+// ============================================================================
+// Onset sets
+// ============================================================================
 
-    /// Nguyên âm `u`.
-    /// Dùng để cấm tổ hợp viết thừa âm đệm như `quu` (khi đã có `Qu`).
-    pub const VOWEL_U: Self = Self(1 << 3);
+/// Onsets that demand a front vowel next: `k`, `gh`, `ngh`.
+///
+/// Not `kh`. That spelling takes an ordinary vowel, which is why `kho`, `khoa`
+/// and `khúc` are ordinary words while `ka` and `ko` are not.
+pub const FRONT_REQUIRED_ONSETS: OnsetMask =
+    onset_bit(Onset::K) | onset_bit(Onset::Gh) | onset_bit(Onset::Ngh);
 
-    /// Nguyên âm tròn môi (Round Vowels): `u`, `o`, `ô`.
-    pub const VOWEL_ROUND: Self = Self(1 << 4);
+/// Onsets that refuse a front vowel next: `c`, `g`, `ng`.
+///
+/// The mirror of [`FRONT_REQUIRED_ONSETS`], and it only bites when the front
+/// vowel is the *first* one — `cái` is a word, because the `i` comes second.
+pub const FRONT_FORBIDDEN_ONSETS: OnsetMask =
+    onset_bit(Onset::C) | onset_bit(Onset::G) | onset_bit(Onset::Ng);
 
-    /// Dòng nguyên âm `a` (bao gồm cả `a` thường, `ă`, `â`).
-    pub const VOWEL_A: Self = Self(1 << 5);
+// ============================================================================
+// Coda sets
+// ============================================================================
 
-    // ─────────────── Bitmask Phụ âm đầu (Onset Flags: Bits 6..8) ───────────────
+/// Codas allowed after `ă`: `c`, `ch`, `m`, `n`, `ng` — as in `căn`, `lắm`,
+/// `mặt`, `ăn`, `ngăn`.
+pub const A_BREVE_CODAS: CodaMask = coda_bit(Coda::C)
+    | coda_bit(Coda::Ch)
+    | coda_bit(Coda::M)
+    | coda_bit(Coda::N)
+    | coda_bit(Coda::Ng);
 
-    /// Phụ âm đầu BẮT BUỘC đi với nguyên âm hàng trước `i, e, ê, y` (gồm: `k`, `gh`, `ngh`).
-    pub const ONSET_REQUIRES_FRONT: Self = Self(1 << 6);
+/// Codas allowed after `â`: `c`, `m`, `n`, `ng`, `nh`, `p`, `t` — as in `cấp`,
+/// `ấm`, `ân`, `tất`, `bệnh`.
+///
+/// Wider than [`A_BREVE_CODAS`] in `p`/`t`/`nh`, narrower in `ch`.
+pub const A_CIRCUMFLEX_CODAS: CodaMask = coda_bit(Coda::C)
+    | coda_bit(Coda::M)
+    | coda_bit(Coda::N)
+    | coda_bit(Coda::Ng)
+    | coda_bit(Coda::Nh)
+    | coda_bit(Coda::P)
+    | coda_bit(Coda::T);
 
-    /// Phụ âm đầu CẤM đi với nguyên âm hàng trước `i, e, ê, y` (gồm: `c`, `g`, `ng`).
-    pub const ONSET_FORBIDS_FRONT: Self = Self(1 << 7);
+/// Codas that are also vowel constraints: `ch`, `nh`.
+///
+/// These are the palatals — they need a matching vowel in front.
+pub const PALATAL_CODAS: CodaMask = coda_bit(Coda::Ch) | coda_bit(Coda::Nh);
 
-    /// Phụ âm đầu có âm đệm môi `Qu`: cấm nguyên âm theo sau là `u`.
-    pub const ONSET_LABIOVELAR: Self = Self(1 << 8);
+/// Codas that "close" the mouth, so the tone is limited: `p`, `t`, `c`, `ch`.
+///
+/// These take sắc or nặng only, which is why `học` and `lớp` are fine but
+/// `hoc` without a tone is not.
+pub const TONE_RESTRICTED_CODAS: CodaMask =
+    coda_bit(Coda::P) | coda_bit(Coda::T) | coda_bit(Coda::C) | coda_bit(Coda::Ch);
 
-    /// `gi` cannot be followed by vowel `i`.
-    pub const ONSET_GI: Self = Self(1 << 9);
+// ============================================================================
+// Errors
+// ============================================================================
 
-    // ─────────────── Bitmask Phụ âm cuối (Coda Flags: Bits 10..11) ───────────────
-
-    /// Phụ âm cuối TẮC (Stop Codas): `p`, `t`, `c`, `ch`.
-    /// Buộc vần phải mang thanh Sắc (`Acute`) hoặc Nặng (`Dot`) (thanh nhập).
-    pub const CODA_ENTERING: Self = Self(1 << 10);
-
-    /// Phụ âm cuối NGẠC (Palatal Codas): `ch`, `nh`.
-    /// Chỉ được đứng sau các nguyên âm thuộc tập `VOWEL_ALLOWS_PALATAL`.
-    pub const CODA_PALATAL: Self = Self(1 << 11);
-
-    // ─────────────── Helper Methods cho Bitwise Operations ───────────────
-
-    /// Tạo cờ rỗng (tất cả các bit đều bằng 0).
-    #[inline(always)]
-    pub const fn empty() -> Self {
-        Self(0)
-    }
-
-    /// Lấy giá trị nguyên `u16` thô đại diện cho cờ.
-    #[inline(always)]
-    pub const fn bits(self) -> u16 {
-        self.0
-    }
-
-    /// Khởi tạo cờ từ giá trị `u16` thô.
-    #[inline(always)]
-    pub const fn from_bits_truncate(bits: u16) -> Self {
-        Self(bits)
-    }
-
-    /// Kiểm tra xem `self` có chứa TOÀN BỘ các bit của `other` hay không.
-    #[inline(always)]
-    pub const fn contains(self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
-    }
-
-    /// Kiểm tra xem `self` và `other` có CHUNG ÍT NHẤT MỘT bit nào không.
-    #[inline(always)]
-    pub const fn intersects(self, other: Self) -> bool {
-        (self.0 & other.0) != 0
-    }
-
-    /// Kiểm tra cờ có bằng 0 hay không.
-    #[inline(always)]
-    pub const fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Hợp (OR) hai tập cờ lại với nhau.
-    #[inline(always)]
-    pub const fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-}
-
-impl std::ops::BitOr for PhonotacticFlags {
-    type Output = Self;
-
-    #[inline(always)]
-    fn bitor(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-}
-
-impl std::ops::BitOrAssign for PhonotacticFlags {
-    #[inline(always)]
-    fn bitor_assign(&mut self, other: Self) {
-        self.0 |= other.0;
-    }
-}
-
-impl Onset {
-    /// Ánh xạ Phụ âm đầu sang Bitmask ràng buộc chính tả.
-    #[inline(always)]
-    pub const fn phonotactic_flags(self) -> PhonotacticFlags {
-        match self {
-            // k, gh, ngh -> Bắt buộc đi với i, e, ê, y
-            Self::K | Self::Gh | Self::Ngh => PhonotacticFlags::ONSET_REQUIRES_FRONT,
-            // c, g, ng -> Tuyệt đối cấm đi với i, e, ê, y
-            Self::C | Self::G | Self::Ng => PhonotacticFlags::ONSET_FORBIDS_FRONT,
-            // qu -> Cấm nguyên âm u đi ngay sau
-            Self::Qu => PhonotacticFlags::ONSET_LABIOVELAR,
-
-            Self::Gi => PhonotacticFlags::ONSET_GI,
-
-            // Các phụ âm đầu khác không có quy tắc ràng buộc đặc biệt
-            _ => PhonotacticFlags::empty(),
-        }
-    }
-}
-
-impl Coda {
-    /// Ánh xạ Phụ âm cuối sang Bitmask ràng buộc chính tả.
-    #[inline(always)]
-    pub const fn phonotactic_flags(self) -> PhonotacticFlags {
-        match self {
-            // p, t, c -> Âm tắc thuần túy (yêu cầu thanh Sắc / Nặng)
-            Self::P | Self::T | Self::C => PhonotacticFlags::CODA_ENTERING,
-            // ch -> Vừa là âm tắc, vừa là âm ngạc
-            Self::Ch => PhonotacticFlags::CODA_ENTERING.union(PhonotacticFlags::CODA_PALATAL),
-            // nh -> Âm ngạc thuần túy
-            Self::Nh => PhonotacticFlags::CODA_PALATAL,
-            // Không có phụ âm cuối hoặc các phụ âm khác (m, n, ng...)
-            _ => PhonotacticFlags::empty(),
-        }
-    }
-}
-
-impl Tone {
-    /// Kiểm tra thanh điệu có phải là thanh Nhập (Sắc/Nặng) hay không.
-    ///
-    /// Trong tiếng Việt, các từ có phụ âm cuối tắc (p, t, c, ch) chỉ chấp nhận thanh Sắc hoặc Nặng.
-    #[inline(always)]
-    pub const fn allows_entering_coda(self) -> bool {
-        matches!(self, Self::Acute | Self::Dot)
-    }
-}
-
-impl BaseVowel {
-    /// Ánh xạ Nguyên âm đơn sang Bitmask thuộc tính tổng hợp.
-    ///
-    /// Dùng `union` (const fn) để gộp cờ trực tiếp mà không cần truy cập trường `.0`.
-    #[inline(always)]
-    pub const fn phonotactic_flags(self) -> PhonotacticFlags {
-        match self {
-            // i, e, ê, y -> Nguyên âm hàng trước & Cho phép đứng trước ch/nh
-            Self::I | Self::E | Self::ECircumflex | Self::Y => {
-                PhonotacticFlags::VOWEL_FRONT.union(PhonotacticFlags::VOWEL_ALLOWS_PALATAL)
-            }
-            // a -> Thuộc dòng 'a' & Cho phép đứng trước ch/nh
-            Self::A => PhonotacticFlags::VOWEL_A.union(PhonotacticFlags::VOWEL_ALLOWS_PALATAL),
-            // ă, â -> Thuộc dòng 'a' & Nguyên âm ngắn (cần âm đóng)
-            Self::ABreve | Self::ACircumflex => {
-                PhonotacticFlags::VOWEL_A.union(PhonotacticFlags::VOWEL_SHORT)
-            }
-            // u -> Tròn môi & Cấm đi ngay sau Qu
-            Self::U => PhonotacticFlags::VOWEL_ROUND.union(PhonotacticFlags::VOWEL_U),
-            // o, ô -> Tròn môi
-            Self::O | Self::OCircumflex => PhonotacticFlags::VOWEL_ROUND,
-            // ư, ơ -> Không có cờ đặc biệt
-            Self::UHorn | Self::OHorn => PhonotacticFlags::empty(),
-        }
-    }
-}
-
-/// Các loại lỗi chính tả âm vị học có thể xảy ra.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
+/// Describes why a syllable violates a phonotactic rule.
+///
+/// Every variant is a real constraint of Vietnamese, named so a caller can say
+/// what went wrong without knowing the rule number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhonotacticError {
-    /// The nucleus is not complete yet and may become valid with more input.
+    /// There is no vowel yet, so the syllable cannot be judged.
     IncompleteNucleus,
 
-    /// Phụ âm `k/gh/ngh` đứng trước nguyên âm không phải hàng trước (thiếu `i, e, ê, y`).
+    /// The onset needs a front vowel (`i`, `e`, `ê`, `y`) and did not get one:
+    /// `ka`, `ghô`, `nghô`.
     MissingFrontVowel,
-    /// Phụ âm `c/g/ng` đứng trước nguyên âm hàng trước (`i, e, ê, y`).
+
+    /// The onset cannot take a front vowel: `ci`, `gê`, `ngi`.
+    ///
+    /// Only the *first* vowel counts — `cái` is fine, because its `i` is second.
     ForbiddenFrontVowel,
-    /// Phụ âm `Qu` đi ngay trước nguyên âm `u` (viết thừa `quu`).
+
+    /// `qu` already carries a `w`, so a following `u` would double it: `quu`.
     GlideAfterQu,
-    /// `gi` cannot be followed by nucleus vowel `i`.
+
+    /// `gi` already carries an `i`, so a following `i` would double it.
     GlideAfterGi,
 
-    /// Phụ âm cuối tắc (`p, t, c, ch`) nhưng thiếu thanh Sắc hoặc Nặng.
+    /// A coda that closes the mouth (`p`, `t`, `c`, `ch`) appeared without sắc
+    /// or nặng: `hoc` where `học` was meant.
     EnteringToneRequired,
-    /// Phụ âm cuối ngạc (`ch, nh`) ghép sai nguyên âm (không phải `i, e, ê, y, a`).
+
+    /// `ch` or `nh` is not preceded by one of `i`, `e`, `ê`, `y`, `a`.
     PalatalCodaVowelMismatch,
-    /// Nguyên âm ngắn (`ă, â`) đứng ở vị trí mở cuối nucleus nhưng không có phụ âm cuối.
+
+    /// `ă` and `â` are too short to stand alone, so they need a coda:
+    /// `să`, `tâ`.
     ShortVowelRequiresCoda,
 
-    /// The coda is incompatible with `ă` or `â`.
+    /// The coda is not one this short vowel allows — `ă` takes
+    /// `c ch m n ng`, `â` takes `c m n ng nh p t`.
     ShortVowelCodaMismatch,
 
-    /// `u` or `ư` cannot occur before final `ch`.
+    /// `u` or `ư` cannot sit directly before `ch`.
+    ///
+    /// Unreachable today: [`PALATAL_CODA_VOWELS`] already rejects both before
+    /// this is reached. Kept so the rule stays stated on its own terms.
     RoundedVowelBeforeCh,
 
-    /// `ơ` cannot occur before final `p` or `t`.
+    /// A nucleus of just `ơ` cannot take final `c`.
+    ///
+    /// Not `ơ` in a diphthong — `lược` and `ngược` are fine, because the nucleus
+    /// is `uơ`/`ươ`. And `p`/`t` are fine either way: `lớp`, `hớp`, `chớt`,
+    /// `lượt` are all words.
     OpenVowelCodaMismatch,
 
-    /// `i` cannot occur before final `ng` in the strict native spelling core.
+    /// `i` cannot sit directly before `ng`.
     IBeforeNg,
 
-    /// `e` cannot occur before final `ng` in the strict native spelling core.
+    /// `e` cannot sit directly before `ng`.
     EBeforeNg,
 }
 
-/// Kiểm tra tính hợp lệ chính tả của vần.
-pub trait PhonotacticValidator {
-    /// Kiểm tra tính hợp lệ chính tả của vần bằng các phép toán bitmask.
-    ///
-    /// # Luồng xử lý:
-    /// 1. Trích xuất cờ bitmask của nguyên âm ĐẦU (`first`) và nguyên âm CUỐI (`last`) trong nucleus.
-    /// 2. Áp dụng các quy tắc chính tả dựa trên phép giao bitwise (`intersects`).
-    fn validate<N>(
-        &self,
-        onset: Onset,
-        vowels: &N,
-        coda: Coda,
-        tone: Tone,
-    ) -> Result<(), PhonotacticError>
-    where
-        N: BaseVowelSlice + ?Sized;
+// ============================================================================
+// Validation
+// ============================================================================
+
+/// Validates one Vietnamese syllable.
+///
+/// Returns the first rule the syllable breaks, or `Ok(())` when it is
+/// well-formed. `nucleus` is read through [`BaseVowelSlice`], so the caller can
+/// pass a slice, an array, or the builder's own inline buffer.
+///
+/// One pass over the nucleus collects everything the rules need: which vowels
+/// are present (as a mask), the first one, and the last one. Nothing is
+/// allocated.
+#[inline(always)]
+pub fn validate_phonotactics<N: BaseVowelSlice + ?Sized>(
+    onset: Onset,
+    nucleus: &N,
+    tone: Tone,
+    coda: Coda,
+) -> Result<(), PhonotacticError> {
+    let len = nucleus.len();
+
+    if len == 0 {
+        return Err(PhonotacticError::IncompleteNucleus);
+    }
+
+    // `len > 0`, so index 0 is guaranteed to be valid.
+    //
+    // SAFETY: established by the check immediately above.
+    let first = unsafe { nucleus.at_unchecked(0) };
+    let first_id = first.id();
+
+    let mut vowel_mask = vowel_bit(first_id);
+    let mut last_id = first_id;
+
+    // The first vowel was already read above, so start at index 1.
+    let mut index = 1;
+
+    while index < len {
+        // SAFETY: `index < len` is guaranteed by the loop condition.
+        let vowel = unsafe { nucleus.at_unchecked(index) };
+        let vowel_id = vowel.id();
+
+        vowel_mask |= vowel_bit(vowel_id);
+        last_id = vowel_id;
+
+        index += 1;
+    }
+
+    validate_onset(onset, first_id)?;
+    validate_coda(vowel_mask, last_id, tone, coda)
 }
 
-/// Triển khai mặc định của [`PhonotacticValidator`] theo quy tắc chính tả tiếng Việt chuẩn.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DefaultPhonotacticValidator;
+// ============================================================================
+// Onset validation
+// ============================================================================
 
-impl PhonotacticValidator for DefaultPhonotacticValidator {
-    #[inline(always)]
-    fn validate<N>(
-        &self,
-        onset: Onset,
-        nucleus: &N,
-        coda: Coda,
-        tone: Tone,
-    ) -> Result<(), PhonotacticError>
-    where
-        N: BaseVowelSlice + ?Sized,
-    {
-        // Trích xuất cờ bitmask của nguyên âm đầu và cuối trong nucleus mà không gây ra bounds check overhead.
-        let len = nucleus.len();
+/// The onset rules.
+///
+/// Every rule here is about the **first** nucleus vowel only — which is why they
+/// cannot be written against the whole-nucleus mask.
+#[inline(always)]
+fn validate_onset(onset: Onset, first: BaseVowelId) -> Result<(), PhonotacticError> {
+    // No onset, no onset rules.
+    if onset.is_none() {
+        return Ok(());
+    }
 
-        if len == 0 {
-            return Ok(());
-        }
+    // The onset as one bit, so it can be tested against the sets below.
+    let o_bit = onset_bit(onset);
 
-        let first = unsafe { nucleus.at_unchecked(0) };
-        let last = unsafe { nucleus.at_unchecked(len - 1) };
+    // The first vowel as one bit, tested against the front set. Using the whole
+    // nucleus here would be wrong twice over: it would call `cai` illegal
+    // because its `i` is front, and it would let `k` + `ai` through only by
+    // accident of the other rule.
+    let front_vowel_bit = vowel_bit(first) & FRONT_VOWELS;
 
-        // SAFETY: `at` requires `index < len()`. The early return above rules
-        // out `len == 0`, so both `0` and `len - 1` are in bounds.
-        let first_flags = first.phonotactic_flags();
-        let last_flags = last.phonotactic_flags();
+    // `k`, `gh`, `ngh` need i / e / ê / y. (`kh` deliberately does not.)
+    if o_bit & FRONT_REQUIRED_ONSETS != 0 && front_vowel_bit == 0 {
+        return Err(PhonotacticError::MissingFrontVowel);
+    }
 
-        let onset_flags = onset.phonotactic_flags();
+    // `c`, `g`, `ng` refuse i / e / ê / y.
+    if o_bit & FRONT_FORBIDDEN_ONSETS != 0 && front_vowel_bit != 0 {
+        return Err(PhonotacticError::ForbiddenFrontVowel);
+    }
 
-        // ---------------------------------------------------------------------
-        // Luật 1: Ràng buộc nguyên âm hàng trước đối với phụ âm đầu (xét nguyên âm ĐẦU)
-        // ---------------------------------------------------------------------
-        // k, gh, ngh -> Bắt buộc nguyên âm ngay sau phải thuộc tập FRONT (i, e, ê, y)
-        if onset_flags.intersects(PhonotacticFlags::ONSET_REQUIRES_FRONT)
-            && !first_flags.intersects(PhonotacticFlags::VOWEL_FRONT)
-        {
-            return Err(PhonotacticError::MissingFrontVowel);
-        }
+    // `qu` already carries its `w`, so `u` on top of it would double the glide.
+    if onset == Onset::Qu && first == BaseVowelId::U {
+        return Err(PhonotacticError::GlideAfterQu);
+    }
 
-        // c, g, ng -> Cấm nguyên âm ngay sau thuộc tập FRONT
-        if onset_flags.intersects(PhonotacticFlags::ONSET_FORBIDS_FRONT)
-            && first_flags.intersects(PhonotacticFlags::VOWEL_FRONT)
-        {
-            return Err(PhonotacticError::ForbiddenFrontVowel);
-        }
+    // `gi` already carries its `i`.
+    if onset == Onset::Gi && first == BaseVowelId::I {
+        return Err(PhonotacticError::GlideAfterGi);
+    }
 
-        // ---------------------------------------------------------------------
-        // Luật 2: Ràng buộc phụ âm Qu (xét nguyên âm ĐẦU)
-        // ---------------------------------------------------------------------
-        // Qu đã chứa sẵn âm đệm /w/ (u), cấm kết hợp với nguyên âm 'u' tiếp theo (ví dụ: "quu")
-        if onset_flags.intersects(PhonotacticFlags::ONSET_LABIOVELAR)
-            && first_flags.intersects(PhonotacticFlags::VOWEL_U)
-        {
-            return Err(PhonotacticError::GlideAfterQu);
-        }
+    Ok(())
+}
 
-        // gi + i → invalid
-        if onset_flags.intersects(PhonotacticFlags::ONSET_GI) && matches!(first, BaseVowel::I) {
-            return Err(PhonotacticError::GlideAfterGi);
-        }
+// ============================================================================
+// Coda validation
+// ============================================================================
 
-        let coda_flags = coda.phonotactic_flags();
-
-        // ---------------------------------------------------------------------
-        // Luật 3: Thanh Nhập bắt buộc cho phụ âm cuối tắc
-        // ---------------------------------------------------------------------
-        // Phụ âm cuối p, t, c, ch chặn hoàn toàn dòng khí -> Bắt buộc mang thanh Sắc hoặc Nặng
-        if coda_flags.intersects(PhonotacticFlags::CODA_ENTERING) && !tone.allows_entering_coda() {
-            return Err(PhonotacticError::EnteringToneRequired);
-        }
-
-        // ---------------------------------------------------------------------
-        // Luật 4: Ràng buộc phụ âm cuối ngạc (xét nguyên âm CUỐI)
-        // ---------------------------------------------------------------------
-        // ch, nh chỉ đứng ngay sau các nguyên âm i, e, ê, y hoặc a thường
-        if coda_flags.intersects(PhonotacticFlags::CODA_PALATAL)
-            && !last_flags.intersects(PhonotacticFlags::VOWEL_ALLOWS_PALATAL)
-        {
-            return Err(PhonotacticError::PalatalCodaVowelMismatch);
-        }
-
-        // ---------------------------------------------------------------------
-        // Luật 5: Nguyên âm ngắn đứng ở vị trí mở (xét nguyên âm CUỐI)
-        // ---------------------------------------------------------------------
-        // ă, â có thời lượng phát âm cực ngắn -> Phải có phụ âm cuối đóng vần (ví dụ: "ăn", "ân")
-        // Nếu đứng ở cuối nucleus mà không có coda -> Báo lỗi
-        if last_flags.intersects(PhonotacticFlags::VOWEL_SHORT) && coda.is_none() {
+/// The coda rules.
+///
+/// These are all about the **last** nucleus vowel, for the same reason the onset
+/// rules are about the first: a mask cannot say where a vowel sits.
+#[inline(always)]
+fn validate_coda(
+    nucleus: VowelMask,
+    last: BaseVowelId,
+    tone: Tone,
+    coda: Coda,
+) -> Result<(), PhonotacticError> {
+    // No coda yet — the normal state while typing. Nearly every vowel is happy
+    // in an open syllable, so there is nothing to check.
+    //
+    // The exception is `ă` and `â`, which are too short to stand alone.
+    //
+    // Checked on the last vowel, not on membership: `âu` and `ây` are spelled
+    // a + â + u, so `â` is in the nucleus mask even though the syllable is not
+    // short. Testing membership would reject `câu`, `bây` and every other open
+    // `â` diphthong.
+    if coda.is_none() {
+        if last == BaseVowelId::ABreve || last == BaseVowelId::ACircumflex {
             return Err(PhonotacticError::ShortVowelRequiresCoda);
         }
 
-        // ă:
-        // allowed codas: c, ch, m, n, ng
-        if matches!(last, BaseVowel::ABreve) {
-            if !matches!(coda, Coda::C | Coda::Ch | Coda::M | Coda::N | Coda::Ng) {
-                return Err(PhonotacticError::ShortVowelCodaMismatch);
-            }
-        }
-
-        // â:
-        // allowed codas: c, m, n, ng, nh, p, t
-        if matches!(last, BaseVowel::ACircumflex) {
-            if !matches!(
-                coda,
-                Coda::C | Coda::M | Coda::N | Coda::Ng | Coda::Nh | Coda::P | Coda::T
-            ) {
-                return Err(PhonotacticError::ShortVowelCodaMismatch);
-            }
-        }
-
-        // u / ư cannot take final ch.
-        if matches!(coda, Coda::Ch) && matches!(last, BaseVowel::U | BaseVowel::UHorn) {
-            return Err(PhonotacticError::RoundedVowelBeforeCh);
-        }
-
-        // ơ cannot take final p / t.
-        if matches!(last, BaseVowel::OHorn) && matches!(coda, Coda::P | Coda::T) {
-            return Err(PhonotacticError::OpenVowelCodaMismatch);
-        }
-
-        // i + ng is not part of the strict native spelling core.
-        if matches!(last, BaseVowel::I) && matches!(coda, Coda::Ng) {
-            return Err(PhonotacticError::IBeforeNg);
-        }
-
-        // e + ng is not part of the strict native spelling core.
-        if matches!(last, BaseVowel::E) && matches!(coda, Coda::Ng) {
-            return Err(PhonotacticError::EBeforeNg);
-        }
-
-        Ok(())
+        return Ok(());
     }
+
+    // A real coda exists from here on.
+    let c_bit = coda_bit(coda);
+
+    // `p`, `t`, `c`, `ch` close the mouth, so they only take sắc or nặng.
+    // `học` and `lớp` are fine; `hoc` without a tone is not.
+    if c_bit & TONE_RESTRICTED_CODAS != 0 && !matches!(tone, Tone::Acute | Tone::Dot) {
+        return Err(PhonotacticError::EnteringToneRequired);
+    }
+
+    // The last vowel as one bit, so the set tests below read the same way.
+    let last_vowel_bit = vowel_bit(last);
+
+    // `ch` and `nh` need i / e / ê / y / a in front — `lịch`, `kính`.
+    if c_bit & PALATAL_CODAS != 0 && last_vowel_bit & PALATAL_CODA_VOWELS == 0 {
+        return Err(PhonotacticError::PalatalCodaVowelMismatch);
+    }
+
+    // `u` and `ư` cannot sit directly before `ch`.
+    //
+    // Unreachable today: the palatal test above has already rejected both, so
+    // this never runs. Kept because it states a real rule on its own terms — if
+    // `PALATAL_CODA_VOWELS` is ever widened, this still holds the line, and
+    // `RoundedVowelBeforeCh` stays a variant an input can actually produce.
+    if coda == Coda::Ch && last_vowel_bit & ROUNDED_BEFORE_CH != 0 {
+        return Err(PhonotacticError::RoundedVowelBeforeCh);
+    }
+
+    // A nucleus of just `ơ` cannot take final `c`.
+    //
+    // `nucleus == BARE_OPEN_VOWEL` means the mask holds one bit and that bit is
+    // `ơ` — the whole nucleus is the single vowel. The diphthongs `lược`,
+    // `ngược`, `dược` all end in an `ơ` shape too, so testing the last letter
+    // alone would reject them; they are fine because `uơ`/`ươ` sets more bits.
+    // And `p` / `t` are fine in every case: `lớp`, `hớp`, `chớt`, `lượt` are
+    // all words, so only `c` is restricted.
+    if nucleus == BARE_OPEN_VOWEL && coda == Coda::C {
+        return Err(PhonotacticError::OpenVowelCodaMismatch);
+    }
+
+    // `i` and `e` cannot sit directly before `ng`. Two separate rules, so two
+    // variants — a direct `==` is clearer than a two-item mask.
+    if coda == Coda::Ng {
+        match last {
+            BaseVowelId::I => return Err(PhonotacticError::IBeforeNg),
+            BaseVowelId::E => return Err(PhonotacticError::EBeforeNg),
+            _ => {}
+        }
+    }
+
+    // `ă` takes c / ch / m / n / ng — `căn`, `lắm`, `mặt`, `ăn`, `ngăn`.
+    if last == BaseVowelId::ABreve && c_bit & A_BREVE_CODAS == 0 {
+        return Err(PhonotacticError::ShortVowelCodaMismatch);
+    }
+
+    // `â` takes c / m / n / ng / nh / p / t — `cấp`, `tất`, `bệnh`.
+    if last == BaseVowelId::ACircumflex && c_bit & A_CIRCUMFLEX_CODAS == 0 {
+        return Err(PhonotacticError::ShortVowelCodaMismatch);
+    }
+
+    Ok(())
 }
+
+// ============================================================================
+// Compile-time invariants
+// ============================================================================
+//
+// These assertions ensure that the chosen integer types remain large enough
+// if the phonology enums are extended in the future.
+//
+// Without these checks, adding enough enum variants could make `1 << id`
+// exceed the mask width.
+
+const _: () = {
+    assert!(BaseVowelId::COUNT <= VowelMask::BITS as usize);
+    assert!(Onset::COUNT <= OnsetMask::BITS as usize);
+    assert!(Coda::COUNT <= CodaMask::BITS as usize);
+};

@@ -17,7 +17,7 @@
 //!   empty nucleus is only legal coda-less), so that edit fails.
 //! * otherwise the cursor deletes from the coda.
 //!
-//! Every case asserts the returned `InputEffect`/`SyllableBuildError` **and**
+//! Every case asserts the returned `EditEffect`/`SyllableBuildError` **and**
 //! the final syllable — a rejected removal must leave the base untouched.
 
 use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
@@ -25,7 +25,7 @@ use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone, TonePlacement};
 use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::syllable::InputEffect;
+use crate::syllable::EditEffect;
 
 struct RemoveCase {
     base: &'static [char],
@@ -39,7 +39,7 @@ macro_rules! ok_case {
         RemoveCase {
             base: $base,
             at: $at,
-            effect: Effect::Ok(InputEffect::$eff),
+            effect: Effect::Ok(EditEffect::$eff),
             expected: $expected,
         }
     };
@@ -388,7 +388,7 @@ fn remove_sequence() {
 
     assert_eq!(
         builder.remove(3, TonePlacement::Modern),
-        Ok(InputEffect::StructurallyChanged)
+        Ok(EditEffect::StructurallyChanged)
     );
     check_syllable_eq(
         &builder,
@@ -399,7 +399,7 @@ fn remove_sequence() {
 
     assert_eq!(
         builder.remove(0, TonePlacement::Modern),
-        Ok(InputEffect::StructurallyChanged)
+        Ok(EditEffect::StructurallyChanged)
     );
     check_syllable_eq(
         &builder,

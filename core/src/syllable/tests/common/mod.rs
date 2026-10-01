@@ -13,7 +13,7 @@
 
 use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
 use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::syllable::InputEffect;
+use crate::syllable::EditEffect;
 
 /// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
 /// much faster than `(BaseVowel::VowelCase::Lower)`.
@@ -144,7 +144,7 @@ impl ExpectedSyllable {
 /// can state success and failure with the same field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    Ok(InputEffect),
+    Ok(EditEffect),
     Err(SyllableBuildError),
 }
 
@@ -152,7 +152,7 @@ pub enum Effect {
 /// reporting both on a mismatch.
 pub fn check_effect(
     expected: &Effect,
-    got: Result<InputEffect, SyllableBuildError>,
+    got: Result<EditEffect, SyllableBuildError>,
     label: &str,
 ) -> Result<(), String> {
     match (expected, got) {

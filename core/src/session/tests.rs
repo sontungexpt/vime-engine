@@ -127,9 +127,15 @@ fn cursor_movement_does_not_resolve_the_config() {
 
     shared.update(|c| c.set_tone_placement(TonePlacement::Old));
 
-    assert!(session.move_cursor_left().rendered(), "left is available");
-    assert!(session.move_cursor_left().rendered(), "and again");
-    assert!(session.move_cursor_right().rendered(), "right is available");
+    assert!(
+        session.move_cursor_left_by(1).rendered(),
+        "left is available"
+    );
+    assert!(session.move_cursor_left_by(1).rendered(), "and again");
+    assert!(
+        session.move_cursor_right_by(1).rendered(),
+        "right is available"
+    );
     assert_eq!(session.rendered_cursor(), start - 1);
 
     assert_eq!(
@@ -152,7 +158,7 @@ fn raw_reads_do_not_resolve_the_config() {
     session.write_raw_to(&mut out);
     assert_eq!(out, "hoas");
     assert_eq!(session.raw().iter().collect::<String>(), "hoas");
-    assert!(session.is_valid());
+    assert!(session.is_phonotactically_valid());
 
     assert_eq!(
         session.config().tone_placement(),
