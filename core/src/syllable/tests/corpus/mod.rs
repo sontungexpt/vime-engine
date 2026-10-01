@@ -1,68 +1,8 @@
-//! Behaviour corpus for `BuildingSyllable::push`.
-//!
-//! The pipeline under test is just the syllable builder:
-//!
+//! Behaviour corpus for `BuildingSyllable::push`: the [`Case`] / [`Outcome`]
+//! model, the `case!` macros, the runners and one data module per concern.
 //! ```text
 //! Keymap + char → BuildingSyllable::push() → syllable state
 //! ```
-//!
-//! Every case pushes characters one at a time and lets the builder classify and
-//! transform each one via the keymap. Precomposed Vietnamese vowels (`ạ`, `ắ`,
-//! `Ắ`, …) are kept as-is; the corpus never decomposes them.
-//!
-//! The shared [`ExpectedSyllable`] model, the `C` / `V` field shorthands and
-//! [`check_syllable_eq`] live in the sibling [`common`](super::common) module;
-//! this module holds only the push-specific case model, runner and data.
-//!
-//! # Case model
-//!
-//! A [`Case`] is an `input` (the exact push order) plus an [`Outcome`]:
-//!
-//! * `Outcome::Alive(expected)` — every `push` returns `Ok`, and the final
-//!   syllable must match `expected`. Written with `case!`.
-//! * `Outcome::Dead(expected)` — some `push` returns `Err`, and the builder must
-//!   have rolled back to `expected`. Written with `dead_case!`.
-//! * `Outcome::AliveOnly` — every `push` returns `Ok`; the syllable itself is not
-//!   inspected. Written with `alive_case!`.
-//!
-//! The expected syllable uses the compact [`ExpectedSyllable`] constructors
-//! ([`vowel`](ExpectedSyllable::vowel),
-//! [`consonant`](ExpectedSyllable::consonant),
-//! [`onset_vowel`](ExpectedSyllable::onset_vowel),
-//! [`vowel_coda`](ExpectedSyllable::vowel_coda),
-//! [`full`](ExpectedSyllable::full)):
-//!
-//! ```text
-//! case!(['a', 's'], ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Acute))
-//! ```
-//!
-//! means `push('a')` then `push('s')` → syllable `{ vowels: [a], tone: acute,
-//! … }`.
-//!
-//! # Corpus layout
-//!
-//! The behaviour data lives in one module per concern:
-//!
-//! | module           | covers                                        |
-//! |------------------|-----------------------------------------------|
-//! | `onsets`         | onsets and plain vowel sequences              |
-//! | `telex_tones`    | telex tone keys                               |
-//! | `telex_shapes`   | telex shape keys                              |
-//! | `tones_shapes`   | tone + shape combinations                     |
-//! | `uo_sequences`   | the `uo` / `ươ` special cycles                |
-//! | `vni`            | the VNI layout                                |
-//! | `viqr`           | the VIQr layout                               |
-//! | `precomposed`    | precomposed Vietnamese vowel input            |
-//! | `uppercase`      | uppercase input                               |
-//! | `toggles`        | toggle / revert behaviour                     |
-//! | `gi`             | the ambiguous `gi` onset / nucleus split      |
-//! | `dead_cases`     | inputs whose parse `push` rejects             |
-//! | `incomplete`     | inputs that keep the builder alive            |
-//! | `syllables`      | real Vietnamese syllables (regression corpus) |
-//!
-//! The `#[test]` entry points live in the crate root integration test
-//! (`push.rs`); each drives a [`Corpus`] with one keymap, asserts every
-//! case, and checks the corpus never silently shrinks.
 
 pub mod dead_cases;
 pub mod gi;
@@ -106,11 +46,11 @@ pub enum Outcome {
     Alive(ExpectedSyllable),
     /// A `push` fails at some point; the builder must roll back to this state.
     Dead(ExpectedSyllable),
-    /// Every `push` is `Ok`; only liveness is asserted, the syllable is not
-    /// inspected.
+    /// Every `push` is `Ok`; only liveness is asserted.
     AliveOnly,
 }
 
+/// A live case: push every char in order, then the syllable must match.
 macro_rules! case {
     ([$($ch:expr),* $(,)?], $syllable:expr $(,)?) => {
         $crate::syllable::tests::corpus::Case {
@@ -120,6 +60,7 @@ macro_rules! case {
     };
 }
 
+/// A case where some `push` is rejected; the builder must roll back to `expected`.
 macro_rules! dead_case {
     ([$($ch:expr),* $(,)?], $syllable:expr $(,)?) => {
         $crate::syllable::tests::corpus::Case {
@@ -129,8 +70,7 @@ macro_rules! dead_case {
     };
 }
 
-/// A `case!`-style entry for a checkpoint that must stay *alive*: every push
-/// is `Ok`, but the final syllable is not inspected.
+/// A checkpoint that must stay *alive*: every push is `Ok`, the syllable unchecked.
 macro_rules! alive_case {
     ([$($ch:expr),* $(,)?]) => {
         $crate::syllable::tests::corpus::Case {
@@ -151,8 +91,7 @@ pub(crate) use dead_case;
 use crate::keymap::Keymap;
 use crate::syllable::building::BuildingSyllable;
 
-/// Pushes every character in order, requiring each `push` to be accepted, and
-/// hands back the resulting builder.
+/// Pushes every character in order, requiring each `push` to be accepted.
 fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<BuildingSyllable, String> {
     let mut builder = BuildingSyllable::default();
 
@@ -165,8 +104,7 @@ fn push_all<KM: Keymap>(keymap: &KM, input: &[char]) -> Result<BuildingSyllable,
     Ok(builder)
 }
 
-/// Pushes every character in order, then checks the final syllable against
-/// `expected`.
+/// Pushes every character in order, then checks the final syllable against `expected`.
 fn run_expect<KM: Keymap>(
     input: &[char],
     expected: &ExpectedSyllable,
@@ -176,8 +114,7 @@ fn run_expect<KM: Keymap>(
     check_syllable_eq(&builder, expected, input)
 }
 
-/// Pushes every character in order, then requires the builder to be dead: some
-/// `push` returns `Err`, and afterwards it must have rolled back to `expected`.
+/// Requires some `push` to fail, then checks the rolled-back syllable against `expected`.
 fn run_dead<KM: Keymap>(
     input: &[char],
     expected: &ExpectedSyllable,
@@ -195,8 +132,7 @@ fn run_dead<KM: Keymap>(
     check_syllable_eq(&builder, expected, input)
 }
 
-/// Pushes every character in order, requiring the builder to stay alive; the
-/// syllable itself is not inspected.
+/// Pushes every character in order, requiring the builder to stay alive.
 fn run_alive<KM: Keymap>(input: &[char], keymap: &KM) -> Result<(), String> {
     push_all(keymap, input).map(|_| ())
 }

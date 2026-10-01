@@ -1,14 +1,7 @@
-//! The `gi` family.
-//!
-//! A syllable prefix of `gi` is ambiguous: if another vowel follows the `i`,
-//! `gi` becomes the onset (`Onset::Gi`), otherwise `g` stays the onset and the
-//! `i` is the nucleus. Each entry below asserts the exact final semantic state
-//! the builder must report after all pushes:
+//! The `gi` family: `gi` is the onset only when another vowel follows the `i`.
 //!
 //! ```text
-//! g    → onset G
-//! gi   → onset G + nucleus I
-//! gia  → onset Gi + nucleus A
+//! g → onset G    gi → onset G + nucleus I    gia → onset Gi + nucleus A
 //! ```
 
 use super::prelude::*;

@@ -1,3 +1,4 @@
+//! Vietnamese phonology: the parts of a syllable and the rules they must satisfy.
 mod case;
 mod coda;
 mod nucleus;

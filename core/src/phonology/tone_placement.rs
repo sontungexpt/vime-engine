@@ -11,27 +11,16 @@ pub enum TonePlacement {
 }
 
 impl TonePlacement {
-    /// Determines the 0-based relative index of the vowel within the provided
-    /// `vowels` array/slice that should receive the tone mark.
+    /// Returns the index within `vowels` of the vowel that takes the tone mark,
+    /// or `None` when the nucleus is empty. The index is local to `vowels`
+    /// (`0..vowels.len()`), not an absolute position in the syllable.
     ///
-    /// The returned index is strictly local to `vowels` (i.e. `0..vowels.len()`),
-    /// pointing directly to the target vowel element rather than an absolute character
-    /// position in the full syllable or a global vowel identifier.
-    ///
-    /// Returns `None` if the nucleus is empty (`vowels.len() == 0`).
-    ///
-    /// ## Why the `at` calls below are sound
-    ///
-    /// Every helper reaches a [`BaseVowelSlice::at`] through this dispatch:
-    /// `tone_index_2_*` is only reached on `len == 2`, `tone_index_3` only on
-    /// `len == 3`, and `tone_index_fallback` iterates `1..len`. Each index is
-    /// therefore below `len` at the point of the call, which is exactly that
-    /// method's safety contract. The `len` value is not re-read in between, and
-    /// the helpers take `&V`, so nothing can change it.
-    ///
-    /// The helpers are deliberately `#[inline(always)]` so that this
-    /// reasoning survives optimisation: the length check and the unchecked
-    /// reads fold together, and the check cannot be reordered after them.
+    /// The unchecked reads below stay in bounds because each helper is reached
+    /// only at its own length (`tone_index_2_*` on `len == 2`, `tone_index_3` on
+    /// `len == 3`, the fallback over `1..len`), so every index is below `len` —
+    /// [`BaseVowelSlice::at_unchecked`]'s contract. `len` is not re-read in
+    /// between and the helpers take `&V`, so nothing can change it, and they are
+    /// `#[inline(always)]` so the length check stays adjacent to the reads.
     #[inline]
     pub fn vowel_index<V>(self, vowels: &V, coda_is_empty: bool) -> Option<usize>
     where
@@ -49,7 +38,7 @@ impl TonePlacement {
         }
     }
 
-    /// Tone placement for 2-vowel nucleus under Modern standard.
+    /// Tone placement for a 2-vowel nucleus under the modern standard.
     #[inline(always)]
     fn tone_index_2_modern<V>(vowels: &V) -> usize
     where
@@ -76,7 +65,7 @@ impl TonePlacement {
         }
     }
 
-    /// Tone placement for 2-vowel nucleus under Old/Classic standard.
+    /// Tone placement for a 2-vowel nucleus under the classic standard.
     #[inline(always)]
     fn tone_index_2_old<V>(vowels: &V, coda_is_empty: bool) -> usize
     where
@@ -101,7 +90,7 @@ impl TonePlacement {
         }
     }
 
-    /// Tone placement for 3-vowel nucleus (e.g., "oai", "uôi", "uyu").
+    /// Tone placement for a 3-vowel nucleus (e.g. "oai", "uôi", "uyu").
     #[inline(always)]
     fn tone_index_3<V>(vowels: &V) -> usize
     where

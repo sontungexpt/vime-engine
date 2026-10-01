@@ -1,8 +1,6 @@
-//! Deletion path: `BuildingSyllable::remove` and its literal helpers.
-//!
-//! Every helper is atomic on its own: it applies one mutation and restores it
-//! if the resulting structure is invalid, so any rejected removal leaves the
-//! syllable unchanged.
+//! Deletion path: `BuildingSyllable::remove` and its literal helpers. Every
+//! helper is atomic: it applies one mutation and restores it if the result is
+//! invalid, so a rejected removal leaves the syllable unchanged.
 
 use super::*;
 use crate::{phonology::TonePlacement, syllable::EditEffect};
@@ -86,14 +84,14 @@ impl BuildingSyllable {
             "Gi onset must have exactly 2 characters, got index {onset_index}"
         );
 
-        // Remove i
+        // Removing the trailing `i` leaves the G onset.
         if onset_index == 1 {
             self.onset.pop();
             self.onset_kind = Onset::G;
             return true;
         }
 
-        // remove G -> i becomes vowels
+        // Removing `G` moves `i` into the nucleus.
 
         if self.nucleus.len() >= NUCLEUS_MAX_LEN {
             return false;
@@ -115,8 +113,8 @@ impl BuildingSyllable {
         true
     }
 
-    /// Removes the vowel at `index`, clearing the tone when it targeted that vowel
-    /// or the nucleus becomes empty.
+    /// Removes the vowel at `index`, also clearing the tone when that vowel
+    /// carried it.
     #[inline]
     fn remove_vowel(&mut self, vowel_index: usize, tone_placement: TonePlacement) -> bool {
         let len = self.nucleus.len();
@@ -126,12 +124,13 @@ impl BuildingSyllable {
             "vowel index out of bounds: index={vowel_index}, len={len}"
         );
 
-        // Nucleus can not be empty when coda is existed
+        // The nucleus cannot be emptied while a coda is present.
         if len == 1 && !self.coda.is_empty() {
             return false;
         }
 
-        // Never exist because if we has at least one vowel i always becomes onset
+        // Never reached: with at least one vowel the `i` has already moved
+        // into the onset.
         // if len == 2 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
         // }
 

@@ -49,9 +49,7 @@ impl NucleusState {
 }
 
 macro_rules! state_match {
-    // ============================================================
-    // Public entry point
-    // ============================================================
+    // Public entry point.
 
     ($vowels:ident; $($rules:tt)*) => {
         state_match! {
@@ -63,9 +61,7 @@ macro_rules! state_match {
         }
     };
 
-    // ============================================================
-    // Empty nucleus
-    // ============================================================
+    // Empty-nucleus rule.
 
     (@collect
         $vowels:ident
@@ -84,9 +80,7 @@ macro_rules! state_match {
         }
     };
 
-    // ============================================================
-    // Single vowel
-    // ============================================================
+    // Single-vowel rule.
 
     (@collect
         $vowels:ident
@@ -105,9 +99,7 @@ macro_rules! state_match {
         }
     };
 
-    // ============================================================
-    // Two vowels
-    // ============================================================
+    // Two-vowel rules.
 
     (@collect
         $vowels:ident
@@ -129,9 +121,7 @@ macro_rules! state_match {
         }
     };
 
-    // ============================================================
-    // Three vowels
-    // ============================================================
+    // Three-vowel rules.
 
     (@collect
         $vowels:ident
@@ -153,9 +143,7 @@ macro_rules! state_match {
         }
     };
 
-    // ============================================================
-    // End: generate expression
-    // ============================================================
+    // End: emit the generated expression.
 
     (@collect
         $vowels:ident
@@ -166,11 +154,8 @@ macro_rules! state_match {
             // Empty nucleus.
             0 => InComplete,
 
-            // Every single base vowel is valid.
-            //
-            // The individual [A], [E], ... rules are retained in the
-            // source table for documentation, so no runtime match is
-            // generated for arity 1.
+            // Every single vowel is valid; the `[X] => Valid` rules in the table
+            // are documentation only, so no match is generated for arity 1.
             1 => Valid,
 
             // Two-vowel nucleus.
@@ -197,12 +182,10 @@ macro_rules! state_match {
     };
 }
 
-/// Looks up the state of a vowel nucleus.
+/// Looks up whether a vowel nucleus is a known Vietnamese sequence.
 ///
-/// This is the canonical entry point and matches the caller's slice
-/// directly, with no copy. Callers holding `Vowel`s (which pack the base
-/// vowel together with tone and case) rely on the `[Vowel]` impl of
-/// [`BaseVowelSlice`], which strips the packing here.
+/// Reads `vowels` in place with no copy; a `[Vowel]` slice is unpacked by the
+/// [`BaseVowelSlice`] impl.
 #[inline(always)]
 pub fn nucleus_state<Slice>(vowels: &Slice) -> NucleusState
 where
@@ -211,16 +194,14 @@ where
     use BaseVowel::*;
     use NucleusState::*;
 
-    // The table below is flat; the macro buckets it by arity, so this
-    // expands to `match vowels.len()` with one inner match per length.
+    // The macro buckets this flat table by arity into `match vowels.len()`.
     state_match! {
         vowels;
 
         [] => InComplete,
 
         // ─────────────────── Single vowels ───────────────────
-        // Kept explicitly for readability/documentation.
-        // All single vowels are handled uniformly by `1 => Valid`.
+        // Kept for documentation; `1 => Valid` covers them all.
         [A] => Valid,
         [ABreve] => Valid,
         [ACircumflex] => Valid,

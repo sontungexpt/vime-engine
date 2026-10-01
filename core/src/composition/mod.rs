@@ -12,14 +12,13 @@ use crate::{
 /// The raw keystroke buffer: one character per key, held inline up to
 /// [`RAW_INLINE`].
 ///
-/// The counterpart to [`SyllableChars`], which is the parsed form. Named against
-/// the *raw* form because the module deals in both, and the two may hold
+/// The counterpart to [`SyllableChars`] (the parsed form); the two may hold
 /// different numbers of characters.
 type RawChars = SmallVec<char, RAW_INLINE>;
 
 /// Inline capacity for raw keystrokes before spilling to the heap.
 ///
-/// Fifteen characters cover most ordinary words while keeping the inline
+/// Sixteen characters cover most ordinary words while keeping the inline
 /// buffer small. Longer input spills to the heap without imposing a limit.
 const RAW_INLINE: usize = 16;
 
@@ -43,29 +42,20 @@ impl<T> Parallel<T> {
 
 /// Incremental syllable composition of raw keystrokes into Vietnamese text.
 ///
-/// Keeps the user's raw keystrokes alongside the parsed [`Syllable`].
-/// The two buffers may have different lengths because input transformations
-/// can collapse multiple keystrokes into a single parsed character
-/// (`a` + `w` → `ă`), while a dead syllable preserves subsequent input
-/// verbatim.
+/// Keeps the raw keystrokes alongside the parsed [`Syllable`]. The buffers can
+/// differ in length (`a` + `w` → `ă` collapses two keys into one character; a
+/// dead syllable keeps later input verbatim), so each has its own cursor. The
+/// raw buffer decides emptiness and whether the IME handles an edit; the parsed
+/// buffer drives rendered output.
 ///
-/// Each buffer has its own cursor because raw and parsed positions are not
-/// necessarily one-to-one.
-///
-/// The raw buffer is authoritative for composition emptiness and for deciding
-/// whether editing or navigation can be handled by the IME. The parsed buffer
-/// is authoritative for rendered output.
-///
-/// Like the builder, a composition owns state only and is not generic: the
-/// keymap is a generic parameter of the operations that parse under it, and the
-/// tone-placement scheme is a plain argument of the ones that render.
+/// Like the builder, it owns state only: the keymap and the tone-placement
+/// scheme are arguments of the operations that use them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Composition {
     raw: RawChars,
 
-    // Kept separately because raw and rendered positions are not necessarily
-    // one-to-one. Most editing/navigation decisions use `rendered_cursor`;
-    // `raw_cursor` is used to modify the raw keystroke buffer.
+    // Kept separate because raw and rendered positions are not one-to-one:
+    // `raw_cursor` edits the raw buffer, `rendered_cursor` drives the rest.
     raw_cursor: Cursor,
 
     rendered: Syllable,
@@ -75,11 +65,8 @@ pub struct Composition {
 impl Composition {
     // --------------------------------------------------------- constructor
 
-    /// Creates an empty composition in the building phase.
-    ///
-    /// A fresh [`Syllable`] supplies the initial parser state. Both buffers and
-    /// both cursors start empty at position 0; the keymap and tone-placement
-    /// scheme are passed to the operations that need them.
+    /// Creates an empty composition in the building phase: both buffers and
+    /// both cursors start empty at position 0.
     #[inline(always)]
     pub fn new() -> Self {
         Self {
@@ -92,11 +79,7 @@ impl Composition {
 
     // ------------------------------------------------------------ state
 
-    /// Resets the composition to an empty building state.
-    ///
-    /// The raw buffer, parsed state and both cursors are cleared. The keymap
-    /// and tone-placement scheme are configuration rather than input state, so
-    /// the operations that follow keep the ones they are given.
+    /// Clears both buffers and both cursors, returning to the building phase.
     #[inline]
     pub fn reset(&mut self) {
         self.raw.clear();
@@ -108,10 +91,8 @@ impl Composition {
 
     // --------------------------------------------------------- cursor move
 
-    /// Returns `true` if the cursor can move one position to the left.
-    ///
-    /// This checks the parsed cursor because navigation follows the parsed
-    /// composition rather than the raw keystroke count.
+    /// Whether each cursor can move one position left, checked against its own
+    /// buffer.
     #[inline(always)]
     pub fn can_move_left(&self) -> Parallel<bool> {
         Parallel {
@@ -120,10 +101,8 @@ impl Composition {
         }
     }
 
-    /// Returns `true` if the cursor can move one position to the right.
-    ///
-    /// This checks the parsed cursor against the parsed buffer length because
-    /// the parsed and raw buffers may contain different numbers of characters.
+    /// Whether each cursor can move one position right, checked against its own
+    /// buffer length — the two buffers may differ.
     #[inline(always)]
     pub fn can_move_right(&self) -> Parallel<bool> {
         Parallel {
@@ -134,8 +113,7 @@ impl Composition {
 
     /// Moves both cursors up to `by` positions left, clamping each at the start.
     ///
-    /// Raw and parsed positions are not one-to-one, so one cursor can reach its
-    /// end while the other still has room; each field reports whether *that*
+    /// Raw and parsed positions differ, so each field reports whether *that*
     /// cursor moved.
     #[inline]
     pub fn move_cursor_left_by(&mut self, by: usize) -> Parallel<bool> {
@@ -157,12 +135,12 @@ impl Composition {
 
     // ----------------------------------------------------------- mutation
 
-    /// Inserts `input` at the current cursor position, parsing it under
-    /// `keymap` and rendering it under `tone_placement`.
+    /// Inserts `input` at both cursors, parsing under `keymap` and rendering
+    /// under `tone_placement`.
     ///
-    /// The raw buffer always gains one character. The parsed buffer may either
-    /// gain a character or consume the input as a transformation, so the
-    /// parsed cursor advances only for [`InputEffect::StructurallyChanged`].
+    /// The raw buffer always gains a character; the parsed cursor advances only
+    /// on [`EditEffect::StructurallyChanged`], since a transformation consumes
+    /// the input without lengthening that buffer.
     pub fn insert<KM: Keymap>(&mut self, keymap: &KM, tone_placement: TonePlacement, input: char) {
         self.raw.insert(self.raw_cursor.get(), input);
 
@@ -177,10 +155,8 @@ impl Composition {
             .insert(keymap, tone_placement, self.rendered_cursor.get(), input)
         {
             EditEffect::StructurallyChanged => {
-                // SAFETY: a structural insertion increases the parsed buffer
-                // length by one, making the next cursor position valid. A
-                // transformed key consumes the input without lengthening the
-                // buffer, which is why this arm is the only one that moves.
+                // SAFETY: only this arm lengthens the parsed buffer, so the next
+                // position is valid; a transformation leaves it unchanged.
                 unsafe {
                     self.rendered_cursor.move_right_unchecked_by(1);
                 }
@@ -189,12 +165,9 @@ impl Composition {
         }
     }
 
-    /// Removes the character immediately before each cursor, parsing the
-    /// removal under `keymap` and rendering it under `tone_placement`.
-    ///
-    /// The raw buffer removes one keystroke, while the parsed buffer removes
-    /// the corresponding parsed character. A transformed input may therefore
-    /// affect the parsed buffer differently from the raw buffer.
+    /// Removes the character immediately before each cursor, parsing under
+    /// `keymap`, rendering under `tone_placement`. Each side reports whether it
+    /// removed anything; a transformation can make the two buffers diverge.
     #[inline]
     pub fn backspace<KM: Keymap>(
         &mut self,
@@ -220,11 +193,7 @@ impl Composition {
     }
 
     /// Removes the character at each cursor without moving either cursor,
-    /// parsing the removal under `keymap` and rendering it under
-    /// `tone_placement`.
-    ///
-    /// The character immediately following the cursor is removed, so the
-    /// cursor remains at the same position.
+    /// parsing under `keymap`, rendering under `tone_placement`.
     #[inline]
     pub fn delete<KM: Keymap>(
         &mut self,
@@ -251,30 +220,23 @@ impl Composition {
 
     // ------------------------------------------------------------ positions
 
-    /// The rendered cursor position, in Unicode characters from the start.
-    ///
-    /// This is the caret a frontend shows: the position inside the text
-    /// `write_rendered_to` produces. The raw buffer has its own cursor, reported
-    /// by [`Self::raw_cursor`], because the two buffers are not the same
-    /// length.
+    /// The rendered cursor position, in characters from the start — the caret a
+    /// frontend shows. [`Self::raw_cursor`] reports the raw buffer's own
+    /// position, since the two buffers differ in length.
     #[inline(always)]
     pub const fn rendered_cursor(&self) -> usize {
         self.rendered_cursor.get()
     }
 
-    /// The raw cursor position, in keystrokes from the start of the raw buffer.
-    ///
-    /// The counterpart to [`Self::rendered_cursor`] for the buffer that records what
-    /// was actually typed, which is the buffer editing operations act on.
+    /// The raw cursor position, in keystrokes from the start: the buffer the
+    /// editing operations act on.
     #[inline(always)]
     pub const fn raw_cursor(&self) -> usize {
         self.raw_cursor.get()
     }
 
     /// Whether the buffered syllable spells a complete, valid Vietnamese
-    /// syllable.
-    ///
-    /// See [`Syllable::is_valid`] for what "valid" means.
+    /// syllable; see [`Syllable::is_phonotactically_valid`].
     #[inline]
     pub fn is_phonotactically_valid(&self) -> bool {
         self.rendered.is_phonotactically_valid()
@@ -282,25 +244,17 @@ impl Composition {
 
     // ----------------------------------------------------------- rendering
 
-    /// Renders the current parsed composition under `tone_placement`.
-    ///
-    /// While the syllable is valid, rendering produces its Vietnamese form.
-    /// Once parsing enters the dead state, rendering preserves the dead
-    /// buffer's characters verbatim.
-    /// The keystrokes as this composition parses them, as a fresh [`String`].
-    ///
-    /// While the parse succeeds this is the spelled-out syllable; once it has
-    /// failed the raw buffer comes back verbatim.
+    /// Renders the parsed composition under `tone_placement`: the Vietnamese
+    /// syllable while parsing succeeds, the dead buffer verbatim once it fails.
     #[inline]
     pub fn rendered(&self, tone_placement: TonePlacement) -> SyllableChars {
         self.rendered.to_chars(tone_placement)
     }
 
-    /// Writes the parsed word into `output`, replacing its contents: the
-    /// rendered syllable under `tone_placement` while parsing, the verbatim
-    /// buffer once dead.
+    /// Writes the rendered word into `output`, replacing its contents: the
+    /// Vietnamese syllable while parsing, the verbatim buffer once dead.
     ///
-    /// The allocation-free counterpart to [`Self::parsed`], for a caller that
+    /// The allocation-free counterpart to [`Self::rendered`], for a caller that
     /// writes on every keystroke and can reuse one buffer.
     #[inline]
     pub fn write_rendered_to(&self, tone_placement: TonePlacement, output: &mut String) {

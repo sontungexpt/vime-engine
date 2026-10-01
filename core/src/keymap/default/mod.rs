@@ -1,10 +1,6 @@
-//! Configuration-driven default keymaps, backed by compact [`KeyMask`] lookups.
-//!
-//! `[KeyMask::Compact]` — dense layouts (Telex, VNI): a 64-bit window `[base, base+64)`,
-//! probed with a single `shrx`. `[KeyMask::Full]` — sparse layouts (VIQR, custom): a
-//! split 128-bit mask (low 64-bit for ASCII 0..63, high for 64..127). `KeyMask` is
-//! `#[repr(u8)]` + 64-bit payloads = exactly 16 bytes; `DefaultKeymap` fits one
-//! 64-byte L1 cache line.
+//! Configuration-driven default keymaps backed by compact [`KeyMask`] lookups:
+//! a 64-bit window for dense layouts (Telex, VNI), a split 128-bit ASCII mask
+//! for sparse ones (VIQR, custom).
 
 mod config;
 mod telex;
@@ -29,10 +25,8 @@ pub enum KeyMask {
 impl KeyMask {
     pub const EMPTY: Self = Self::Compact { mask: 0, base: 0 };
 
-    /// Tests whether `key` is present in the mask.
-    ///
-    /// Compact uses `wrapping_sub` to reject out-of-range and non-ASCII keys without
-    /// an explicit ASCII check; Full checks the halves (a failed `key < 128` → false).
+    /// Whether `key` is present. Compact's `wrapping_sub` rejects out-of-range
+    /// and non-ASCII keys without an explicit check; `Full` checks both halves.
     #[inline(always)]
     pub const fn contains(&self, key: char) -> bool {
         let k = key.to_ascii_lowercase() as u32;
@@ -55,10 +49,8 @@ impl KeyMask {
     }
 }
 
-/// Builds the cheapest [`KeyMask`] for a set of ASCII keys.
-///
-/// Spread `min..max < 64` → [`KeyMask::Compact`]; otherwise [`KeyMask::Full`].
-/// Keys are lowercased when folded in.
+/// Builds the cheapest [`KeyMask`] for a set of ASCII keys: `Compact` when the
+/// spread fits in 64, otherwise `Full`. Keys are lowercased when folded in.
 macro_rules! build_mask {
     ($items:expr, $count:expr, |$item:ident| $key:expr) => {{
         let n = $count;
@@ -111,9 +103,8 @@ macro_rules! build_mask {
     }};
 }
 
-/// Configuration-driven key mapping backed by `KeyMask` lookups, declared via [`Rules`].
-///
-/// ASCII keys only — Unicode keys need a custom [`Keymap`].
+/// Key mapping from a declarative [`Rules`]; ASCII keys only — Unicode keys
+/// need a custom [`Keymap`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DefaultKeymap<'a> {
     rules: &'a Rules<'a>,

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-// ------------------- Error -------------------
+// Parse error returned by every `Onset` parser.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OnsetParseError;
@@ -13,7 +13,7 @@ impl std::fmt::Display for OnsetParseError {
 
 impl std::error::Error for OnsetParseError {}
 
-/// Syllable Onset — the initial consonant cluster of a Vietnamese syllable.
+/// The syllable's onset: its initial consonant(s), or `None`.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Onset {
@@ -48,7 +48,7 @@ pub enum Onset {
     P,
     Ph,
 
-    // Special case need considered when implement logic
+    // Special case: a pending `q` can only continue as `qu` (see the builder).
     Qu,
 
     R,
@@ -78,9 +78,11 @@ impl Onset {
         self as u8
     }
 
+    /// The `Onset` with this id, or `None` if `id` is out of range.
     #[inline(always)]
     pub const fn from_id(id: u8) -> Option<Self> {
-        // Safety: real discriminants are contiguous from 0 through MAX_ID.
+        // SAFETY: discriminants are contiguous `0..COUNT`, so the guard admits
+        // only real variants.
         if id < Self::COUNT as u8 {
             Some(unsafe { std::mem::transmute::<u8, Self>(id) })
         } else {

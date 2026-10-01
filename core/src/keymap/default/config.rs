@@ -28,9 +28,7 @@ impl<'a> Rules<'a> {
         let mut shape_mask: u128 = 0;
         let mut stroke_mask: u128 = 0;
 
-        // Validate tone keys:
-        // - Must be ASCII.
-        // - Each key must map to at most one tone.
+        // Tone keys: ASCII, each mapping to at most one tone.
         let mut i = 0;
         while i < tones.len() {
             let key = tones[i].key;
@@ -49,10 +47,8 @@ impl<'a> Rules<'a> {
             i += 1;
         }
 
-        // Validate shape keys:
-        // - Must be ASCII.
-        // - Must not collide with a tone key.
-        // - A key may not assign multiple shapes to the same vowel.
+        // Shape keys: ASCII, no collision with a tone key, and at most one
+        // shape per vowel.
         let mut i = 0;
         while i < shapes.len() {
             let key = shapes[i].key;
@@ -80,11 +76,8 @@ impl<'a> Rules<'a> {
             i += 1;
         }
 
-        // Validate stroke keys:
-        // - Must be ASCII.
-        // - Must be unique.
-        // - Must not collide with a tone key.
-        // - Must not collide with a shape key.
+        // Stroke keys: ASCII, unique, and colliding with neither tone nor
+        // shape keys.
         let mut i = 0;
         while i < strokes.len() {
             let key = strokes[i];
@@ -119,7 +112,7 @@ impl<'a> Rules<'a> {
     }
 }
 
-/// Local declarative macro for constructing [`Rules`] within `keymap::default`.
+/// Builds a [`Rules`] for the layouts in `keymap::default`.
 macro_rules! rules {
     (
         tones: [ $( $tone:expr ),* $(,)? ],

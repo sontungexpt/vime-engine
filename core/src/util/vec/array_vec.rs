@@ -8,37 +8,12 @@ use std::{
     slice::SliceIndex,
 };
 
-/// An inline, fixed-capacity growable sequence.
+/// An inline, fixed-capacity sequence: `N` elements stored in the struct itself,
+/// no allocation, panicking at capacity.
 ///
-/// The storage lives *inside the struct* — there is no heap allocation and no
-/// pointer indirection. `ArrayVec` is `Copy` exactly because its payload is
-/// embedded: moving or cloning the value copies the whole buffer wholesale,
-/// and the type size is the constant `size_of::<[MaybeUninit<T>; N]>() +
-/// size_of::<usize>()`, regardless of `len`.
-///
-/// It holds at most `N` elements and tracks the live length separately. The
-/// backing buffer starts uninitialized (`[MaybeUninit<T>; N]`), so `T` needs
-/// neither `Default` nor a placeholder value; only the slots in `0..len` are
-/// ever observed.
-///
-/// ## The `T: Copy` bound
-///
-/// `T` is required to be [`Copy`], and that boundary is structural, not
-/// incidental:
-///
-/// - `push`/`insert`/`remove` move elements with raw `ptr::copy`, recreating
-///   duplicate (and orphaned) slots until `len` catches up. `Copy` guarantees
-///   such bytewise duplication is *observationally identical* to a normal
-///   move: no `Drop` ever runs on a slot the buffer gives up on, so no value
-///   is destroyed twice or leaked.
-/// - `pop`/`remove` hand out values by bitwise read without invalidating the
-///   slot in `buf`; a `Drop`-owning `T` would be dropped again when the
-///   buffer is someday reused. `Copy` rules that out.
-/// - Because element copies are free of side effects, `ArrayVec` can itself
-///   derive [`Copy`] (and `Clone`) and be returned cheaply by value.
-///
-/// Use a different container (e.g. `Vec<T>` or a `Box`ed array) when the
-/// element type cannot be `Copy`.
+/// `T: Copy` is structural: `push`/`insert`/`remove` move elements with raw
+/// `ptr::copy`, and the bitwise reads of `pop`/`remove` do not invalidate the
+/// slot, so a `Drop` type could be dropped twice or leaked.
 #[derive(Clone, Copy)]
 pub struct ArrayVec<T, const N: usize>
 where
@@ -56,9 +31,7 @@ impl<T: Copy, const N: usize> Default for ArrayVec<T, N> {
 }
 
 impl<T: Copy, const N: usize> ArrayVec<T, N> {
-    /// Creates an empty `ArrayVec`.
-    ///
-    /// The backing storage is uninitialized and no heap allocation occurs.
+    /// Creates an empty `ArrayVec`; nothing is allocated.
     #[inline(always)]
     pub const fn new() -> Self {
         Self {
@@ -87,17 +60,16 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
     /// Returns a slice containing the live elements.
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        // SAFETY: only slots `0..len` are ever written, each initialized
-        // exactly once before `len` grows to cover it, and `len` never
-        // exceeds N. `MaybeUninit<T>` has the same layout/alignment as `T`.
+        // SAFETY: only `0..len` is ever written, each slot exactly once, and
+        // `len <= N`; `MaybeUninit<T>` has `T`'s layout and alignment.
         unsafe { std::slice::from_raw_parts(self.buf.as_ptr().cast::<T>(), self.len) }
     }
 
     /// Returns a mutable slice containing the live elements.
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        // SAFETY: the `Deref` invariant also holds here: `len` never exceeds
-        // N and every covered slot is initialized.
+        // SAFETY: as `as_slice` — every slot in `0..len` is initialized and
+        // `len` never exceeds `N`.
         unsafe { std::slice::from_raw_parts_mut(self.buf.as_mut_ptr().cast::<T>(), self.len) }
     }
 
@@ -112,24 +84,17 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
         unsafe { self.push_unchecked(value) };
     }
 
-    /// Appends `value` at the end without checking that there is room.
-    ///
-    /// For a caller that has already established `len < N` — one that knows the
-    /// buffer has space, so a full-buffer panic would be dead weight. `SmallVec`
-    /// is the case that motivates it: its own guard decides whether to push
-    /// inline or spill, so re-checking inside the push repeats a comparison the
-    /// branch already made.
+    /// Appends `value` without checking for room.
     ///
     /// # Safety
     ///
-    /// `self.len()` must be less than `N`. Writing into a slot at or past the
-    /// end of the backing array is undefined behaviour, and leaving `len`
-    /// claiming an uninitialized slot makes every later read unsound.
+    /// `self.len()` must be less than `N`; otherwise the write lands outside
+    /// the backing array and `len` claims an uninitialized slot.
     #[inline(always)]
     pub unsafe fn push_unchecked(&mut self, value: T) {
         debug_assert!(self.len < N, "push_unchecked on a full ArrayVec");
-        // SAFETY: the contract says `len < N`, so slot `len` is inside the
-        // backing array and uninitialized, and a raw `T` write lands there.
+        // SAFETY: the contract gives `len < N`, so slot `len` is inside the
+        // array and free for the raw write.
         unsafe {
             self.buf.as_mut_ptr().cast::<T>().add(self.len).write(value);
         }
@@ -138,11 +103,8 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
 
     /// Appends `value` if there is room, handing it back if there is not.
     ///
-    /// The recoverable counterpart to [`Self::push`], for a caller that treats a
-    /// full buffer as an outcome rather than a bug. On failure the buffer is
-    /// left exactly as it was and `value` comes back, so it can be routed
-    /// somewhere else instead of unwinding the stack. `T` is `Copy`, so handing
-    /// it back costs nothing.
+    /// The recoverable counterpart to [`Self::push`]: on failure the buffer is
+    /// unchanged and `value` comes back to be routed elsewhere.
     ///
     /// ```
     /// use vime_engine::util::vec::ArrayVec;
@@ -173,9 +135,8 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
             return None;
         }
         self.len -= 1;
-        // SAFETY: `len` was non-zero and has been decremented, so slot `len`
-        // was initialized by a matching push/insert. `T: Copy` makes the raw
-        // read a plain bitwise copy.
+        // SAFETY: `len` was non-zero, so after the decrement slot `len` was
+        // initialized by a matching push; `T: Copy` makes the read a plain copy.
         Some(unsafe { self.buf.as_ptr().cast::<T>().add(self.len).read() })
     }
 
@@ -197,25 +158,22 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
     }
 
     /// Inserts `value` at `index` without checking either bound, shifting the
-    /// tail right by one.
+    /// tail right.
     ///
     /// # Safety
     ///
-    /// `index` must be at most `self.len()`, and `self.len()` must be less than
-    /// `N`. A `index > len` makes the shift read uninitialized slots, and a full
-    /// buffer makes the shift write past the end of the array; either is
-    /// undefined behaviour.
+    /// `index` must be at most `self.len()` and `self.len()` less than `N`;
+    /// otherwise the shift reads uninitialized slots or writes past the end
+    /// of the array.
     #[inline]
     pub unsafe fn insert_unchecked(&mut self, index: usize, value: T) {
         debug_assert!(
             index <= self.len && self.len < N,
             "insert_unchecked out of bounds on a full ArrayVec"
         );
-        // SAFETY: the contract says `index <= len` and `len < N`, so the copy
-        // reads the `len - index` initialized slots `index..len` and writes them
-        // to `index+1..=len`, which stays within the buffer; `ptr::copy` permits
-        // overlap. Slot `index` is free after the shift, so the raw `T` write is
-        // sound.
+        // SAFETY: the contract gives `index <= len < N`, so the overlapping
+        // `ptr::copy` stays inside the buffer and frees slot `index` for the
+        // raw write.
         unsafe {
             let at = self.buf.as_mut_ptr().add(index);
             core::ptr::copy(at, at.add(1), self.len - index);
@@ -233,11 +191,11 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
             "removal index ({index}) out of bounds (len = {})",
             self.len
         );
-        // SAFETY: `index < len` was checked, so this slot holds an initialized
-        // value; `T: Copy` makes the raw read a plain bitwise copy.
+        // SAFETY: `index < len` holds an initialized value; `T: Copy` makes the
+        // read a plain bitwise copy.
         let removed = unsafe { self.buf.as_ptr().cast::<T>().add(index).read() };
-        // SAFETY: `index < len`, so `index + 1..len` covers only initialized
-        // slots and the destination `index..=len - 1` stays within the buffer.
+        // SAFETY: `index < len`, so the copy reads only initialized slots and
+        // stays within the buffer.
         unsafe {
             let at = self.buf.as_mut_ptr().add(index);
             core::ptr::copy(at.add(1), at, self.len - index - 1);
@@ -252,11 +210,9 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
         self.len = 0;
     }
 
-    /// Appends every element of `values`; panics when the array is full.
+    /// Appends every element of `values`; panics if they do not all fit.
     ///
-    /// Uses a single raw copy up front instead of repeated `push` calls. Works
-    /// on any `&[T]`, which deref coercion also makes available for
-    /// `&ArrayVec<T, N>`.
+    /// One raw copy instead of repeated `push`es.
     #[inline(always)]
     pub fn extend_from_slice(&mut self, values: &[T]) {
         let count = values.len();
@@ -264,10 +220,9 @@ impl<T: Copy, const N: usize> ArrayVec<T, N> {
             count <= N - self.len,
             "ArrayVec overflow: cannot extend with {count} elements, capacity is {N}"
         );
-        // SAFETY: `self.len + count <= N` was checked, so the destination range
-        // `self.len..self.len + count` sits inside the backing array and is
-        // uninitialized. The whole tail of `values` is copied and `len` is then
-        // grown to cover it, so every written slot is observed exactly once.
+        // SAFETY: `self.len + count <= N` was checked, so the destination is
+        // inside the array and uninitialized; `len` then grows to cover the
+        // copied slots exactly once.
         unsafe {
             core::ptr::copy_nonoverlapping(
                 values.as_ptr(),
@@ -389,9 +344,8 @@ impl<T: Copy, const N: usize> Extend<T> for ArrayVec<T, N> {
         let mut iter = iter.into_iter();
         let (lower, upper) = iter.size_hint();
 
-        // Fail fast when the iterator already advertises overflow instead of
-        // panicking mid-write; the guarded drain below then only fires for a
-        // hint-lying iterator.
+        // Fail fast on an advertised overflow rather than panicking mid-write;
+        // the guarded drain below only fires for a hint-lying iterator.
         if let Some(max) = upper {
             assert!(
                 max <= N - self.len,
@@ -401,36 +355,31 @@ impl<T: Copy, const N: usize> Extend<T> for ArrayVec<T, N> {
 
         let orig_len = self.len;
         let space = N - orig_len;
-        // SAFETY: `len` never exceeds `N`, so `orig_len` addresses a slot
-        // inside the array, and the free space after it is exactly `space`.
+        // SAFETY: `len <= N`, so `orig_len` addresses a slot in the array and
+        // the free space after it is exactly `space`.
         let start = unsafe { self.buf.as_mut_ptr().cast::<T>().add(orig_len) };
         let mut ptr = start;
 
-        // SAFETY of the write block:
-        // - `start` points at the first free slot and `space` counts the
-        //   slots left in the backing array, so `ptr` never leaves it.
-        // - The trust loop writes at most `trusted = lower.min(space)` items
-        //   with no per-item overflow check; the drain refuses to write once
-        //   `space_left == 0`. Every write therefore lands in an
-        //   uninitialized slot and no slot is written twice. `T: Copy` makes
-        //   the transfers free of `Drop` effects.
+        // SAFETY of the write block: `ptr` stays within the free tail
+        // `start..start + space`, every write lands in an uninitialized slot
+        // exactly once (trust loop capped at `space`, drain guarded by
+        // `space_left`), and `T: Copy` keeps the transfers drop-free.
         let trusted = lower.min(space);
         let mut left = trusted;
         while left > 0 {
             match iter.next() {
                 Some(value) => unsafe {
-                    // SAFETY: `left` counts down from `trusted <= space`, so at
-                    // most `space` writes land, filling exactly the free slots
-                    // past `orig_len`. No slot is written twice.
+                    // SAFETY: `left` counts down from `trusted <= space`, so
+                    // the writes fill exactly the free slots past `orig_len`,
+                    // once each.
                     ptr.write(value);
                     ptr = ptr.add(1);
                 },
                 None => {
-                    // The iterator produced fewer items than its hint promised;
-                    // `ptr - start` already counts what was actually written.
-                    // SAFETY: both pointers address the same array and `ptr`
-                    // never precedes `start`, so the distance is non-negative
-                    // and at most `N`.
+                    // The iterator undersold its hint; `ptr - start` already
+                    // counts what was written. SAFETY: both pointers address
+                    // the same array with `ptr >= start`, so the distance is
+                    // non-negative and at most `N`.
                     self.len = orig_len + unsafe { ptr.offset_from(start) } as usize;
                     return;
                 }
@@ -444,9 +393,8 @@ impl<T: Copy, const N: usize> Extend<T> for ArrayVec<T, N> {
             if space_left == 0 {
                 panic!("ArrayVec overflow: cannot extend, capacity is {N}");
             }
-            // SAFETY: the `space_left == 0` guard above runs first, so this
-            // write targets a free slot and `space_left` counts down to zero
-            // exactly as the space runs out.
+            // SAFETY: the `space_left == 0` guard runs first, so this write
+            // targets a free slot and the count-down matches the space left.
             unsafe {
                 ptr.write(value);
                 ptr = ptr.add(1);
@@ -469,11 +417,8 @@ impl<T: Copy, const N: usize> FromIterator<T> for ArrayVec<T, N> {
 
 /// Owning iterator over an [`ArrayVec`]'s live elements.
 ///
-/// It holds the buffer **by value** instead of pointing into an `ArrayVec`
-/// that has already been dropped. That is what makes it sound: `ArrayVec`
-/// stores its elements inline, in the struct itself, so an iterator that only
-/// kept `start`/`end` pointers into it would dangle the moment the temporary
-/// was dropped at the end of the `into_iter()` statement.
+/// It owns the buffer rather than pointing into an `ArrayVec`: the elements
+/// live inside the struct, so pointers into a dropped temporary would dangle.
 pub struct IntoIter<T: Copy, const N: usize> {
     buf: [MaybeUninit<T>; N],
     front: usize,
@@ -497,9 +442,8 @@ impl<T: Copy, const N: usize> Iterator for IntoIter<T, N> {
             return None;
         }
 
-        // SAFETY: `front < back <= len`, and every slot in `0..len` was
-        // initialized before `len` was advanced to cover it. `T: Copy`, so
-        // reading the value out and forgetting the slot cannot drop it twice.
+        // SAFETY: `front < back <= len`, slots `0..len` are initialized, and
+        // `T: Copy` makes the read a non-dropping copy.
         let value = unsafe { self.buf.get_unchecked(self.front).assume_init_read() };
         self.front += 1;
 
@@ -532,8 +476,8 @@ impl<T: Copy, const N: usize> DoubleEndedIterator for IntoIter<T, N> {
             return None;
         }
 
-        // SAFETY: as in `next`, but from the back. `back` is exclusive, so the
-        // slot at `back - 1` is still inside the initialized `0..len` prefix.
+        // SAFETY: as in `next`, from the back: `back` is exclusive, so
+        // `back - 1` is still inside the initialized `0..len` prefix.
         self.back -= 1;
         Some(unsafe { self.buf.get_unchecked(self.back).assume_init_read() })
     }
@@ -568,18 +512,14 @@ impl<T: Copy, const N: usize> From<[T; N]> for ArrayVec<T, N> {
 
 /// The elements a conversion into an `ArrayVec` could not take, handed back.
 ///
-/// Named for the reason the conversion fails: a fixed-capacity buffer has no
-/// room, not because anything is wrong with the elements themselves. It is the
-/// error type of the [`TryFrom`] impls below.
+/// Named for the reason it fails: a fixed-capacity buffer simply has no room.
 pub type TooLong<T> = Vec<T>;
 
 /// Adopts an [`ArrayVec`] of any capacity, handing the elements back if it is
 /// too long.
 ///
-/// The fallible conversion, and the only one into a fixed-capacity buffer: a
-/// `VecLike` may hold more than `N` elements — a spilled
-/// [`SmallVec`](super::SmallVec) is the reachable case — so there is no
-/// `From<&V>` here to panic with.
+/// Fallible because a source `VecLike` may hold more than `N` elements, so
+/// there is no panicking `From<&V>`.
 impl<T: Copy, const M: usize, const N: usize> TryFrom<&ArrayVec<T, M>> for ArrayVec<T, N> {
     type Error = TooLong<T>;
 
@@ -595,10 +535,8 @@ impl<T: Copy, const M: usize, const N: usize> TryFrom<&ArrayVec<T, M>> for Array
 }
 
 /// Adopts a [`SmallVec`](super::SmallVec) of any capacity, handing the elements
-/// back if it is too long.
-///
-/// The case that makes a fallible conversion necessary at all: a `SmallVec` that
-/// has spilled to the heap holds more than a fixed-capacity buffer can take.
+/// back if it is too long — a spilled one can exceed `N`, which is why the
+/// conversion is fallible.
 impl<T: Copy, const M: usize, const N: usize> TryFrom<&super::SmallVec<T, M>> for ArrayVec<T, N> {
     type Error = TooLong<T>;
 

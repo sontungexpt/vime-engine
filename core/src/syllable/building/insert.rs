@@ -1,8 +1,6 @@
 //! Cursor insertion path: `BuildingSyllable::insert` and its literal helpers.
-//!
-//! `index` addresses the combined `onset ++ nucleus ++ coda`. Appending
-//! delegates to [`push`](super::push). A transform at a vowel position only
-//! considers vowels to its left.
+//! `index` addresses `onset ++ nucleus ++ coda`; appending delegates to
+//! [`push`], and a transform at a vowel sees only vowels to its left.
 
 use super::*;
 use crate::{
@@ -156,9 +154,8 @@ impl BuildingSyllable {
             self.onset.len()
         );
 
-        // Keep `i` in the nucleus after `g` so a following vowel can resolve
-        // the prefix as `gi` + V. Set the cached nucleus state directly because
-        // this path bypasses `try_update_nucleus`.
+        // Keep `i` in the nucleus after `g` so a later vowel can resolve `gi` + V;
+        // `nucleus_state` is set directly because this path bypasses `try_update_nucleus`.
         if is_i_ignore_case(key) {
             // `i` follows the one-character G onset, before any nucleus vowel.
             let should_move_i_to_nucleus =
@@ -188,8 +185,7 @@ impl BuildingSyllable {
         false
     }
 
-    /// Inserts a literal vowel into the nucleus; transforms are already handled
-    /// by `insert()`.
+    /// Inserts a literal vowel into the nucleus; transforms are already handled by `insert()`.
     #[inline]
     fn insert_vowel(&mut self, vowel_index: usize, vowel: Vowel) -> bool {
         let len = self.nucleus.len();
@@ -208,24 +204,19 @@ impl BuildingSyllable {
             return self.push_vowel(vowel);
         }
 
-        // Appends returned above, so this interior insertion has an existing
-        // nucleus.
+        // Appends returned above, so the nucleus is non-empty here.
 
         // Two pre-toned vowels conflict (`á` + `ắ`); a pre-toned and an
         // unmarked vowel can be combined (`á` + `a`).
         let new_tone = match (self.tone, vowel.tone()) {
-            // No tone yet: adopt the incoming tone.
             (Tone::Flat, incoming) => incoming,
 
-            // The incoming vowel is unmarked: keep the syllable tone.
             (current, Tone::Flat) => current,
 
-            // Two non-flat tones conflict.
             (_, _) => return false,
         };
 
-        // Inserting `i` at the start of a G onset's nucleus attaches it to the
-        // onset, forming `gi`.
+        // Inserting `i` before a G onset's vowels attaches it to the onset, forming `gi`.
         let should_form_gi =
             vowel_index == 0 && self.onset_kind == Onset::G && vowel.base() == BaseVowel::I;
 

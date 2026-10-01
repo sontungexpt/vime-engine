@@ -16,17 +16,10 @@ pub use building::{EditEffect, SyllableBuildError, TransformTarget};
 #[cfg(test)]
 mod tests;
 
-/// A syllable's rendered characters — the form presented to the user — as a
-/// [`VecLike`] container.
-///
-/// Named after the *rendered* form because this module also keeps characters
-/// that are merely recorded. [`DeadSyllable`] retains the raw input after a
-/// parse fails, which is not the rendered form represented here.
-///
-/// [`BuildingSyllable::MAX_LEN`] covers the longest syllable the parser can
-/// build. One additional slot provides a small inline margin for dead input
-/// following an accepted prefix. Longer input spills to the heap, so this is
-/// an allocation fast path, not a length limit.
+/// The syllable's rendered characters — the form shown to the user — as a
+/// [`VecLike`](crate::util::vec::VecLike) container sized for the longest
+/// parseable syllable plus one slot of dead input; longer input spills to
+/// the heap, so this is an allocation fast path, not a length limit.
 pub type SyllableChars = SmallVec<char, { BuildingSyllable::MAX_LEN + 1 }>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,15 +37,9 @@ impl Default for Phase {
     }
 }
 
-/// Incremental Vietnamese syllable buffer with a two-phase lifecycle:
-/// parsing (building) first, falling back to a verbatim (dead) buffer once
-/// the input can no longer form a valid syllable.
-///
-/// A [`Syllable`] owns the incremental syllable parsing state and nothing
-/// else, which is why it is not generic: the [`Keymap`] that decodes transform
-/// keys and the [`TonePlacement`] scheme that picks the tone-bearing nucleus
-/// vowel are configuration rather than input, so the operations that need them
-/// take them as arguments, the keymap as a generic parameter.
+/// Incremental Vietnamese syllable buffer: parses input (building) until it
+/// can no longer form a valid syllable, then records it verbatim (dead).
+/// Keymap and tone placement are passed to the operations that need them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Syllable {
     phase: Phase,
@@ -62,9 +49,6 @@ impl Syllable {
     // --------------------------------------------------------- constructor
 
     /// Creates an empty syllable in the building phase.
-    ///
-    /// The keymap and tone-placement scheme are not captured here: they are
-    /// supplied to the operations that need them.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -95,21 +79,9 @@ impl Syllable {
         self.len() == 0
     }
 
-    /// Whether the buffer spells a complete, orthographically valid Vietnamese
-    /// syllable — the question a frontend asks to decide whether the word it is
-    /// showing is real.
-    ///
-    /// Two things have to hold. The syllable must still be in the building
-    /// phase, because a dead buffer is verbatim input and not a word at all; and
-    /// the phonotactic rules must accept its onset / nucleus / coda / tone, with
-    /// a nucleus present so that a bare onset is not mistaken for a word.
-    ///
-    /// This asks the validator directly rather than going through
-    /// [`BuildingSyllable::validate`], whose incomplete-nucleus guard reads the
-    /// cached `nucleus_state`. That cache only tracks nuclei of two vowels or
-    /// more — a one-vowel nucleus is accepted as soon as it is pushed, without
-    /// consulting it — so it answers "may this edit stand?", not "is this word
-    /// finished?".
+    /// Whether the buffer is a complete, orthographically valid Vietnamese
+    /// syllable: still building (a dead buffer is verbatim input, not a word)
+    /// and accepted by the phonotactic rules with a nucleus present.
     #[inline]
     pub fn is_phonotactically_valid(&self) -> bool {
         match &self.phase {
@@ -118,8 +90,7 @@ impl Syllable {
         }
     }
 
-    /// Resets the syllable to an empty building state, discarding whatever the
-    /// keymap and tone placement had accepted.
+    /// Resets the syllable to an empty building state.
     #[inline]
     pub fn reset(&mut self) {
         self.phase = Phase::default();
@@ -127,9 +98,8 @@ impl Syllable {
 
     // ------------------------------------------------------ part access
 
-    // Every accessor below yields `None` once the syllable is dead: a dead
-    // buffer holds characters verbatim, with no onset/nucleus/coda split left
-    // to report. See `write_to` for reading them in that phase.
+    // Once dead, every accessor below returns `None`: the buffer holds
+    // verbatim characters with no onset/nucleus/coda split. See `write_to`.
 
     /// The onset characters, `None` once the syllable has fallen back to dead.
     #[inline(always)]
@@ -178,11 +148,9 @@ impl Syllable {
 
     // ------------------------------------------------------- rendering
 
-    /// Renders the syllable as Vietnamese characters, either precomposed
-    /// (building) or as the verbatim dead-buffer contents.
-    ///
-    /// `tone_placement` only decides which nucleus vowel carries the tone mark,
-    /// so it matters on the building path alone.
+    /// Renders the syllable as Vietnamese characters, precomposed (building)
+    /// or verbatim (dead). `tone_placement` only matters on the building path,
+    /// where it picks the vowel that carries the tone mark.
     #[inline(always)]
     pub fn to_chars(&self, tone_placement: TonePlacement) -> SyllableChars {
         match &self.phase {
@@ -191,11 +159,9 @@ impl Syllable {
         }
     }
 
-    /// Appends the syllable to `output` as Vietnamese characters, either
-    /// precomposed (building) or as the verbatim dead-buffer contents.
-    ///
-    /// Appends rather than replaces, and unlike [`Self::to_chars`] needs no
-    /// intermediate `Vec` on the dead path.
+    /// Appends the syllable to `output` as Vietnamese characters, precomposed
+    /// (building) or verbatim (dead). Appends rather than replaces, and avoids
+    /// the intermediate buffer [`Self::to_chars`] builds.
     #[inline(always)]
     pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
         match &self.phase {
@@ -206,8 +172,7 @@ impl Syllable {
         }
     }
 
-    /// Returns a lazy Iterator over the rendered characters of the syllable,
-    /// whether in the building phase (with precomposed tones) or verbatim dead phase.
+    /// Iterates the rendered characters, precomposed (building) or verbatim (dead).
     #[inline]
     pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
         use crate::syllable::iter::SyllableCharsIter;
@@ -277,13 +242,9 @@ impl Syllable {
         }
     }
 
-    /// Removes the character at `index` from the syllable.
-    ///
-    /// Transactional on the building path: a deletion that leaves the syllable
-    /// invalid is rolled back and the builder keeps its previous contents. On
-    /// the dead path it is the reverse — once every character is accepted
-    /// again, the buffer is re-parsed under `keymap` and the building phase
-    /// resumes.
+    /// Removes the character at `index`. On the building path an invalidating
+    /// deletion is rolled back; on the dead path, once every character is
+    /// accepted again the buffer is re-parsed under `keymap` and building resumes.
     pub(crate) fn remove<KM: Keymap>(
         &mut self,
         keymap: &KM,
@@ -300,7 +261,6 @@ impl Syllable {
                             return EditEffect::StructurallyChanged;
                         }
                     }
-                    // Every character parsed cleanly: resume building.
                     self.phase = Phase::Building(building);
                 }
                 EditEffect::StructurallyChanged

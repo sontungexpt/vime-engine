@@ -1,24 +1,8 @@
-//! Remove-path corpus: `BuildingSyllable::remove` at an explicit index.
-//!
-//! The pipeline under test is:
-//!
+//! Remove corpus: `BuildingSyllable::remove` at an explicit index after a
+//! `base` push order, asserted for the effect/error and the final syllable.
 //! ```text
 //! Keymap + (base pushes) → BuildingSyllable → remove(at) → syllable
 //! ```
-//!
-//! The removal index is absolute over the concatenation
-//! `onset ++ vowels ++ coda`:
-//!
-//! * `at < onset.len()` deletes from the onset (`gi` degrades the `i` into a
-//!   vowel; every other legal onset cluster is down-closed, so generic onset
-//!   removals always succeed).
-//! * `at < onset.len() + vowels.len()` deletes a vowel, clearing the tone when
-//!   it targeted that exact vowel. A single vowel under a coda cannot go (an
-//!   empty nucleus is only legal coda-less), so that edit fails.
-//! * otherwise the cursor deletes from the coda.
-//!
-//! Every case asserts the returned `EditEffect`/`SyllableBuildError` **and**
-//! the final syllable — a rejected removal must leave the base untouched.
 
 use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
 
@@ -191,8 +175,7 @@ const CASES: &[RemoveCase] = &[
         ExpectedSyllable::consonant(Onset::G, &['g'])
     ),
     // ─────────────────── `gi` removal that breaks the nucleus ───────────────────
-    // `i` + a dead tail under a `gi` onset: `giao` minus `g` needs `i` in a
-    // nucleus that cannot host `io`, so the whole removal is rolled back.
+    // `giao` minus `g` needs somewhere to put the `i`; no legal `io` nucleus, so it rolls back.
     err_case!(
         &['g', 'i', 'o', 'a'],
         0,
@@ -204,8 +187,7 @@ const CASES: &[RemoveCase] = &[
             Tone::Flat
         )
     ),
-    // Same rejection when the nucleus is already full: `gioai` minus `g` has
-    // nowhere to put the `i`, and must not overflow the vowel buffer.
+    // Same rejection with a full nucleus: `gioai` minus `g` has nowhere to put the `i`.
     err_case!(
         &['g', 'i', 'o', 'a', 'i'],
         0,
@@ -276,8 +258,7 @@ const CASES: &[RemoveCase] = &[
         StructurallyChanged,
         ExpectedSyllable::consonant(Onset::T, &['t'])
     ),
-    // Removing the vowel the tone sits on drops the tone; removing a different
-    // vowel keeps it. For `oán` + a coda, the tone tracks the second vowel.
+    // Removing the tone's vowel drops the tone; for `oán` + a coda the tone tracks the second vowel.
     ok_case!(
         &['o', 'a', 'n', 's'],
         1,
@@ -375,8 +356,7 @@ fn remove_cases() {
     );
 }
 
-/// A realistic backspace sequence: deleting the coda, then demoting `gi`, then
-/// clearing an empty onset char, walks `gian` down to `ia` step by step.
+/// A backspace walk: drop the coda, then demote `gi`, taking `gian` down to `ia`.
 #[test]
 fn remove_sequence() {
     let telex = DefaultKeymap::telex();

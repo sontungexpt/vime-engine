@@ -12,7 +12,7 @@ impl std::fmt::Display for CodaParseError {
 
 impl std::error::Error for CodaParseError {}
 
-/// Syllable Coda — the final consonant cluster of a Vietnamese syllable.
+/// The syllable's coda: its final consonant (`p t c ch m n ng nh`) or `None`.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Coda {
@@ -42,15 +42,12 @@ impl Coda {
         self as u8
     }
 
-    /// The `Coda` with this id, or `None` if `id` is out of range.
-    ///
-    /// The round trip `from_id(id())` is total, which is what the
-    /// `coda_discriminants_are_contiguous` test pins.
+    /// The `Coda` with this id, or `None` if `id` is out of range. `from_id(id())`
+    /// round-trips, as the `coda_discriminants_are_contiguous` test pins.
     #[inline(always)]
     pub const fn from_id(id: u8) -> Option<Self> {
-        // SAFETY: the variants above are declared contiguously from 0 to
-        // `COUNT - 1`, so every `id` the guard admits is a real discriminant.
-        // The test named above is what makes that true rather than assumed.
+        // SAFETY: variants are contiguous `0..COUNT`, so the guard admits only
+        // real discriminants — that is what the test named above pins.
         if id < Self::COUNT as u8 {
             Some(unsafe { transmute(id as u8) })
         } else {
@@ -68,7 +65,7 @@ impl Coda {
         Self::is_possible_first_char(ch) || matches!(ch.to_ascii_lowercase(), 'g' | 'h')
     }
 
-    /// Primary const parser for ASCII byte slices.
+    /// Parses a coda from ASCII bytes; the `char` and `str` parsers delegate here.
     #[inline(always)]
     pub const fn from_bytes(bytes: &[u8]) -> Result<Self, CodaParseError> {
         match bytes {
@@ -91,7 +88,7 @@ impl Coda {
         }
     }
 
-    /// Direct parser from a character slice.
+    /// Parses a coda from a `char` slice; non-ASCII input is rejected.
     #[inline(always)]
     pub const fn from_chars(chars: &[char]) -> Result<Self, CodaParseError> {
         match chars {

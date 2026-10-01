@@ -6,9 +6,8 @@ use crate::util::vec::SmallVec;
 pub enum CharState {
     /// The character was part of the last valid parse.
     Accepted(char),
-    /// The character is not part of the accepted syllable: either it is the one
-    /// that failed to parse, or it was typed after the parse had already died
-    /// and so was never parsed at all.
+    /// The character that failed to parse, or one typed after the parse had
+    /// already died; either way it is not part of the accepted syllable.
     Rejected(char),
 }
 
@@ -28,52 +27,27 @@ impl CharState {
     }
 }
 
-/// A syllable buffer in the dead state.
-///
-/// When the building phase rejects a character, the accepted prefix it had
-/// produced so far is frozen into one of these, the rejecting character is
-/// appended, and
-/// [`Syllable`](crate::syllable::Syllable) switches
-/// state. From then on nothing is parsed: every further character is recorded
-/// verbatim, in order, until a removal revives parsing (see
-/// [`Self::is_all_accepted`]).
+/// A syllable buffer that no longer parses: the accepted prefix of the failed
+/// parse plus every character typed since, recorded verbatim until a removal
+/// revives parsing (see [`Self::is_all_accepted`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadSyllable {
     chars: SmallVec<CharState, INLINE>,
     rejected_count: usize,
 }
 
-/// How many characters the dead buffer holds before it spills to the heap.
-///
-/// A dead syllable is a whole word — a few characters of accepted prefix plus
-/// whatever the user typed after it — so twelve covers the ordinary case, and
-/// anything longer still works by spilling rather than by panicking.
+/// How many characters the dead buffer holds inline before spilling to the
+/// heap; longer input still works, it just allocates.
 const INLINE: usize = 12;
 
 impl DeadSyllable {
-    /// Builds a buffer in which every character of `valid_chars` is
-    /// `Accepted`, so the rejected count starts at zero.
-    ///
-    /// This is the accepted prefix of the parse that just failed; the
-    /// character that caused the rejection is not part of it and is expected to
-    /// be [`Self::push`]ed or [`Self::insert`]ed straight after.
-    ///
-    /// Takes the rendered prefix as a plain slice rather than any iterator, so
-    /// a caller with the characters in a container never has to build one. Both
-    /// call sites hand over what
-    /// [`BuildingSyllable::to_chars`](super::BuildingSyllable::to_chars)
-    /// returned — a [`SyllableChars`], which derefs to a slice — so this has no
-    /// idea which container they were held in.
-    ///
-    /// A prefix this short lands in the inline buffer, so the accepted
-    /// characters and the rejecting one that follows usually cost no allocation
-    /// at all.
+    /// Builds a buffer holding `valid_chars` as `Accepted`, the prefix of the
+    /// parse that just failed; the rejecting character follows via `push` or
+    /// `insert`. Takes a slice so callers need no iterator.
     #[inline]
     pub fn from_accepted(valid_chars: &[char]) -> Self {
-        // The conversion is `CharState`'s own, so an accepted prefix is just the
-        // slice mapped through `From<char>`. Collecting rather than pushing one
-        // at a time means the size hint is exact, so a prefix that outgrows the
-        // inline buffer spills once instead of per character.
+        // Collecting uses an exact size hint, so an over-long prefix spills to
+        // the heap once instead of per character.
         let chars: SmallVec<CharState, INLINE> = valid_chars
             .iter()
             .copied()
@@ -107,15 +81,9 @@ impl DeadSyllable {
         self.rejected_count
     }
 
-    /// Returns `true` when every buffered character is `Accepted`.
-    ///
-    /// This is the state a buffer is in between the parse failing and the
-    /// rejecting character being appended: the whole text came from the last
-    /// valid parse. A caller can exploit that by feeding the buffer to a fresh
-    /// builder and re-running the parse, which is how a removal that drops the
-    /// last rejected character revives parsing. Once anything is rejected the
-    /// text is verbatim, and re-parsing it would not reproduce what is
-    /// buffered.
+    /// Returns `true` when every buffered character is `Accepted` — the state
+    /// before the rejecting character is appended, where re-parsing the buffer
+    /// reproduces it, which is how a removal revives parsing.
     #[inline(always)]
     pub fn is_all_accepted(&self) -> bool {
         self.rejected_count == 0
@@ -128,29 +96,22 @@ impl DeadSyllable {
         &self.chars
     }
 
-    /// Yields the buffered characters, accepted and rejected alike, without
-    /// allocating an intermediate buffer.
+    /// Yields all buffered characters, accepted and rejected, with no intermediate buffer.
     #[inline(always)]
     pub fn iter_chars(&self) -> impl Iterator<Item = char> + '_ {
         self.chars.iter().map(|status| status.char())
     }
 
-    /// Collects the buffered characters, accepted and rejected alike, into a
-    /// [`SyllableChars`](super::SyllableChars) buffer — a
-    /// [`VecLike`](crate::util::vec::VecLike)
-    /// that holds a word inline. See also [`Self::write_to`], which writes the
-    /// same characters without an intermediate buffer at all.
+    /// Collects all buffered characters into a [`SyllableChars`];
+    /// see [`Self::write_to`] to write them with no intermediate buffer.
     #[inline(always)]
     pub fn to_chars(&self) -> SyllableChars {
         self.chars.iter().copied().map(CharState::char).collect()
     }
 
-    /// Appends the buffered characters to `output`, accepted and rejected
-    /// alike, in input order.
-    ///
-    /// Needs no intermediate buffer. Prefer it when the characters are only
-    /// being written somewhere; use [`Self::to_chars`] when they are wanted as
-    /// a value to keep.
+    /// Appends all buffered characters to `output` in input order, with no
+    /// intermediate buffer; prefer [`Self::to_chars`] when the characters are
+    /// wanted as a value to keep.
     #[inline(always)]
     pub fn write_to(&self, output: &mut String) {
         output.extend(self.iter_chars());
@@ -165,32 +126,25 @@ impl DeadSyllable {
         self.rejected_count = 0;
     }
 
-    /// Appends `input` as a `Rejected` character.
-    ///
-    /// Nothing is parsed: this records the character, so it is only correct to
-    /// call this on a buffer that is already dead.
+    /// Appends `input` as a `Rejected` character. Nothing is parsed, so this
+    /// is only correct on a buffer that is already dead.
     #[inline(always)]
     pub fn push(&mut self, input: char) {
         self.chars.push(CharState::Rejected(input));
         self.rejected_count += 1;
     }
 
-    /// Inserts `input` at `index` as a `Rejected` character.
-    ///
-    /// `index` may be `0..=Self::len()`; anything past the end panics. Like
-    /// [`Self::push`], this records without parsing.
+    /// Inserts `input` at `index` as a `Rejected` character, recording
+    /// without parsing. `index` may be `0..=Self::len()`; past that panics.
     #[inline(always)]
     pub fn insert(&mut self, index: usize, input: char) {
         self.chars.insert(index, CharState::Rejected(input));
         self.rejected_count += 1;
     }
 
-    /// Removes the character at `index` and returns its state, dropping the
-    /// rejected count by one only if that character was rejected.
-    ///
-    /// `index` must be `0..Self::len()`; anything past the end panics. This is
-    /// the one operation that can take a buffer back to
-    /// [`Self::is_all_accepted`], by removing the last rejected character.
+    /// Removes the character at `index` and returns its state, decrementing
+    /// the rejected count only if it was rejected. `index` must be
+    /// `0..Self::len()`; the one operation that can restore [`Self::is_all_accepted`].
     #[inline(always)]
     pub fn remove(&mut self, index: usize) -> CharState {
         let status = self.chars.remove(index);

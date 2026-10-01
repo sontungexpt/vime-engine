@@ -1,26 +1,18 @@
-//! Shared assertion harness for the syllable-builder integration tests.
+//! Shared assertion harness for the syllable-builder tests.
 //!
-//! Two entry-point tests exercise the builder through its public API:
-//!
-//! * [`push`](../push/index.html) sweeps the behaviour corpus under
-//!   [`corpus`](../corpus/index.html) through `BuildingSyllable::push`.
-//! * [`insert`](../insert/index.html) drives `BuildingSyllable::insert`
-//!   at an explicit cursor.
-//!
-//! Both compare the resulting syllable against an [`ExpectedSyllable`] and
-//! report every mismatch through [`check_syllable_eq`], so a failure prints
-//! the expected and actual onset / vowels / tone / coda side by side.
+//! [`ExpectedSyllable`] describes the state a case must produce;
+//! [`check_syllable_eq`] and [`check_effect`] compare against it and, on a
+//! mismatch, print expected and actual onset / vowels / tone / coda side by side.
 
 use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
 use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
 use crate::syllable::EditEffect;
 
-/// Field-type shorthands for the dense corpus cases: `(V::A, C::Lower)` reads
-/// much faster than `(BaseVowel::VowelCase::Lower)`.
+/// Shorthand for `BaseVowel`, so dense corpus cases read `(V::A, C::Lower)`.
 pub use crate::phonology::BaseVowel as V;
 
-/// Vowel case, kept as a tiny local enum so the corpus cases can write
-/// `C::Lower` / `C::Upper` without depending on the production casing type.
+/// Vowel case as a local enum, so cases write `C::Lower` / `C::Upper` without
+/// depending on the production casing type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VowelCase {
     Lower,
@@ -33,8 +25,7 @@ pub use VowelCase as C;
 // Expected syllable
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The expected semantic state of a syllable: what the builder must report
-/// after the whole input has been pushed.
+/// The state a case expects the builder to report once the input is fully pushed.
 pub struct ExpectedSyllable {
     /// The classified onset cluster kind; `Onset::None` when empty.
     pub onset_kind: Onset,
@@ -50,11 +41,9 @@ pub struct ExpectedSyllable {
     pub coda: &'static [char],
 }
 
-/// Compact builders for [`ExpectedSyllable`], one per common shape of a
-/// syllable, so every corpus case stays on a single line.
-///
-/// They fill in the empty `Onset::None` / `Coda::None` / `Tone::Flat` defaults
-/// that the exploded struct literal would otherwise spell out on every case.
+/// Compact constructors for the common syllable shapes, so each corpus case
+/// fits on one line; they fill in the `Onset::None` / `Coda::None` /
+/// `Tone::Flat` defaults an exploded literal would spell out every time.
 impl ExpectedSyllable {
     /// A vowel nucleus with no onset and no coda.
     pub const fn vowel(vowels: &'static [(BaseVowel, VowelCase)], tone: Tone) -> Self {
@@ -68,9 +57,8 @@ impl ExpectedSyllable {
         }
     }
 
-    /// A bare onset with no vowel nucleus yet (`t`, `ngh`, …). `onset_kind` is
-    /// `Onset::None` for consonant characters the parser leaves unclassified
-    /// (e.g. `q`).
+    /// A bare onset with no nucleus yet (`t`, `ngh`, …); `onset_kind` is
+    /// `Onset::None` for consonants the parser leaves unclassified (e.g. `q`).
     pub const fn consonant(onset_kind: Onset, onset: &'static [char]) -> Self {
         Self {
             onset_kind,
@@ -148,8 +136,8 @@ pub enum Effect {
     Err(SyllableBuildError),
 }
 
-/// Compares a case's expected [`Effect`] against the builder's actual result,
-/// reporting both on a mismatch.
+/// Compares a case's expected [`Effect`] with the actual result, labelling
+/// both on a mismatch.
 pub fn check_effect(
     expected: &Effect,
     got: Result<EditEffect, SyllableBuildError>,

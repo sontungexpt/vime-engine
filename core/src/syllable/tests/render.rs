@@ -1,18 +1,7 @@
-//! Rendered-output tests: what the user actually sees.
-//!
-//! The push corpus only inspects internal state (onset kind, nucleus, tone,
-//! coda), so a wrong tone-placement rule or a wrong precomposed character would
-//! pass every corpus case while producing the wrong text. The tests here close
-//! that gap:
-//!
-//! * [`toned_corpus_cases_survive_a_render_round_trip`] renders every toned
-//!   live corpus case and pushes the result back through the keymap, for both
-//!   [`TonePlacement`] values.
-//! * [`rendered_vowels_round_trip_through_the_codec`] pins every rendered
-//!   character to the codec entry that produced it.
-//! * [`classic_tone_placement`] states the well-known modern/old orthography
-//!   pairs (`hòa`/`hoà`, `hóa`/`hoá`) as data, which the corpus model cannot
-//!   express because it never looks at the output.
+//! Rendered output: what the user actually sees. The push corpus checks
+//! internal state only, so these tests cover the render round trip, the
+//! precomposed codec, and the modern/old tone-placement pairs the corpus
+//! model cannot express.
 
 use super::corpus::{
     gi, onsets, precomposed, syllables, telex_shapes, telex_tones, toggles, tones_shapes,
@@ -23,11 +12,9 @@ use crate::keymap::{DefaultKeymap, Keymap};
 use crate::phonology::{decode_vowel, is_vowel, Tone, TonePlacement};
 use crate::syllable::building::BuildingSyllable;
 
-/// Every Telex corpus slice, borrowed straight from the shared data files.
-///
-/// A const table rather than a `Vec`: [`renderable_cases`] is walked by three
-/// separate tests, and rebuilding a ~850-element `Vec` for each one showed up
-/// in the profile for no benefit.
+/// Every Telex corpus slice, borrowed from the shared data files. A const
+/// table rather than a `Vec`: rebuilding ~850 elements per test showed up in
+/// the profile for no benefit.
 const TELEX_SLICES: &[&[Case]] = &[
     onsets::CASES,
     telex_tones::CASES,
@@ -44,11 +31,8 @@ const TELEX_SLICES: &[&[Case]] = &[
 /// Both tone-placement schemes, in the order the tests assert them.
 const PLACEMENTS: [TonePlacement; 2] = [TonePlacement::Modern, TonePlacement::Old];
 
-/// The cases of [`TELEX_SLICES`] that stayed alive and can therefore be
-/// rendered.
-///
-/// [`Outcome::Dead`] is skipped: a dead case rolls back, so its syllable is
-/// not a rendering of the input and has no output to check.
+/// The live cases of [`TELEX_SLICES`]; [`Outcome::Dead`] cases roll back, so
+/// their syllable is not a rendering of the input and has no output to check.
 fn renderable_cases() -> impl Iterator<Item = &'static Case> {
     TELEX_SLICES
         .iter()
@@ -83,13 +67,9 @@ fn rendered<KM: Keymap>(input: &[char], keymap: &KM, placement: TonePlacement) -
 }
 
 /// A rendered tone mark must survive a round trip through the keymap.
-///
-/// Scoped to non-flat tones on purpose. The ASCII keymap is not injective:
-/// `["o", "o", "o"]` ends as two plain vowels and renders `"oo"`, which
-/// re-parses as one circumflex `"ô"` by the `oo -> ô` doubling rule. That is
-/// correct behaviour the corpus already pins, not a render bug, so shape
-/// ambiguity on flat syllables is left to the corpus and the codec test below
-/// covers the characters themselves.
+/// Scoped to non-flat tones: the ASCII keymap is not injective (`ooo` renders
+/// as `"oo"` and re-parses as `ô`), so flat shapes are left to the corpus and
+/// the codec test covers the characters themselves.
 #[test]
 fn toned_corpus_cases_survive_a_render_round_trip() {
     let telex = DefaultKeymap::telex();
@@ -97,8 +77,7 @@ fn toned_corpus_cases_survive_a_render_round_trip() {
     let mut failures = Vec::new();
 
     for case in renderable_cases() {
-        // Built once and rendered twice: the previous version re-pushed the
-        // whole input inside the placement loop, tripling the work here.
+        // Built once and rendered twice; an earlier version re-pushed per placement.
         let builder = push_all(&telex, case.input);
         if builder.tone() == Tone::Flat {
             continue;
@@ -131,9 +110,8 @@ fn toned_corpus_cases_survive_a_render_round_trip() {
     }
 }
 
-/// Every rendered character must be decodable, and decoding must give back the
-/// exact same character, so the precomposed table and the placement index
-/// cannot drift apart.
+/// Every rendered character must decode back to itself, so the precomposed
+/// table and the placement index cannot drift apart.
 #[test]
 fn rendered_vowels_round_trip_through_the_codec() {
     let telex = DefaultKeymap::telex();
@@ -163,21 +141,18 @@ fn rendered_vowels_round_trip_through_the_codec() {
     assert!(vowels >= 700, "expected many rendered vowels; got {vowels}");
 }
 
-/// The placement rule decides which vowel carries the tone. These are the
-/// textbook cases the corpus model cannot express, because it never looks at
-/// the output.
+/// The placement rule decides which vowel carries the tone: the textbook cases
+/// the corpus model cannot express, because it never looks at the output.
 #[test]
 fn classic_tone_placement() {
     let telex = DefaultKeymap::telex();
 
-    // This Telex variant swaps two keys against the usual convention:
-    // `f` is grave and `r` is hook.
+    // This Telex variant swaps two keys: `f` is grave and `r` is hook.
     const GRAVE: char = 'f';
     const ACUTE: char = 's';
 
     let cases = [
-        // A shaped vowel always wins ("thuế", "cuối"). In this keymap the
-        // shape key is the letter itself: `e` shapes `e`, `o` shapes `o`.
+        // A shaped vowel always wins ("thuế", "cuối"); here the shape key is the letter itself.
         PlacementCase {
             input: &['t', 'h', 'u', 'e', 'e', ACUTE],
             modern: "thuế",
@@ -195,8 +170,7 @@ fn classic_tone_placement() {
             modern: "cưới",
             old: "cưới",
         },
-        // A shaped vowel outranks the open-diphthong rule: `cuốn` puts the
-        // mark on `ô`, not on the following consonant or the leading `u`.
+        // A shaped vowel outranks the open-diphthong rule: `cuốn` marks `ô`.
         PlacementCase {
             input: &['c', 'u', 'o', 'o', 'n', ACUTE],
             modern: "cuốn",
@@ -208,8 +182,7 @@ fn classic_tone_placement() {
             modern: "ánh",
             old: "ánh",
         },
-        // A closed `oa` syllable puts the mark on the second vowel in both
-        // modes, which is also what real orthography does ("hoán").
+        // A closed `oa` marks the second vowel in both modes, as real orthography does ("hoán").
         PlacementCase {
             input: &['h', 'o', 'a', 'n', ACUTE],
             modern: "hoán",
@@ -235,11 +208,8 @@ fn classic_tone_placement() {
 }
 
 /// Known bug: `Modern` and `Old` are transposed for every *open* two-vowel
-/// nucleus.
-///
-/// `tone_index_2_modern` returns 1 for `oa`, `oe` and `uy`, and
-/// `tone_index_2_old` returns 0 when the coda is empty — the two branches have
-/// the same two outcomes, assigned to the opposite modes. So Modern renders
+/// nucleus. `tone_index_2_modern` returns 1 for `oa`/`oe`/`uy` and
+/// `tone_index_2_old` returns 0 with an empty coda, so Modern renders
 /// old-style text and Old renders modern-style text:
 ///
 /// | input | Modern (actual) | Old (actual) | real Modern | real Old |
@@ -248,20 +218,13 @@ fn classic_tone_placement() {
 /// | `hoa` + `s` | `hoá` | `hóa` | `hóa` | `hoá` |
 /// | `thu` + `y` + `s` | `thuý` | `thúy` | `thúy` | `thuý` |
 ///
-/// Everything else is unaffected: shaped vowels, single vowels, and closed
-/// two-vowel syllables such as `hoán` place the mark identically in both modes,
-/// which `classic_tone_placement` covers.
-///
-/// The inversion is consistent across the crate, so it is deliberate-looking
-/// rather than a stray typo:
-///
-/// * `TonePlacement::Modern` / `Old` doc comments say "hóa" / "hoá" — the
-///   *opposite* of what the code produces.
-/// * `tone_index_2_modern` / `tone_index_2_old` inline comments show the
-///   opposite index from the one the branch returns.
-/// * `ffi/include/vime_engine.h` labels Modern "hoá" and Old "hóa".
-/// * `ffi/tests/typing.rs`, `ffi/tests/lifecycle.rs` and `core/tests/config.rs`
-///   assert the current behaviour, so flipping it needs those updated too.
+/// Everything else is unaffected (shaped vowels, single vowels, closed pairs
+/// such as `hoán`), which `classic_tone_placement` covers. The inversion is
+/// consistent crate-wide — `TonePlacement` docs, the `tone_index_2_*` inline
+/// comments and `ffi/include/vime_engine.h` all label the modes the other way
+/// round, and `ffi/tests/typing.rs`, `ffi/tests/lifecycle.rs` and
+/// `core/tests/config.rs` assert the current behaviour, so a fix must update
+/// those too.
 ///
 /// Ignored rather than deleted so the fix has a spec waiting for it. Run with
 /// `cargo test -p vime-engine --lib render::open_diphthong -- --ignored`.
@@ -286,8 +249,7 @@ fn open_diphthong_tone_placement_is_swapped() {
             modern: "hóa",
             old: "hoá",
         },
-        // `uy` is transposed the same way: Modern renders "thuý" where real
-        // orthography has "thúy".
+        // `uy` is transposed the same way: Modern renders "thuý" for real "thúy".
         PlacementCase {
             input: &['t', 'h', 'u', 'y', 's'],
             modern: "thúy",
@@ -316,10 +278,8 @@ fn open_diphthong_tone_placement_is_swapped() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// `write_to` and `to_chars` must produce the same characters, in the same
-/// order, for both tone-placement schemes and across the whole corpus. The
-/// render logic now exists twice — once writing straight to the destination,
-/// once into the inline buffer — and this is what keeps them in step.
+/// `write_to` and `to_chars` must agree, in order, for both schemes across the
+/// corpus: the render logic exists twice, and this is what keeps the two in step.
 #[test]
 fn write_to_matches_to_chars_across_the_corpus() {
     let telex = DefaultKeymap::telex();

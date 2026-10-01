@@ -23,12 +23,12 @@ impl From<Case> for bool {
 impl From<bool> for Case {
     #[inline(always)]
     fn from(upper: bool) -> Self {
-        // SAFETY: `bool` is represented as 0 or 1, matching the `repr(u8)`
-        // discriminants of `Lower` and `Upper`.
+        // SAFETY: `bool` is 0 or 1, matching the `repr(u8)` discriminants.
         unsafe { std::mem::transmute::<bool, Self>(upper) }
     }
 }
 
+/// A value paired with the case it should render in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cased<T> {
     value: T,
@@ -53,7 +53,6 @@ impl<T> Cased<T> {
         Self::new(value, Case::Lower)
     }
 
-    /// The cased value.
     #[inline(always)]
     pub const fn value(&self) -> &T {
         &self.value
@@ -65,7 +64,6 @@ impl<T> Cased<T> {
         self.case.is_upper()
     }
 
-    /// The case carried by this value.
     #[inline(always)]
     pub const fn case(&self) -> Case {
         self.case

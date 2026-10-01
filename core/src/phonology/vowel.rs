@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+/// The root letter of a base vowel: `y`, `u`, `i`, `e`, `o`, `a`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u8)]
 pub enum RootVowel {
@@ -34,8 +35,7 @@ pub enum Shape {
 }
 
 impl Shape {
-    /// Returns `true` if the shape is a real diacritic (Horn, Circumflex,
-    /// Breve) rather than `None`.
+    /// Whether a diacritic is present (i.e. not `None`).
     #[inline(always)]
     pub const fn is_some(self) -> bool {
         !matches!(self, Shape::None)
@@ -47,7 +47,7 @@ impl Shape {
     }
 }
 
-/// A Vietnamese lexical tone applied to the vowel.
+/// One of the six Vietnamese tones: ngang, sắc, huyền, hỏi, ngã, nặng.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
 pub enum Tone {
@@ -82,11 +82,8 @@ impl Tone {
 /// └─────────┴─────────┴─────────┘
 /// ```
 ///
-/// - Bits 0–1: [`Shape`].
-/// - Bits 2–4: [`RootVowel`].
-///
-/// The enum variants are declared in tone-placement priority order, which is
-/// also the order [`Ord`] compares in - see the manual impl below.
+/// Variants are declared in tone-placement priority order, which is also the
+/// order [`Ord`] compares in — see the manual impl below.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[repr(u8)]
 #[rustfmt::skip]
@@ -112,6 +109,8 @@ pub enum BaseVowel {
     OHorn       = Self::encode(RootVowel::O, Shape::Horn),
 }
 
+/// Dense `0..=11` ID of a [`BaseVowel`]: its tone-placement priority, and its
+/// bit index in a phonotactic mask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum BaseVowelId {
@@ -137,20 +136,19 @@ impl BaseVowelId {
         self as u8
     }
 
-    /// Converts a raw `u8` ID into `Self` without performing boundary checks.
+    /// Converts a raw `u8` ID into `Self` with no bounds check.
     ///
     /// # Safety
     ///
-    /// The caller must guarantee that `id < Self::COUNT`. Passing an `id` greater
-    /// than or equal to `Self::COUNT` produces an invalid enum variant, causing Undefined Behavior.
+    /// `id` must be less than [`Self::COUNT`]; otherwise the transmute produces
+    /// an invalid variant, which is undefined behavior.
     #[inline(always)]
     pub const unsafe fn from_u8_unchecked(id: u8) -> Self {
-        // SAFETY: the caller guarantees `id < Self::COUNT`, which is the whole
-        // contract of this function, so re-establishing it here is a no-op.
+        // SAFETY: `id < COUNT` is the caller's whole contract for this function.
         unsafe { std::mem::transmute(id) }
     }
 
-    /// Safely converts a raw `u8` ID into `Self`. Returns `None` if `id` is out of bounds.
+    /// Converts a raw `u8` ID into `Self`, or `None` when `id >= [`Self::COUNT`].
     #[inline(always)]
     pub const fn from_u8(id: u8) -> Option<Self> {
         if id < Self::COUNT as u8 {
@@ -168,24 +166,20 @@ impl BaseVowel {
     /// Number of valid Vietnamese base vowels.
     pub const COUNT: usize = 12;
 
-    // Width of each packed field, in bits.
+    // Field widths, offsets and masks, all in bits.
     const SHAPE_WIDTH: usize = 2;
     const ROOT_WIDTH: usize = 3;
 
-    // Starting bit position of each field.
     const SHAPE_OFFSET: usize = 0;
     const ROOT_OFFSET: usize = Self::SHAPE_OFFSET + Self::SHAPE_WIDTH;
 
-    // Masks for extracting fields from the packed value.
     const SHAPE_MASK: u8 = (1u8 << Self::SHAPE_WIDTH) - 1;
     const ROOT_MASK: u8 = (1u8 << Self::ROOT_WIDTH) - 1;
 
     // ─────────────── Encoding ───────────────
 
-    /// Packs a root and shape into a `BaseVowel` value.
-    ///
-    /// The single definition of the layout: every discriminant is written in
-    /// terms of this.
+    /// Packs a root and shape into the `u8` layout. Every discriminant is
+    /// written in terms of this, so it is the one definition of the layout.
     #[inline(always)]
     const fn encode(root: RootVowel, shape: Shape) -> u8 {
         ((root as u8) << Self::ROOT_OFFSET) | shape as u8
@@ -199,9 +193,8 @@ impl BaseVowel {
 
     // ─────────────── Validity ───────────────
 
-    /// Bit `i` is set when `i` is one of the 12 declared encodings. The const
-    /// check below proves that equivalence, which is what lets
-    /// [`Self::is_declared`] stand in for a full match.
+    /// Bit `i` is set when `i` is one of the 12 declared encodings, so
+    /// [`Self::is_declared`] answers with one mask test instead of a 12-way match.
     #[rustfmt::skip]
     const DECLARED_MASK: u32 =
           (1 << Self::Y as u8)
@@ -217,11 +210,9 @@ impl BaseVowel {
         | (1 << Self::ECircumflex as u8)
         | (1 << Self::OHorn as u8);
 
-    /// Whether `value` is one of the 12 declared encodings.
-    ///
-    /// Requires `value < 32`. That is a range obligation, not a memory-safety
-    /// one, so this stays a safe function: a violation panics under
-    /// `debug_assert!`, and in release the shift would mask and answer wrongly.
+    /// Whether `value` is one of the 12 declared encodings. Requires `value < 32`
+    /// — a range obligation, not a memory-safety one, so this stays safe: a
+    /// violation trips the `debug_assert!` (in release the shift would mask).
     #[inline(always)]
     const fn is_declared(value: u8) -> bool {
         debug_assert!(
@@ -248,8 +239,7 @@ impl BaseVowel {
         // Root <= 5 and shape <= 3, so `value` <= 23: in range for the shift.
         let value = Self::encode(root, shape);
         if Self::is_declared(value) {
-            // SAFETY: `is_declared` holds only for the 12 declared encodings,
-            // and each of those is a `BaseVowel` discriminant.
+            // SAFETY: `is_declared` holds only for the 12 declared discriminants.
             Some(unsafe { std::mem::transmute(value) })
         } else {
             None
@@ -258,11 +248,7 @@ impl BaseVowel {
 
     // ─────────────── ID / Priority ───────────────
 
-    /// Returns the base vowel with the given tone-placement ID, or `None` when
-    /// the ID is outside `0..Self::COUNT`.
-    ///
-    /// The inverse of [`Self::id`], verified for every declared ID by the const
-    /// check below.
+    /// The base vowel for a tone-placement ID — the inverse of [`Self::id`].
     #[inline(always)]
     pub const fn from_id(vowel_id: BaseVowelId) -> Self {
         match vowel_id {
@@ -281,11 +267,8 @@ impl BaseVowel {
         }
     }
 
-    /// Returns this vowel's tone-placement ID (`0..=11`).
-    ///
-    /// A higher ID has higher tone-placement priority. Note this is *not* the
-    /// packed value: closed vowels score lowest, so the ID order differs from
-    /// the layout order.
+    /// This vowel's tone-placement ID (`0..=11`): higher is higher tone-placement
+    /// priority, and it is not the packed value (`UHorn` packs as 11, ID 6).
     #[inline(always)]
     pub const fn id(self) -> BaseVowelId {
         match self {
@@ -361,21 +344,16 @@ impl BaseVowel {
     #[inline(always)]
     pub const fn remove_shape(self) -> Self {
         let value = self as u8 & !Self::SHAPE_MASK;
-        // SAFETY: every root has a declared plain vowel, so clearing the shape
-        // always lands on a valid encoding.
+        // SAFETY: every root has a declared plain vowel, so the result is valid.
         unsafe { std::mem::transmute(value) }
     }
 }
 
 /// Orders by tone-placement priority ([`BaseVowel::id`]), not by packed value.
 ///
-/// The two disagree: closed vowels have the lowest IDs but not the lowest
-/// encodings. Callers that reach for `max`/`min` to pick a representative
-/// vowel want the priority order, so deriving `Ord` on the discriminant would
-/// quietly pick the wrong one.
-///
-/// Consistent with the derived `PartialEq`: `id` is injective over the 12
-/// variants, so equal IDs mean equal vowels.
+/// The two disagree (`UHorn` packs as 11 but has ID 6), so a derived `Ord`
+/// would pick the wrong `max`/`min`; it still agrees with `PartialEq`, because
+/// `id` is injective over the 12 variants.
 impl Ord for BaseVowel {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
@@ -400,15 +378,12 @@ impl PartialOrd for BaseVowel {
 /// └──────────┴────────┴────────┴─┘
 /// ```
 ///
-/// - `unused`: reserved bits, set to zero.
-/// - `BASE`: the packed [`BaseVowel`] value, which needs only 5 of its 8 bits.
-/// - `TTT`: the [`Tone`] (`0` is Flat).
-/// - `C`: letter case (`0` is lowercase, `1` is uppercase).
+/// `BASE` is the packed [`BaseVowel`] (5 of its 8 bits), `TTT` the [`Tone`]
+/// (`0` is Flat), `C` the case (`1` is uppercase), and the top 7 bits stay zero.
 ///
-/// Deliberately not [`Ord`]. A base-level order would have to follow
-/// tone-placement priority (see [`BaseVowel`]) rather than the packed value,
-/// and an order that ignored tone and case would contradict [`PartialEq`]. Key
-/// or sort on [`Self::base`] where a base-level order is what is wanted.
+/// Deliberately not [`Ord`]: any order must follow tone-placement priority (see
+/// [`BaseVowel`]) rather than the packed value. Key or sort on [`Self::base`]
+/// where a base-level order is what is wanted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[repr(transparent)]
 pub struct Vowel(u16);
@@ -616,9 +591,9 @@ pub const fn encode_vowel(base_id: BaseVowelId, tone: Tone, uppercase: bool) -> 
 /// Decodes a precomposed Vietnamese vowel into a packed [`Vowel`], or returns
 /// `None` if `character` is not a vowel.
 ///
-/// Fastest measured variant: four non-overlapping code-point regions keep the
-/// branch tree small — ASCII (match), Latin-1, Latin Extended (match), and the
-/// Vietnamese block (U+1EA0..=U+1EF9) via O(1) direct LUT indexing.
+/// Splits on four code-point regions to keep the branch tree small: ASCII,
+/// Latin-1, Latin Extended, then the Vietnamese block (U+1EA0..=U+1EF9) by O(1)
+/// table indexing.
 #[inline(always)]
 pub const fn decode_vowel(character: char) -> Option<Vowel> {
     use BaseVowel::*;
@@ -627,7 +602,7 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
     let code = character as u32;
 
     match code {
-        // 1. ASCII Block (Fast path - Keystrokes)
+        // ASCII (A..Z, a..z), the common keystrokes.
         0x00..=0x7F => match character {
             'a' => Some(Vowel::lower(A, Flat)),
             'A' => Some(Vowel::upper(A, Flat)),
@@ -644,7 +619,7 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
             _ => None,
         },
 
-        // 2. Latin-1 Supplement (U+00C0..U+00FF)
+        // Latin-1 Supplement (U+00C0..=U+00FF).
         0x80..=0xFF => match character {
             'ê' => Some(Vowel::lower(ECircumflex, Flat)),
             'Ê' => Some(Vowel::upper(ECircumflex, Flat)),
@@ -681,7 +656,7 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
             _ => None,
         },
 
-        // 3. Latin Extended
+        // Latin Extended (U+0100..=U+01B0).
         0x0100..=0x01B0 => match character {
             'ơ' => Some(Vowel::lower(OHorn, Flat)),
             'Ơ' => Some(Vowel::upper(OHorn, Flat)),
@@ -696,10 +671,9 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
             _ => None,
         },
 
-        // 4. Vietnamese block (U+1EA0..U+1EF9) -> Direct Indexing Table!
+        // Vietnamese block (U+1EA0..U+1EF9), indexed straight into a table.
         0x1EA0..=0x1EF9 => {
-            /// Direct lookup table (LUT) for the precomposed Vietnamese block (U+1EA0..=U+1EF9).
-            /// Index = `(code - 0x1EA0) as usize`, giving O(1) `Vowel` lookup.
+            /// Maps `(code - 0x1EA0)` to the decoded vowel for the Vietnamese block.
             const DECODED_VIETNAMESE_BLOCK_LUT: [Vowel; 90] = [
                 // 0x1EA0 - 0x1EA1 (Ạ, ạ)
                 Vowel::upper(A, Dot),
@@ -838,11 +812,8 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
                 Vowel::lower(Y, Tilde),
             ];
             let offset = (code - 0x1EA0) as usize;
-            // SAFETY: the outer match admits only 0x1EA0..=0x1EF9, and the
-            // table is a contiguous `const` array, so `offset` is in bounds.
-            // Both bounds live in the same expression above, so widening one
-            // without the other would fail this arithmetic rather than the
-            // lookup.
+            // SAFETY: the match above admits only `0x1EA0..=0x1EF9`, exactly 90
+            // code points, matching the table's 90 entries, so `offset` is in bounds.
             Some(unsafe { *DECODED_VIETNAMESE_BLOCK_LUT.as_ptr().add(offset) })
         }
 
@@ -851,8 +822,6 @@ pub const fn decode_vowel(character: char) -> Option<Vowel> {
 }
 
 /// Whether `ch` is a Vietnamese vowel, without decoding its parts.
-///
-/// Optimized with compact range checks and lookup masks.
 #[inline(always)]
 pub const fn is_vowel(ch: char) -> bool {
     let code = ch as u32;

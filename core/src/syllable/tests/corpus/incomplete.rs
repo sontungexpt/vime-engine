@@ -1,20 +1,14 @@
-//! L. Checkpoints that leave the parse *alive* (`invalid == None`).
-//!
-//! The nucleus is recognised but may still need more input (a tone, a coda, a
-//! shape) to finish. Only liveness is compared — the shape / `uo` cycles move
-//! the internal syllable around, which this harness intentionally stays
-//! agnostic to.
-//!
-//! Several of these were previously dead ends; the expanded nucleus validity
-//! rules (see `phonology::rule::transition`) keep them alive.
+//! L. Checkpoints that leave the parse *alive* (`invalid == None`): the nucleus
+//! is recognised but may still need a tone, coda or shape to finish. Only
+//! liveness is compared — the `uo` / shape cycles move the internal syllable
+//! around, which this harness stays agnostic to.
 
 use super::prelude::*;
 
 pub const TELEX: &[Case] = &[
     // ── iêu family: `ieu` is now an accepted nucleus ──
     alive_case!(['i', 'e', 'u']),
-    // `ieun` used to be Dead(InvalidVowelSequence); it must stay alive now
-    // that [I, E, U] is a recognised nucleus.
+    // `ieun` was Dead(InvalidVowelSequence); [I, E, U] is now a recognised nucleus.
     alive_case!(['i', 'e', 'u', 'n']),
     // ── ue / uy-e / uu: unions kept alive ──
     alive_case!(['u', 'e']),

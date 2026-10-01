@@ -9,35 +9,21 @@ use super::config::{SessionConfig, SharedSessionConfig, UNRESOLVED_GENERATION};
 
 /// One typing buffer: the settings in force, and the composition they apply to.
 ///
-/// By default a session follows a [`SharedSessionConfig`], so a change to the shared
-/// settings reaches it along with every other session. To pin a session to its
-/// own settings use [`Session::with_isolated_config`], which opts it out until
-/// [`Session::clear_private_config`] puts it back on the shared settings.
-///
-/// Settings are stored once. `active_config` is the single copy of what is in
-/// force, and it is the *only* thing that decides how a session parses and
-/// renders — so there is no second copy to fall out of step with the first. A
-/// pinned session is the same idea: the flag says which settings these are, and
-/// the flag is all it needs, because a pinned session's settings are already
-/// sitting in `active_config` where a following session's would be.
+/// By default it follows a [`SharedSessionConfig`]; [`Session::with_isolated_config`]
+/// pins it to its own settings until [`Session::clear_private_config`] puts it
+/// back on the shared ones.
 pub struct Session<KM: Keymap> {
-    /// The settings currently in force. Either a private config (when
-    /// `has_private_config == true`) or a snapshot of the shared config
-    /// (when `has_private_config == false`), resolved at `generation`.
-    ///
-    /// Also the record of what the composition is parsing under, since
-    /// [`Session::activate_config`] moves the two together and nothing else writes
-    /// either.
+    /// The settings in force: a private config when pinned, otherwise a shared
+    /// snapshot resolved at `generation`. Also what the composition parses
+    /// under — [`Session::activate_config`] moves the two together.
     active_config: SessionConfig<KM>,
-    /// Whether `active_config` is a pinned private config (`true`) or a
-    /// shared-config snapshot that should be refreshed (`false`).
+    /// Whether `active_config` is a pinned private config rather than a shared
+    /// snapshot to refresh.
     has_private_config: bool,
-    /// The shared configuration source. Cloning shares the same atomic
-    /// generation counter and value.
+    /// The shared configuration source; clones share one generation counter.
     shared_config: SharedSessionConfig<KM>,
-    /// The shared-config generation `active_config` was read at. An
-    /// `UNRESOLVED_GENERATION` means the session must re-read on its next
-    /// [`Self::pull_config`].
+    /// The generation `active_config` was read at. `UNRESOLVED_GENERATION` means
+    /// re-read on the next [`Self::pull_config`].
     generation: u64,
 
     /// The composition being parsed by this session.
@@ -57,26 +43,22 @@ where
             has_private_config: false,
             shared_config: shared,
             // Force one resolution so a replacement racing with construction
-            // cannot leave the session holding settings from a generation it
-            // never named.
+            // cannot leave settings from a generation never named.
             generation: UNRESOLVED_GENERATION,
         };
         session.pull_config();
         session
     }
 
-    /// Creates an empty session with its own settings, isolated from any shared
-    /// config. `clear_private_config` falls back to the original settings.
+    /// Creates an empty session with its own settings, isolated from the shared
+    /// config; `clear_private_config` falls back to these settings.
     pub fn with_isolated_config(private: SessionConfig<KM>) -> Self {
         Self::with_config_on_shared(SharedSessionConfig::new(private.clone()), private)
     }
 
-    /// Creates an empty session with its own settings, attached to `shared`.
-    ///
-    /// Unlike [`Session::with_isolated_config`] the session remembers
-    /// `shared_config`, so [`Session::clear_private_config`] puts it back on
-    /// those settings — the pair of operations an application needs to give one
-    /// buffer special treatment for a while and then take it back.
+    /// Creates an empty session with its own settings, attached to `shared`, so
+    /// [`Session::clear_private_config`] puts it back on `shared` as it stands
+    /// then.
     pub fn with_config_on_shared(
         shared_config: SharedSessionConfig<KM>,
         private: SessionConfig<KM>,
@@ -92,8 +74,8 @@ where
 
     // ------------------------------------------------------------- settings
 
-    /// The settings currently in force: the private config if pinned, otherwise
-    /// the shared config snapshot.
+    /// The settings in force: the private config if pinned, otherwise the
+    /// shared snapshot.
     #[inline(always)]
     pub fn config(&self) -> &SessionConfig<KM> {
         &self.active_config
@@ -105,19 +87,16 @@ where
         &self.shared_config
     }
 
-    /// Whether this session is pinned to its own config (`true`) or follows
-    /// the shared config (`false`).
+    /// Whether this session is pinned to its own config rather than following
+    /// the shared one.
     #[inline(always)]
     pub fn has_private_config(&self) -> bool {
         self.has_private_config
     }
 
     /// Gives this session its own settings, which then stop following the
-    /// shared config.
-    ///
-    /// A session that was following the shared config becomes a private one
-    /// simply by being given a config; pass [`Session::config`]'s current value
-    /// to opt out of following without changing anything.
+    /// shared config. Pass [`Session::config`]'s current value to opt out
+    /// without changing anything.
     pub fn set_private_config(&mut self, private: SessionConfig<KM>) {
         self.activate_config(private);
         self.has_private_config = true;
@@ -134,17 +113,12 @@ where
         self.pull_config();
     }
 
-    /// Adopts the shared configuration if it has moved since this session last
-    /// looked.
-    ///
-    /// Returns `true` when a newer shared configuration was adopted, meaning a
-    /// config-dependent operation is about to behave differently even though no
-    /// key was pressed. A session with a private config is unaffected and
-    /// returns `false`.
-    ///
-    /// Every config-dependent operation calls this for itself, so a caller only
-    /// needs it when it wants to know whether anything moved. Nothing is
-    /// re-rendered here: those operations read `active_config` when they run.
+    /// Adopts the shared config if it moved since this session last looked.
+    /// Returns `true` when a newer config was adopted — a config-dependent
+    /// operation is about to behave differently even though no key was pressed;
+    /// a session with a private config returns `false`. Nothing is re-rendered
+    /// here, and config-dependent operations call this for themselves, so a
+    /// caller needs it only to learn whether anything moved.
     #[inline(always)]
     pub fn pull_config(&mut self) -> bool {
         let gen = self.shared_config.generation();
@@ -153,23 +127,17 @@ where
         }
         self.generation = gen;
 
-        // Private config so do not activate config
+        // A private config is not replaced, but the generation is still tracked.
         if self.has_private_config {
             return false;
         }
         self.activate_config(self.shared_config.snapshot())
     }
 
-    /// Makes `next` the settings in force, so every subsequent composition
-    /// operation parses and renders under them.
-    ///
-    /// Returns whether the session activated a newer configuration. The caller
-    /// has already seen the generation move, so there is nothing to compare
-    /// here.
-    ///
-    /// The only place that writes `active_config`, and the composition reads
-    /// the keymap and tone placement from it on each call, so there is no
-    /// second copy to fall out of step.
+    /// Makes `next` the settings in force for every later composition
+    /// operation. The only writer of `active_config`, which the composition
+    /// reads on each call, so there is no second copy to fall out of step.
+    /// Returns `true` always: the caller has already seen the generation move.
     fn activate_config(&mut self, next: SessionConfig<KM>) -> bool {
         self.active_config = next;
         true
@@ -177,17 +145,11 @@ where
 
     // ---------------------------------------------------------------- state
 
-    /// The buffer as this session parses it, as a fresh [`String`].
-    ///
-    /// Parsing is what turns raw keystrokes into a word, so this is the
-    /// spelled-out form: `aw` reads back as `ă`, not `aw`. Once the parse has
-    /// failed there is nothing left to apply and the raw keystrokes come back
-    /// verbatim.
-    ///
-    /// Resolves the configuration first: the tone-placement scheme in force is
-    /// what decides which nucleus vowel carries the tone mark.
-    ///
-    /// See [`Self::write_rendered_to`] for the version that does not allocate.
+    /// The buffer as this session parses it, as a fresh [`String`]: `aw` reads
+    /// back as `ă`, and a failed parse returns the raw keystrokes verbatim.
+    /// Pulls the config first, since tone placement decides which nucleus
+    /// carries the tone mark. See [`Self::write_rendered_to`] for the
+    /// allocation-free version.
     #[inline(always)]
     pub fn rendered(&mut self) -> SyllableChars {
         self.pull_config();
@@ -195,13 +157,9 @@ where
             .rendered(self.active_config.tone_placement())
     }
 
-    /// Writes the parsed word into `output`, replacing its contents.
-    ///
-    /// Resolves the configuration first, for the same reason as [`Self::rendered`].
-    ///
-    /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
-    /// on every keystroke can keep one `String` and reuse its capacity instead
-    /// of building a new one each time.
+    /// Writes the parsed word into `output`, replacing its contents. Pulls the
+    /// config first, like [`Self::rendered`]. The allocation-free counterpart
+    /// to [`Self::rendered`]: keep one `String` and reuse its capacity.
     #[inline(always)]
     pub fn write_rendered_to(&mut self, output: &mut String) {
         self.pull_config();
@@ -214,11 +172,9 @@ where
         self.composition.raw()
     }
 
-    /// Writes the parsed word into `output`, replacing its contents.
-    ///
-    /// The allocation-free counterpart to [`Self::parsed`]: a caller that writes
-    /// on every keystroke can keep one `String` and reuse its capacity instead
-    /// of building a new one each time.
+    /// Writes the raw keystroke buffer into `output`, replacing its contents.
+    /// The allocation-free counterpart to [`Self::raw`]: keep one `String` and
+    /// reuse its capacity. Reads no configuration.
     #[inline(always)]
     pub fn write_raw_to(&self, output: &mut String) {
         self.composition.write_raw_to(output);
@@ -232,32 +188,25 @@ where
         self.composition.reset();
     }
 
-    // /// Returns the caret position inside the rendered word, in Unicode
-    // /// characters.
-    // ///
-    // /// The position is a character index, not a byte offset: the caller that
-    // /// needs bytes has to walk the text this session renders.
+    // Caret position inside the rendered word, in characters, not bytes: a
+    // caller that needs bytes has to walk the text this session renders.
     #[inline(always)]
     pub const fn rendered_cursor(&self) -> usize {
         self.composition.rendered_cursor()
     }
 
-    /// Returns the caret position inside the raw keystroke buffer, in keystrokes.
-    ///
-    /// Reported separately from [`Self::rendered_cursor`] because a transform consumes
-    /// a keystroke without lengthening the rendered word, so the two positions
-    /// are not interchangeable.
+    /// The caret position inside the raw keystroke buffer, in keystrokes. Not
+    /// interchangeable with [`Self::rendered_cursor`]: a transform consumes a
+    /// keystroke without lengthening the rendered word.
     #[inline(always)]
     pub const fn raw_cursor(&self) -> usize {
         self.composition.raw_cursor()
     }
 
     /// Whether the buffer currently spells a complete, valid Vietnamese
-    /// syllable.
-    ///
-    /// See [`Syllable::is_valid`](crate::syllable::Syllable::is_valid)
-    /// for what "valid" means here; in short, a building syllable with a nucleus
-    /// that the phonotactic rules accept.
+    /// syllable: a building syllable with a nucleus the phonotactic rules
+    /// accept; see
+    /// [`Syllable::is_phonotactically_valid`](crate::syllable::Syllable::is_phonotactically_valid).
     #[inline(always)]
     pub fn is_phonotactically_valid(&self) -> bool {
         self.composition.is_phonotactically_valid()
@@ -265,10 +214,9 @@ where
 
     // ------------------------------------------------------------- editing
     //
-    // The three edits parse under the keymap and re-render under the
-    // tone-placement scheme, so each resolves the configuration first.
-    // Cursor movement deliberately does not: it only walks positions that
-    // already exist, and reads no configuration at all.
+    // The three edits parse under the keymap and re-render under tone
+    // placement, so each pulls the config first. Cursor movement deliberately
+    // does not: it only walks positions that already exist.
 
     #[inline(always)]
     pub fn insert(&mut self, character: char) {

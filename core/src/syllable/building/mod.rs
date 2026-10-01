@@ -1,15 +1,7 @@
-//! The building-phase syllable: an incremental, validated Vietnamese syllable
-//! under construction. The type and its editing paths live in sibling
-//! modules:
-//!
-//! * [`push`]: appending at the end,
-//! * [`insert`]: explicit-cursor insertion,
-//! * [`remove`]: deletion,
-//! * [`error`]: [`SyllableBuildError`], why an edit was rejected,
-//! * [`types`]: the buffer aliases, [`Nucleus`] / [`OnsetChars`] / [`CodaChars`].
-//!
-//! Every mutator validates as it goes, so a rejected edit is rolled back and
-//! the syllable keeps its previous contents.
+//! The building-phase syllable: an incremental Vietnamese syllable under
+//! construction; editing paths live in the sibling `push`, `insert`, `remove`,
+//! `error`, and `types` modules. Every mutator validates as it goes, so a
+//! rejected edit is rolled back and the syllable keeps its contents.
 use crate::{
     keymap::Keymap,
     phonology::{
@@ -88,9 +80,8 @@ impl BuildingSyllable {
         self.coda_kind
     }
 
-    /// Returns the nucleus vowels; each stored vowel has a Flat tone, because
-    /// every path that grows the nucleus inserts a toneless one. Read the tone
-    /// off [`Self::tone`], or take it from the rendered word.
+    /// The nucleus vowels; all are stored toneless — the syllable's tone
+    /// lives in [`Self::tone`] and is applied when rendering.
     #[inline(always)]
     pub fn nucleus(&self) -> &[Vowel] {
         self.nucleus.vowels()
@@ -134,34 +125,25 @@ impl BuildingSyllable {
     // ─────────────────────────── Rendering ───────────────────────────
 
     /// Appends the rendered syllable to `output`: onset, then the tone-marked
-    /// vowels, then the coda — the same order as [`Self::to_chars`].
-    ///
-    /// Unlike [`Self::to_chars`] this needs no intermediate buffer, so the
-    /// characters go straight to the destination. Prefer it when the render is
-    /// only being written somewhere; use `to_chars` when the characters are
-    /// wanted as a value to keep.
+    /// vowels, then the coda. Writes straight to `output`, unlike
+    /// [`Self::to_chars`], which builds an intermediate buffer.
     pub fn write_to(&self, tone_placement: TonePlacement, output: &mut String) {
-        // Reserve enough UTF-8 capacity up front. Onset and coda are ASCII
-        // except for a possible `đ`/`Đ`, while each nucleus character can use
-        // up to 3 bytes.
+        // UTF-8 estimate: onset/coda are ASCII except one possible `đ`, while
+        // each nucleus character can take up to 3 bytes.
         let estimated_bytes = self.onset.len() + 1 + self.coda.len() + self.nucleus.len() * 3;
         output.reserve(estimated_bytes);
 
-        // 1. Onset (contiguous chars)
         for &c in self.onset.iter() {
             output.push(c);
         }
 
-        // 2. Vowels: nuclei store flat vowels. If the syllable has no tone,
-        // render them directly; otherwise apply the tone to the vowel selected
-        // by the placement rules.
+        // Nucleus vowels are stored flat; apply the tone only to the vowel
+        // chosen by the placement rules.
         if self.tone == Tone::Flat {
             for &vowel in self.nucleus.iter() {
                 output.push(vowel.to_char());
             }
         } else {
-            // Only calculate tone when the syllable is not flat; tone is
-            // applied to the vowel selected by the placement rules.
             let tone_pos = self.tone_vowel_index(tone_placement);
             for (idx, vowel) in self.nucleus.iter().enumerate() {
                 let tone = if Some(idx) == tone_pos {
@@ -174,44 +156,32 @@ impl BuildingSyllable {
             }
         }
 
-        // 3. Coda
         for &c in self.coda.iter() {
             output.push(c);
         }
     }
 
-    /// Yields the rendered characters, in the same order as [`Self::to_chars`],
-    /// onset, then the tone-marked vowels, then the coda.
-    ///
-    /// Needs no intermediate buffer, so it is the cheapest way to consume the
-    /// render. Prefer [`Self::write_to`] when the characters are only being
-    /// written somewhere, and `to_chars` when they are wanted as a value.
+    /// Yields the rendered characters in the same order as [`Self::to_chars`].
     #[inline(always)]
     pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
         self.to_chars(tone_placement).into_iter()
     }
 
-    /// Renders the syllable into a [`SyllableChars`] buffer: onset, then the
-    /// tone-marked vowels, then the coda. See also [`Self::write_to`], which
-    /// writes the same characters without an intermediate buffer.
-    ///
-    /// A word the parser can build is at most [`Self::MAX_LEN`] characters,
-    /// which fits the alias's inline capacity, so this never spills.
+    /// Renders into a [`SyllableChars`]: onset, then the tone-marked vowels,
+    /// then the coda. A word this builder can produce is at most
+    /// [`Self::MAX_LEN`] characters, so it always fits the inline capacity.
     pub fn to_chars(&self, tone_placement: TonePlacement) -> SyllableChars {
         let mut output = SyllableChars::new();
 
-        // 1. Onset (contiguous chars -> one memcpy)
         output.extend_from_slice(&self.onset);
 
-        // 2. Vowels: the nucleus stores Flat tones; apply the syllable tone
-        // only while rendering the vowel selected by the placement rules.
+        // Nucleus vowels are stored flat; apply the tone only to the vowel
+        // chosen by the placement rules.
         if self.tone == Tone::Flat {
             for &vowel in self.nucleus.iter() {
                 output.push(vowel.to_char());
             }
         } else {
-            // Only calculate tone when the syllable is not flat; tone is
-            // applied to the vowel selected by the placement rules.
             let tone_pos = self.tone_vowel_index(tone_placement);
             for (idx, vowel) in self.nucleus.iter().enumerate() {
                 let tone = if Some(idx) == tone_pos {
@@ -224,7 +194,6 @@ impl BuildingSyllable {
             }
         }
 
-        // 3. Coda (contiguous chars -> one memcpy)
         output.extend_from_slice(&self.coda);
 
         output
@@ -232,15 +201,12 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Validation ───────────────────────────
 
-    // The `try_update_*` methods below share one transactional shape: run the
-    // mutation, re-derive the cached state, and on failure hand the undo data
-    // to `rollback` so the part is left exactly as it was. Each returns whether
-    // the syllable is still valid afterwards.
+    // The `try_update_*` methods below share one shape: mutate, re-derive the
+    // cached state, and undo with the rollback data on failure; each returns
+    // whether the syllable is still valid.
 
-    /// Checks the syllable against `validator`.
-    ///
-    /// An incomplete nucleus fails before the validator is consulted, so a
-    /// half-typed syllable never reaches a phonotactic rule.
+    /// Whether the syllable passes the phonotactic rules; an incomplete
+    /// nucleus fails first, so a half-typed syllable never reaches them.
     #[allow(dead_code)]
     pub fn is_phonotactically_valid(&self) -> bool {
         if self.nucleus_state.is_incomplete() {
@@ -260,28 +226,21 @@ impl BuildingSyllable {
     {
         let undo_data = update(&mut self.onset);
 
-        // Validate the onset.
         match Onset::from_chars(&self.onset) {
             Ok(kind) => {
                 self.onset_kind = kind;
                 true
             }
             Err(_) => {
-                // Undo the mutation.
                 rollback(&mut self.onset, undo_data);
                 false
             }
         }
     }
 
-    /// Mutates the nucleus; caches `nucleus_state` on success, otherwise rolls
-    /// the change back.
-    ///
-    /// The caller owns the tone invariant: `update` must only insert toneless
-    /// vowels (`Vowel::without_tone`), and the syllable's tone is carried in
-    /// `self.tone` and re-applied when the word is rendered. Storing it once
-    /// there is what keeps this function a single validation instead of a
-    /// mutation plus a sweep of the whole nucleus on every keystroke.
+    /// Mutates the nucleus; caches `nucleus_state` on success, else rolls
+    /// back. The caller owns the tone invariant: `update` must insert only
+    /// toneless vowels, with the syllable's tone kept in `self.tone`.
     #[inline(always)]
     fn try_update_nucleus<F, R, T>(&mut self, update: F, rollback: R) -> bool
     where
@@ -324,7 +283,6 @@ impl BuildingSyllable {
                 true
             }
             Err(_) => {
-                // Undo the mutation.
                 rollback(&mut self.coda, undo_data);
                 false
             }
@@ -333,13 +291,11 @@ impl BuildingSyllable {
 
     // ─────────────────────────── Normalization ───────────────────────────
 
-    /// Normalizes an unmarked `u o` prefix that arrived without a shape key.
-    ///
-    /// `uơ → ươ` and `ưo → ươ` are folded once at least two vowels are present.
+    /// Folds an unmarked `u o` prefix that arrived without a shape key:
+    /// `uơ → ươ` and `ưo → ươ` once at least two vowels are present.
     #[inline]
     fn normalize_uo_horn(&mut self) {
-        // A bare `uo` is only normalized once it is unambiguously a nucleus:
-        // two vowels need a coda, three need nothing more.
+        // Only once the pair is unambiguous: two vowels need a coda, three need none.
         if self.nucleus.len() < 2 || (self.nucleus.len() < 3 && self.coda.is_empty()) {
             return;
         }
@@ -405,8 +361,7 @@ impl BuildingSyllable {
         key: char,
         vowel_upper_bound_idx: Option<usize>,
     ) -> TransformResult {
-        // 1. Tone. Only a key the keymap can decode counts; an undecodable
-        //    tone key falls through to the shape and stroke checks below.
+        // 1. Tone — an undecodable tone key falls through to shape and stroke.
         if keymap.is_tone_key(key) {
             if let Some(tone) = keymap.decode_tone(key) {
                 return self.apply_tone(tone);
@@ -454,7 +409,6 @@ impl BuildingSyllable {
             return self.apply_uo_shape(shape);
         }
 
-        // Scan backwards through the vowels before the cursor.
         for index in (0..max_len).rev() {
             let base = self.nucleus[index].base();
 
@@ -469,8 +423,8 @@ impl BuildingSyllable {
         TransformResult::NotApplicable
     }
 
-    /// Applies the D-stroke when `key` is the stroke key, and reports
-    /// [`TransformResult::NotApplicable`] when it is not.
+    /// Applies the D-stroke when `key` is the stroke key, else reports
+    /// [`TransformResult::NotApplicable`].
     #[inline(always)]
     fn try_toggle_d_stroke<KM: Keymap>(&mut self, keymap: &KM, key: char) -> TransformResult {
         if keymap.is_stroke_key(key) {
@@ -479,10 +433,8 @@ impl BuildingSyllable {
         TransformResult::NotApplicable
     }
 
-    /// Toggles the D-stroke on the onset cluster (`d` ↔ `đ`, `D` ↔ `Đ`).
-    ///
-    /// Only applies when the onset is a lone `D`/`Đ`; otherwise the stroke key
-    /// cannot act here.
+    /// Toggles the D-stroke on the onset (`d` ↔ `đ`, `D` ↔ `Đ`); only a lone
+    /// `D`/`Đ` onset can take it, otherwise `NotApplicable`.
     #[inline(always)]
     fn toggle_d_stroke(&mut self) -> TransformResult {
         match self.onset_kind {
@@ -511,10 +463,8 @@ impl BuildingSyllable {
         }
     }
 
-    /// Applies or toggles a tone on the syllable.
-    ///
-    /// Tapping the same tone again reverts to `Flat`; a different tone replaces
-    /// the current one.
+    /// Applies or toggles a tone: the same tone again reverts to `Flat`, a
+    /// different one replaces it; with no nucleus it is `NotApplicable`.
     #[inline]
     fn apply_tone(&mut self, tone: Tone) -> TransformResult {
         if self.nucleus.is_empty() {
@@ -522,17 +472,16 @@ impl BuildingSyllable {
         }
         if self.tone == tone {
             self.tone = Tone::Flat;
-            return TransformResult::Reverted(TransformTarget::LazyTone);
+            return TransformResult::Reverted(TransformTarget::Tone);
         }
 
         self.tone = tone;
-        TransformResult::Applied(TransformTarget::LazyTone)
+        TransformResult::Applied(TransformTarget::Tone)
     }
 
-    /// Applies `shape` to the vowel at `index`, re-validating the nucleus.
-    ///
-    /// Applying the shape it already has reverts it; an invalid result rolls
-    /// the vowel back.
+    /// Applies `shape` to the vowel at `vowel_index`, re-validating the
+    /// nucleus: re-applying the current shape reverts it, an invalid result
+    /// rolls the vowel back.
     fn apply_vowel_shape(&mut self, vowel_index: usize, shape: Shape) -> TransformResult {
         debug_assert!(
             vowel_index < self.nucleus.len(),
@@ -542,13 +491,11 @@ impl BuildingSyllable {
 
         let old = self.nucleus[vowel_index].base();
 
-        // Shape already present -> revert to base.
         if old.is_shape(shape) && shape.is_some() {
             self.nucleus[vowel_index].set_base(old.remove_shape());
             return TransformResult::Reverted(TransformTarget::Nucleus(vowel_index));
         }
 
-        // Try applying the new shape.
         let Some(new) = old.replace_shape(shape) else {
             return TransformResult::NotApplicable;
         };
@@ -580,7 +527,7 @@ impl BuildingSyllable {
                 (UHorn, OHorn) => {
                     self.nucleus[0].set_base(U);
                     self.nucleus[1].set_base(O);
-                    TransformResult::Reverted(TransformTarget::UoNucleus)
+                    TransformResult::Reverted(TransformTarget::UoPair)
                 }
 
                 // uơ -> Horn index 0 (becomes ươ).
@@ -616,7 +563,7 @@ impl BuildingSyllable {
                             nucleus[1].set_base(old_o);
                         },
                     ) {
-                        return TransformResult::Applied(TransformTarget::UoNucleus);
+                        return TransformResult::Applied(TransformTarget::UoPair);
                     }
 
                     return TransformResult::NotApplicable;

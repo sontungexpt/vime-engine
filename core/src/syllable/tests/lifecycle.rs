@@ -1,16 +1,13 @@
-//! Lifecycle tests for the two-phase [`Syllable`]: the building phase,
-//! the fallback into a verbatim dead buffer on a rejected edit, and the
-//! recovery to building once the rejected input is removed.
-//!
-//! The mutators (`push` / `insert` / `remove`) are `pub(crate)`, so these are
-//! unit tests: only crate-internal code can drive the dead phase.
+//! Lifecycle of the two-phase [`Syllable`]: building, the fallback into a
+//! verbatim dead buffer on a rejected edit, and recovery once that input is
+//! removed. The mutators are `pub(crate)`, so only crate-internal code can
+//! drive the dead phase.
 
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Onset, TonePlacement};
 use crate::syllable::{EditEffect, Syllable, TransformTarget};
 
-/// The keymap every test here parses under. A [`Syllable`] does not hold one,
-/// so each operation is handed it.
+/// The keymap every test parses under; `Syllable` holds none, so each call gets it.
 fn keymap() -> DefaultKeymap<'static> {
     DefaultKeymap::telex()
 }
@@ -60,8 +57,7 @@ fn rejected_push_falls_back_to_dead() {
     let mut s = builder();
     s.push(&keymap(), TONE, 'a');
 
-    // `z` is neither a vowel, an onset nor a coda char, so the builder rejects
-    // it and the accepted prefix carries over into a dead buffer.
+    // `z` is no vowel/onset/coda char, so the rejection hands the accepted prefix to a dead buffer.
     assert_eq!(
         s.push(&keymap(), TONE, 'z'),
         EditEffect::StructurallyChanged
@@ -110,8 +106,7 @@ fn rejected_insert_falls_back_to_dead() {
     s.push(&keymap(), TONE, 't');
     s.push(&keymap(), TONE, 'a');
 
-    // Inserting `z` at the onset head is invalid; the whole "ta" prefix is
-    // frozen and the rejection recorded at the cursor.
+    // `z` at the onset head is invalid: `ta` is frozen and the rejection recorded at the cursor.
     s.insert(&keymap(), TONE, 0, 'z');
 
     assert!(!s.is_building());
@@ -295,15 +290,13 @@ fn tone_placement_is_supplied_per_render() {
     }
     assert!(s.is_building());
 
-    // Modern and Old put the mark on opposite vowels of the open `oa` nucleus,
-    // so the same parsed state renders two different words.
+    // Modern and Old mark opposite vowels of `oa`, so one parsed state renders two words.
     let modern: String = s.to_chars(TonePlacement::Modern).into_iter().collect();
     let old: String = s.to_chars(TonePlacement::Old).into_iter().collect();
     assert_eq!(modern, "hoá");
     assert_eq!(old, "hóa");
 
-    // `write_to` and `iter_chars` take the same argument and agree with
-    // `to_chars`.
+    // `write_to` and `iter_chars` take the same argument and agree with `to_chars`.
     let mut out = String::new();
     s.write_to(TonePlacement::Old, &mut out);
     assert_eq!(out, old);
@@ -331,9 +324,7 @@ fn keymap_is_supplied_per_operation() {
     assert!(s.is_building());
     assert_eq!(s.to_chars(TONE).iter().collect::<String>(), "ă");
 
-    // VIQR binds no shape on `w`, so the very same keystrokes are taken as
-    // literal input — and `w` cannot follow the vowel in a syllable, so the
-    // builder falls back to the dead buffer.
+    // VIQR binds no shape on `w`: it is literal input, and `w` cannot follow a vowel, so the buffer goes dead.
     let viqr = DefaultKeymap::viqr();
     let mut v = Syllable::new();
     v.push(&viqr, TONE, 'a');
@@ -398,8 +389,7 @@ fn a_spilled_buffer_still_reports_and_removes() {
         "removing an accepted one keeps the count"
     );
 
-    // The `n` above left `ga` followed by ten rejected characters, so ten
-    // removals at index 2 take the rejected run and leave `ga`.
+    // `n` left `ga` plus ten rejected; ten removals at index 2 take that run, leaving `ga`.
     for _ in 0..10 {
         d.remove(2);
     }
@@ -448,9 +438,8 @@ fn from_accepted_takes_a_slice() {
     assert!(from_slice.is_all_accepted());
 }
 
-/// The alias carries three slots beyond the longest *buildable* word, so the
-/// ordinary dead syllable — that word plus a stray keystroke or two — stays
-/// inline instead of spilling.
+/// Three slots beyond the longest *buildable* word, so an ordinary dead
+/// syllable — that word plus a stray keystroke or two — stays inline.
 #[test]
 fn an_ordinary_dead_syllable_stays_inline() {
     use crate::syllable::SyllableChars;
@@ -474,15 +463,13 @@ fn an_ordinary_dead_syllable_stays_inline() {
     );
 }
 
-/// `BuildingSyllable::to_chars` returns the same `SyllableChars` alias as the outer
-/// `Syllable`, and a buildable word always fits it — so rendering one never
+/// A buildable word always fits the `SyllableChars` alias, so rendering never
 /// spills and the outer `to_chars` hands it back without a copy.
 #[test]
 fn a_buildable_word_never_spills() {
     use crate::syllable::SyllableChars;
 
-    // "nghuyen" is onset `ngh` + a three-vowel nucleus + coda `n`, the most
-    // characters any real syllable renders to here.
+    // "nghuyen": onset `ngh` + three vowels + coda `n`, the most characters a syllable renders to here.
     let word = "nghuyen";
     let mut s = builder();
     for ch in word.chars() {

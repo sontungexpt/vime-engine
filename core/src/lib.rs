@@ -1,32 +1,14 @@
 //! Frontend-independent Vietnamese input method engine.
 //!
-//! Architecture:
+//! Pipeline: key → [`keymap::Keymap`] → [`composition::Composition`] → [`syllable::Syllable`] → phonology → text.
 //!
-//! ```text
-//! KeyEvent → Keymap → Composition → Syllable → phonology → Vietnamese text
-//! ```
-//!
-//! - [`KeyEvent`]: a [`Key`] plus [`KeyStates`]; the only input the engine takes.
-//! - [`keymap::Keymap`]: classifies a key as a tone, vowel-shape or
-//!   `d`/`đ` stroke key and decodes it (`DefaultKeymap` for Telex/VNI/VIQR).
-//! - [`Composition`]: the raw keystroke buffer, its cursor, and the incremental
-//!   syllable parser driven by that keymap.
-//! - [`Syllable`](syllable::Syllable): the two-phase
-//!   syllable buffer — a validated `BuildingSyllable`, or a verbatim
-//!   `DeadSyllable` once the input can no longer form a Vietnamese syllable.
-//! - [`phonology`]: the shared model both phases rely on — the `Vowel` codec
-//!   (`encode_vowel`/`decode_vowel`), [`NucleusState`](phonology::NucleusState),
-//!   [`PhonotacticValidator`](phonology::PhonotacticValidator) and
-//!   [`TonePlacement`](phonology::TonePlacement).
-//! - [`Session`]: one typing buffer, turning each [`KeyEvent`] into a
-//!   [`Result`] (re-render, commit, ignore or forward the key).
-//! - [`SessionFactory`]: owns the [`SessionConfig`] shared by its sessions and creates
-//!   them, so one settings change can reach every session.
+//! - [`keymap::Keymap`]: classifies and decodes tone, vowel-shape and `d`/`đ` stroke keys (`DefaultKeymap` covers Telex/VNI/VIQR).
+//! - [`composition::Composition`]: the raw keystroke buffer, its cursors, and the incremental syllable parser.
+//! - [`syllable::Syllable`]: the two-phase buffer — a building syllable, or a verbatim dead one once input can no longer form Vietnamese.
+//! - [`Session`]: one typing buffer, turning each key into a [`Result`] (re-render, commit, ignore or forward).
 
-// The `unsafe fn` bodies in this crate are `const fn`s whose safety contract
-// is a bounds precondition. Requiring an explicit `unsafe` block inside them
-// keeps the contract visible at the point of the read, rather than relying on
-// the implicit-unsafe that `unsafe fn` used to confer.
+// `unsafe fn` bodies are `const fn`s with a bounds precondition; an explicit
+// `unsafe` block keeps that contract visible at the read site.
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod keymap;

@@ -1,8 +1,6 @@
-//! Append path: `BuildingSyllable::push` and the literal helpers it drives.
-//!
-//! Pushing always acts at the end of the syllable. Before the nucleus or coda
-//! starts, a key may extend the onset or begin the nucleus. After that, keys
-//! may apply a transform or extend the nucleus or coda.
+//! Append path: `BuildingSyllable::push`, which always acts at the end of the
+//! syllable: before the nucleus or coda starts, a key may extend the onset or
+//! begin the nucleus; afterwards it may transform, or extend the nucleus or coda.
 
 use super::*;
 use crate::{
@@ -21,8 +19,7 @@ impl BuildingSyllable {
         let mut effect = EditEffect::StructurallyChanged;
 
         // ─────────────────────────── Onset ───────────────────────────
-        // No nucleus or coda yet: try a D/Đ stroke, then extend the onset,
-        // then try the key as the first vowel.
+        // No nucleus or coda yet: try the D/Đ stroke, then the onset, then the first vowel.
         if self.coda.is_empty() && self.nucleus.is_empty() {
             match self.try_toggle_d_stroke(keymap, key) {
                 TransformResult::Applied(target) => {
@@ -81,8 +78,7 @@ impl BuildingSyllable {
         }
 
         if self.coda.is_empty() {
-            // With no coda yet, vowels extend the nucleus; other keys may
-            // start the coda.
+            // With no coda yet, vowels extend the nucleus; other keys may start the coda.
             let Some(vowel) = Vowel::from_char(key) else {
                 if self.push_coda(key) {
                     // Once a coda starts, normalize `uơ` / `ưo` to `ươ`.
@@ -135,11 +131,9 @@ impl BuildingSyllable {
         false
     }
 
-    /// Adds a decoded vowel to the nucleus (max 3 vowels); returns `false`
-    /// when the tone conflicts or the resulting nucleus is invalid.
-    ///
-    /// `pub(super)`: `insert` delegates to the append path when the insert
-    /// lands behind the end of the nucleus.
+    /// Adds a decoded vowel to the nucleus (max 3); `false` on a tone conflict
+    /// or an invalid nucleus. `pub(super)` because `insert` delegates here for
+    /// an insertion at the end of the nucleus.
     #[inline]
     pub(super) fn push_vowel(&mut self, vowel: Vowel) -> bool {
         let tone = vowel.tone();
@@ -162,18 +156,14 @@ impl BuildingSyllable {
         // A non-flat vowel conflicts with an existing non-flat tone (`á` + `ắ`),
         // but an unmarked vowel can follow one (`á` + `a`).
         let new_tone = match (self.tone, tone) {
-            // The syllable has no tone yet, so take the incoming tone.
             (Tone::Flat, incoming) => incoming,
 
-            // An unmarked vowel keeps the current syllable tone.
             (current, Tone::Flat) => current,
 
-            // Two non-flat tones conflict.
             (_, _) => return false,
         };
 
-        // When a vowel follows `g i`, move `i` into the onset: `G + I + V` ->
-        // `Gi + V`.
+        // When a vowel follows `g i`, move `i` into the onset: `G + I + V` -> `Gi + V`.
         let should_form_gi =
             len == 1 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I;
 

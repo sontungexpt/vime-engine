@@ -1,11 +1,7 @@
-//! I. Toggle / revert behaviour.
-//!
-//! Transform keys produce one of three effects:
-//!   Applied      → the transform took effect (tone/shape set)
-//!   Reverted     → an equal tone/shape was toggled off; the key then falls
-//!                  through as a literal and lands in the coda
-//!   NotApplicable→ nothing to transform; the key falls through as literal
-//! The expected strings below reflect that *exact* semantics.
+//! I. Toggle / revert behaviour: a transform key yields Applied (the
+//! tone/shape is set), Reverted (an equal tone/shape toggled off, then the key
+//! falls through as a literal into the coda) or NotApplicable (falls through
+//! as literal); the expected states below reflect that exactly.
 
 use super::prelude::*;
 

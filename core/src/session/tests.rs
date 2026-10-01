@@ -1,9 +1,7 @@
 //! Unit tests for [`SharedSessionConfig`].
 //!
-//! These stay inside the crate rather than moving to `tests/`: they drive
-//! `SessionConfig`'s crate-private setters, which is the only way to exercise
-//! `SharedSessionConfig::update`. An integration test compiles against the crate as an
-//! external caller and cannot see `pub(crate)` items.
+//! Kept in-crate: they drive `SessionConfig`'s `pub(crate)` setters, which an
+//! integration test compiling as an external caller cannot see.
 
 use super::{Session, SessionConfig, SharedSessionConfig};
 use crate::keymap::DefaultKeymap;
@@ -17,8 +15,8 @@ fn shared() -> SharedSessionConfig<DefaultKeymap<'static>> {
     ))
 }
 
-/// `update` changes one field and leaves the rest alone, and the generation
-/// it returns describes the value it left behind.
+/// `update` changes one field, leaves the rest alone, and returns a generation
+/// describing the value it left behind.
 #[test]
 fn update_swaps_the_tone_placement_only() {
     let shared = shared();
@@ -77,10 +75,9 @@ fn each_update_bumps_the_generation() {
 }
 
 // ────────────── Who resolves the configuration, and when ──────────────
-//
-// The ownership rule: a `Session` resolves configuration for itself, at the
-// start of every config-dependent operation. A config-independent operation
-// must leave the resolved config exactly as it found it.
+// A `Session` resolves configuration itself, at the start of every
+// config-dependent operation; a config-independent one must leave the resolved
+// config exactly as it found it.
 
 /// A shared config holding Telex on the modern scheme.
 fn shared_config() -> SharedSessionConfig<DefaultKeymap<'static>> {
@@ -101,8 +98,8 @@ fn session_with_hoas(
     session
 }
 
-/// A config-dependent operation adopts a pending change on its own. Nobody
-/// calls `pull_config` first; the render itself has to resolve it.
+/// A config-dependent operation adopts a pending change on its own, without an
+/// explicit `pull_config`.
 #[test]
 fn a_config_dependent_operation_resolves_the_config_itself() {
     let shared = shared_config();
@@ -116,8 +113,8 @@ fn a_config_dependent_operation_resolves_the_config_itself() {
 }
 
 /// Cursor movement reads no configuration, so it must not adopt a pending
-/// change. If it did, a later config-independent read would misreport what the
-/// session has resolved.
+/// change: a later config-independent read would misreport what the session
+/// has resolved.
 #[test]
 fn cursor_movement_does_not_resolve_the_config() {
     let shared = shared_config();
@@ -167,7 +164,7 @@ fn raw_reads_do_not_resolve_the_config() {
     );
 }
 
-/// `pull_config` reports that a config was adopted. It is not a re-render: the
+/// `pull_config` reports that a config was adopted without re-rendering: the
 /// word only moves when a config-dependent operation reads it.
 #[test]
 fn pull_config_reports_adoption_without_rendering() {

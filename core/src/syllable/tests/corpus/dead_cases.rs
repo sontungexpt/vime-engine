@@ -1,16 +1,8 @@
 //! J. Invalid / dead cases: inputs that kill the parse.
 //!
-//! A dead case (`dead_case!`) is an input where some `push` returns `Err`; when
-//! it does, the builder rolls back and keeps the syllable listed in the case.
-//! The runner expands the case into: push everything in order, require a
-//! failure, then compare the rolled-back syllable against the expected one.
-//!
-//! Notes vs. the old telex-on-composition corpus:
-//!
-//! * A non-letter typed *after* a vowel kills as `InvalidCoda`; a non-letter
-//!   typed in the onset phase kills as `InvalidOnset`.
-//! * `q` waits for a plain `u`: every other vowel after `q` kills as
-//!   `InvalidOnset` (a precomposed `ư` is not a plain `u`).
+//! In a `dead_case!` some `push` returns `Err`; the runner requires that
+//! failure, then checks the rolled-back syllable. Non-letters die as
+//! `InvalidOnset` / `InvalidCoda`; after `q` only a plain `u` is accepted.
 
 use super::prelude::*;
 

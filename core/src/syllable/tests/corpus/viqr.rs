@@ -1,6 +1,4 @@
-//! F2. The VIQr layout.
-//!
-//! VIQr layout (config/input/default/viqr.rs):
+//! F2. The VIQr layout (config/input/default/viqr.rs):
 //!   tones `` ` `` (grave), `?` (hook), `~` (tilde), `'` (acute), `.` (dot),
 //!   `z` (flat reset)
 //!   shapes `^` = circumflex (a e o), `(` = breve (a), `+` = horn (o u)

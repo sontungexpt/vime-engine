@@ -1,8 +1,6 @@
-//! Runs the full data-driven corpus through `BuildingSyllable::push`.
+//! Runs the data-driven corpus through `BuildingSyllable::push`.
 //!
-//! Behaviour data and the [`Corpus`] runner live under `corpus/`; the shared
-//! `ExpectedSyllable` model and `check_syllable_eq` come from `common`. The
-//! entry points below sweep each module's rows with one keymap and assert the
+//! Each test sweeps the `corpus/` slices with one keymap and asserts the
 //! corpus never silently shrinks.
 
 use super::corpus::{

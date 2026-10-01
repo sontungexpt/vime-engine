@@ -13,13 +13,9 @@ use super::vec_like::VecLike;
 
 /// Where a [`SmallVec`] is keeping its elements.
 ///
-/// One enum rather than a flag beside a `union`, because the branch is the
-/// whole cost model and a separate flag would have to be kept in step with it
-/// by hand. The tag is the first field, so the inline arm costs one compare.
-///
-/// Note this is `Clone` and not `Copy`: the heap arm owns an allocation, and a
-/// type that can spill cannot be copied bit for bit. That is the same trade the
-/// `smallvec` crate makes, and it is the price of not panicking at capacity.
+/// An enum rather than a flag beside a `union`: the tag is the discriminant, so
+/// the inline arm costs one compare and nothing can drift out of step. `Clone`
+/// but not `Copy` — the heap arm owns an allocation.
 #[derive(Clone)]
 enum Phase<T: Copy, const N: usize> {
     /// The elements are in the buffer inside the struct, room for at most `N`.
@@ -28,32 +24,13 @@ enum Phase<T: Copy, const N: usize> {
     Heap(Vec<T>),
 }
 
-/// A growable sequence that keeps up to `N` elements inside itself and spills
-/// to the heap beyond that, in the manner of the `smallvec` crate.
+/// A sequence that keeps up to `N` elements inline and spills to the heap past
+/// that — an [`ArrayVec`] with the capacity panic replaced by a spill, in the
+/// manner of the `smallvec` crate.
 ///
-/// # Why
-///
-/// [`ArrayVec`] is the right buffer for a syllable — a handful of vowels, never
-/// more — but its fixed capacity turns "what if it is longer" into a panic. This
-/// is that same buffer with the panic replaced by a spill, for the callers that
-/// genuinely do not know the bound in advance, without giving up the inline fast
-/// path for the ones that do.
-///
-/// # The fast path
-///
-/// A read is a match on the tag and a slice, so it costs the same as an
-/// `ArrayVec` read — measured at 0.215ns for `as_slice` and `len` on both.
-/// Only a write that *finds the buffer full* pays: that one moves the elements
-/// to the heap, and every write after it is a `Vec`'s.
-///
-/// # Spill and shrink
-///
-/// Spilling reserves twice the inline capacity, so the pushes right after it do
-/// not reallocate. Once spilled it stays spilled, because moving the elements
-/// back would be a move the caller never asked for; [`Self::shrink_to_inline`]
-/// and [`Self::reset`] are there for a caller that does want the inline arm
-/// back. `Clone` is hand-written below rather than derived, so the inline arm
-/// copies its live prefix instead of all `N` slots.
+/// Reads cost the same in either arm; only the first overflow pays for the
+/// move. A spill reserves `2 * N` so the next pushes do not reallocate, and it
+/// sticks until [`Self::shrink_to_inline`] or [`Self::reset`].
 pub struct SmallVec<T: Copy, const N: usize> {
     phase: Phase<T, N>,
 }
@@ -66,11 +43,7 @@ impl<T: Copy, const N: usize> Default for SmallVec<T, N> {
 }
 
 impl<T: Copy, const N: usize> SmallVec<T, N> {
-    /// An empty `SmallVec`, holding up to `N` elements inline.
-    ///
-    /// Nothing is allocated: the inline arm is the struct's own buffer, exactly
-    /// as for [`ArrayVec`]. The heap arm is only reached by a write that
-    /// overflows `N`.
+    /// An empty `SmallVec` holding up to `N` elements inline, allocating nothing.
     #[inline(always)]
     pub const fn new() -> Self {
         Self {
@@ -86,10 +59,8 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
 
     /// Whether the elements are on the heap.
     ///
-    /// Inherent rather than part of [`VecLike`], because where a container keeps
-    /// its elements is a fact about that container, not part of what a vec
-    /// does: an `ArrayVec` has no heap arm to be in, and the trait would have to
-    /// answer `false` for it forever.
+    /// Inherent rather than part of [`VecLike`] — only this container has such
+    /// an arm to be in.
     #[inline(always)]
     pub fn is_spilled(&self) -> bool {
         matches!(self.phase, Phase::Heap(_))
@@ -134,10 +105,9 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
 
     // ---------------------------------------------------------- the heap
 
-    /// Moves the elements onto the heap, reserving `min` extra room.
-    ///
-    /// Twice the inline capacity so that the pushes following a spill do not
-    /// each reallocate. A `min` from a size hint is honoured on top of that.
+    /// Moves the elements onto the heap, reserving at least `2 * N` or
+    /// `len + min`, whichever is larger, so the pushes right after a spill do
+    /// not reallocate.
     #[inline]
     fn spill(&mut self, min: usize) {
         if let Phase::Inline(inline) = self.phase {
@@ -163,10 +133,7 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     }
 
     /// Reserves room for `additional` more elements, spilling if that is what
-    /// it takes.
-    ///
-    /// A caller that knows a burst is coming calls this once, so the spill is
-    /// one allocation rather than one per push.
+    /// it takes; one call makes a coming burst a single allocation.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
         if let Phase::Inline(inline) = &self.phase {
@@ -180,10 +147,8 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
 
     // ------------------------------------------------------ back to inline
 
-    /// Moves the elements back into the inline buffer if they fit.
-    ///
-    /// Returns whether it is inline afterwards; a spilled vector that is still
-    /// too long stays on the heap.
+    /// Moves the elements back into the inline buffer if they fit, returning
+    /// whether the vector is inline afterwards.
     pub fn shrink_to_inline(&mut self) -> bool {
         let Phase::Heap(heap) = &self.phase else {
             return true;
@@ -197,8 +162,8 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
         true
     }
 
-    /// Drops the elements and the heap buffer, returning to a bare inline
-    /// `SmallVec`. The only way back from a spill that is free.
+    /// Drops the elements and the heap buffer, returning to an empty inline
+    /// `SmallVec`.
     #[inline]
     pub fn reset(&mut self) {
         self.phase = Phase::Inline(ArrayVec::default());
@@ -206,11 +171,7 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
 
     // ---------------------------------------------------------- mutations
 
-    /// Appends `value`, spilling to the heap if the inline buffer is full.
-    ///
-    /// The guard is the only thing between the caller and the hot path: an
-    /// inline vector with room takes an `ArrayVec` push, and only a full one
-    /// pays for the spill.
+    /// Appends `value`, spilling to the heap when the inline buffer is full.
     #[inline]
     pub fn push(&mut self, value: T) {
         match &mut self.phase {
@@ -222,9 +183,7 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
 
     /// Removes and returns the last element, or `None` when empty.
     ///
-    /// Never unspills: popping back down to the inline capacity leaves the
-    /// vector on the heap, which is the cheap direction. [`Self::shrink_to_inline`]
-    /// is the explicit way back.
+    /// Never unspills; [`Self::shrink_to_inline`] is the way back.
     #[inline]
     pub fn pop(&mut self) -> Option<T> {
         match &mut self.phase {
@@ -237,9 +196,8 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     #[inline]
     pub fn insert(&mut self, index: usize, value: T) {
         match &mut self.phase {
-            // SAFETY: the guard proved `len < N`; `index` is unchanged from the
-            // caller's own contract for `insert`, which `Vec::insert` below
-            // checks the same way.
+            // SAFETY: the guard proved `len < N`; `index` keeps the caller's
+            // `insert` contract, which the heap arm checks the same way.
             Phase::Inline(inline) if inline.len() < N => {
                 debug_assert!(index <= inline.len());
                 unsafe { inline.insert_unchecked(index, value) }
@@ -257,8 +215,8 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
         }
     }
 
-    /// Drops every element. A spilled vector keeps its heap buffer, so a clear
-    /// is never an allocation and the refill after it is never one either.
+    /// Drops every element; a spilled vector keeps its heap buffer, so neither
+    /// the clear nor the refill after it allocates.
     #[inline]
     pub fn clear(&mut self) {
         match &mut self.phase {
@@ -270,8 +228,8 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     /// Appends every element of `values`, spilling once if they do not fit.
     #[inline]
     pub fn extend_from_slice(&mut self, values: &[T]) {
-        // Checked against the inline buffer first so the common case never
-        // reaches for the heap, and so a slice that fits is one `ptr::copy`.
+        // Checked against the inline buffer first, so a slice that fits is one
+        // `ptr::copy` and never reaches for the heap.
         if let Phase::Inline(inline) = &mut self.phase {
             if values.len() <= N - inline.len() {
                 inline.extend_from_slice(values);
@@ -337,8 +295,8 @@ impl<T: Copy, const N: usize> Clone for SmallVec<T, N> {
     #[inline]
     fn clone(&self) -> Self {
         match &self.phase {
-            // `ArrayVec` is `Copy`, so the whole buffer comes across in one
-            // move; there is no per-element loop to be slower than.
+            // `ArrayVec` is `Copy`, so the buffer copies in one move, with no
+            // per-element loop.
             Phase::Inline(inline) => Self {
                 phase: Phase::Inline(*inline),
             },
@@ -390,8 +348,8 @@ where
 impl<T: Copy + PartialEq, const N: usize> PartialEq for SmallVec<T, N> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        // By content, not by arm: an inline `SmallVec` and a spilled one holding
-        // the same elements are equal.
+        // By content, not by arm: an inline and a spilled `SmallVec` with the
+        // same elements are equal.
         self.as_slice() == other.as_slice()
     }
 }
@@ -409,8 +367,8 @@ impl<T: Copy, const N: usize> FromIterator<T> for SmallVec<T, N> {
         let iter = iter.into_iter();
         let (lower, upper) = iter.size_hint();
 
-        // An iterator that knows how much is coming gets one reservation for
-        // all of it, so a `collect` over a long input is a single allocation.
+        // A sized iterator over more than `N` items collects in a single
+        // allocation.
         if let Some(max) = upper {
             if max > N {
                 return Self {
@@ -444,9 +402,8 @@ impl<T: Copy, const N: usize> Extend<T> for SmallVec<T, N> {
 
 // ─────────────────────────────── conversions ───────────────────────────────
 //
-// By `From` rather than named constructors, so each of these is reachable as
-// `.into()`, as the argument a generic caller expects, and as a `?` source type.
-// `from` is a keyword, so a `from_*` method could be none of those.
+// `From` rather than named constructors, so each is reachable as `.into()`, as
+// the argument a generic caller expects, and as a `?` source type.
 
 /// Collects a slice, spilling only if it does not fit.
 impl<T: Copy, const N: usize> From<&[T]> for SmallVec<T, N> {
@@ -479,8 +436,8 @@ impl<T: Copy, const N: usize> From<Vec<T>> for SmallVec<T, N> {
     #[inline]
     fn from(values: Vec<T>) -> Self {
         if values.len() <= N && values.capacity() == values.len() {
-            // Short enough to inline, and there is no spare capacity to throw
-            // away, so the elements are moved across rather than copied.
+            // Fits inline with no spare capacity to lose, so the elements are
+            // copied into the buffer instead of keeping the allocation.
             let mut inline = ArrayVec::<T, N>::default();
             inline.extend_from_slice(&values);
             Self {
@@ -496,9 +453,8 @@ impl<T: Copy, const N: usize> From<Vec<T>> for SmallVec<T, N> {
 
 /// Owning iterator over a [`SmallVec`]'s elements.
 ///
-/// Backed by a `Vec` in both arms. An inline buffer cannot become a `Vec`
-/// without allocating, and this is the cold path, so the honest thing is to copy
-/// `len` elements rather than pretend otherwise.
+/// Always backed by a `Vec`: an inline buffer cannot become one without
+/// allocating, so this cold path copies the elements.
 pub struct IntoIter<T: Copy, const N: usize> {
     inner: std::vec::IntoIter<T>,
 }
@@ -550,12 +506,10 @@ impl<T: Copy, const N: usize> IntoIterator for SmallVec<T, N> {
     }
 }
 
-/// Adopts any other vec-like buffer, whatever capacity it has.
+/// Adopts any other vec-like buffer, whatever its capacity.
 ///
-/// Blanket over [`VecLike`] rather than written once per source type, so an
-/// `ArrayVec` of any `M` and a `SmallVec` of any `M` both convert through one
-/// impl. A source that fits is copied into the buffer inside the struct, with
-/// no allocation; anything longer spills, so this cannot fail.
+/// Blanket over [`VecLike`]: a source that fits is copied inline, a longer one
+/// spills, so this cannot fail.
 impl<T: Copy, const N: usize, V: VecLike<T>> From<&V> for SmallVec<T, N> {
     #[inline]
     fn from(src: &V) -> Self {

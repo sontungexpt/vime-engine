@@ -3,30 +3,28 @@ use crate::util::vec::ArrayVec;
 
 // ─────────────────────────── Transform ───────────────────────────
 
-/// Effect of applying a transform key (shape/tone mark) to the syllable.
+/// Which part of the syllable a transform key touched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransformTarget {
     DStroke,
+    /// The affected vowel's index.
     Nucleus(usize),
-    UoNucleus,
-    LazyTone,
+    UoPair,
+    Tone,
 }
 
-/// Describes how the logical rendered buffer changed.
-///
-/// Indices address `onset ++ nucleus ++ coda`.
+/// How the rendered buffer changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditEffect {
     StructurallyChanged,
 
-    // Usize here is the smallest index affected by the transform.
     Transformed {
         target: TransformTarget,
         reverted: bool,
     },
 }
 
-/// Effect of applying a transform key (shape/tone mark) to the syllable.
+/// Outcome of trying a transform key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TransformResult {
     /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
@@ -40,13 +38,9 @@ pub(super) enum TransformResult {
 pub(super) type OnsetChars = ArrayVec<char, { Onset::MAX_LEN }>;
 pub(super) type CodaChars = ArrayVec<char, { Coda::MAX_LEN }>;
 
-/// A lightweight helper wrapper pairing toneless nucleus vowels with their cached state.
-///
-/// This is a private/internal builder helper for `BuildingSyllable`. Its main roles are:
-/// 1. Co-locating the vowel storage and its [`NucleusState`] cache to keep them synchronized.
-/// 2. Enforcing the toneless invariant: every mutation method automatically strips incoming vowel tones via `.without_tone()`.
-///
-/// The syllable's actual tone remains exclusively managed by `BuildingSyllable`.
+/// Toneless nucleus vowels paired with their cached
+/// [`NucleusState`](crate::phonology::NucleusState); an internal helper whose
+/// mutations strip incoming tones — the syllable's tone lives in `BuildingSyllable`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(super) struct FlatNucleus {
     vowels: ArrayVec<Vowel, NUCLEUS_MAX_LEN>,
@@ -59,25 +53,25 @@ impl FlatNucleus {
         &self.vowels
     }
 
-    /// Returns the number of vowels currently in the nucleus.
+    /// The number of vowels in the nucleus.
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.vowels.len()
     }
 
-    /// Returns `true` if the nucleus contains no vowels.
+    /// Whether the nucleus holds no vowels.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.vowels.is_empty()
     }
 
-    /// Returns an iterator over the internal toneless vowels.
+    /// Iterates the toneless vowels.
     #[inline(always)]
     pub fn iter(&self) -> impl Iterator<Item = &Vowel> {
         self.vowels.iter()
     }
 
-    /// Appends a vowel, automatically stripping its tone to maintain the toneless invariant.
+    /// Appends a vowel, stripping its tone.
     #[inline(always)]
     pub fn push(&mut self, vowel: Vowel) {
         self.vowels.push(vowel.without_tone());
@@ -89,7 +83,7 @@ impl FlatNucleus {
         self.vowels.pop()
     }
 
-    /// Inserts a vowel at `index`, automatically stripping its tone to maintain the toneless invariant.
+    /// Inserts a vowel at `index`, stripping its tone.
     #[inline(always)]
     pub fn insert(&mut self, index: usize, vowel: Vowel) {
         self.vowels.insert(index, vowel.without_tone());
@@ -101,7 +95,7 @@ impl FlatNucleus {
         self.vowels.remove(index)
     }
 
-    /// Resets the nucleus to empty and resets state to incomplete.
+    /// Empties the nucleus.
     #[inline]
     pub fn clear(&mut self) {
         self.vowels.clear();

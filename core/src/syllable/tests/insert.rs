@@ -1,24 +1,8 @@
-//! Insert-path corpus: `BuildingSyllable::insert` at an explicit cursor.
-//!
-//! The pipeline under test is:
-//!
+//! Insert corpus: `BuildingSyllable::insert` at an explicit cursor after a
+//! `base` push order, asserted for the effect/error and the final syllable.
 //! ```text
 //! Keymap + (base pushes) → BuildingSyllable → insert(keymap, at, key) → syllable
 //! ```
-//!
-//! The insertion index is absolute over the concatenation
-//! `onset ++ vowels ++ coda`:
-//!
-//! * `at >= len` delegates to `push` (append).
-//! * `at <= onset.len()` edits the onset, then falls back to the nucleus at the
-//!   onset boundary.
-//! * `at <= onset.len() + vowels.len()` edits the nucleus (cursor-bound
-//!   transforms apply to vowels strictly *left* of the cursor).
-//! * otherwise the cursor sits in the coda.
-//!
-//! Every case is a `base` push order plus one `(at, key)` insert, checked for
-//! the returned `EditEffect`/`SyllableBuildError` **and** the final syllable
-//! (transform side-effects that survive an `Err` are asserted exactly).
 
 use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
 
@@ -81,7 +65,7 @@ const CASES: &[InsertCase] = &[
         1,
         's',
         Transformed {
-            target: TransformTarget::LazyTone,
+            target: TransformTarget::Tone,
             reverted: false,
         },
         ExpectedSyllable::vowel(&[(V::A, C::Lower)], Tone::Acute)
@@ -176,8 +160,7 @@ const CASES: &[InsertCase] = &[
         ExpectedSyllable::onset_vowel(Onset::T, &['t'], &[(V::A, C::Lower)], Tone::Flat)
     ),
     // ──────────── Insert at 0 into an empty onset (at == onset.len() == 0) ────────────
-    // With nothing before the cursor the consonant still lands at the head of
-    // the onset, the coda and the tone staying put.
+    // The consonant lands at the head of the onset; coda and tone stay put.
     ok_case!(
         &['a', 'n'],
         0,
@@ -286,8 +269,7 @@ const CASES: &[InsertCase] = &[
         StructurallyChanged,
         ExpectedSyllable::onset_vowel(Onset::G, &['G'], &[(V::A, C::Lower)], Tone::Flat)
     ),
-    // Consonants that cannot lead an onset are rejected and leave the base
-    // untouched: `q` needs a following `u`, and `f` is outside the alphabet.
+    // Rejected onsets leave the base untouched: `q` needs a following `u`, `f` is outside the alphabet.
     err_case!(
         &['a'],
         0,
@@ -342,7 +324,7 @@ const CASES: &[InsertCase] = &[
         1,
         's',
         Transformed {
-            target: TransformTarget::LazyTone,
+            target: TransformTarget::Tone,
             reverted: false,
         },
         ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::I, C::Lower)], Tone::Acute)
@@ -412,9 +394,7 @@ const CASES: &[InsertCase] = &[
         ExpectedSyllable::onset_vowel(Onset::D, &['d'], &[(V::A, C::Lower)], Tone::Flat)
     ),
     // ─────────────────── `g i` promotion through insert ───────────────────
-    // `gin` + insert `a` at the vowel boundary must yield `gian`: the `i`
-    // moves into the onset (`gi`), and the incoming `a` becomes the new
-    // nucleus. Regression guard against dropping the incoming vowel (`giin`).
+    // `gin` + `a@2` → `gian`: the `i` joins the onset, `a` becomes the nucleus (guards the `giin` typo).
     ok_case!(
         &['g', 'i', 'n'],
         2,
@@ -437,8 +417,7 @@ const CASES: &[InsertCase] = &[
         StructurallyChanged,
         ExpectedSyllable::onset_vowel(Onset::Gi, &['g', 'i'], &[(V::A, C::Lower)], Tone::Flat)
     ),
-    // Without a following vowel, `i` stays a plain nucleus vowel: `gi` + `n@2`
-    // → `gin` (onset `g` only).
+    // Without a following vowel `i` stays a nucleus vowel: `gi` + `n@2` → `gin` (onset `g` only).
     ok_case!(
         &['g', 'i'],
         2,
@@ -454,8 +433,7 @@ const CASES: &[InsertCase] = &[
         )
     ),
     // ─────────────────────── uơ/ươ entered through w ───────────────────────
-    // `uo` + `w` folds to `uơ`; `uơ` + `w` reaches `ươ`. Both arrive via the
-    // append-delegation to `push`, but through the insert cursor.
+    // `uo` + `w` → `uơ`; `uơ` + `w` → `ươ`, both through the append → `push` path.
     ok_case!(
         &['u', 'o'],
         2,
@@ -477,8 +455,7 @@ const CASES: &[InsertCase] = &[
         ExpectedSyllable::vowel(&[(V::UHorn, C::Lower), (V::OHorn, C::Lower)], Tone::Flat)
     ),
     // ────────────────────── Mid-nucleus insert near a coda ──────────────────────
-    // Appending a vowel just before the coda lands after the existing vowels:
-    // `oan` + `i@2` → `oain`.
+    // A vowel just before the coda lands after the existing ones: `oan` + `i@2` → `oain`.
     ok_case!(
         &['o', 'a', 'n'],
         2,
@@ -491,8 +468,7 @@ const CASES: &[InsertCase] = &[
             &['n']
         )
     ),
-    // A dead middle insert (`oia`) rolls the nucleus back: `oan` + `i@1` keeps
-    // `oan`, but the insertion is still reported as an error.
+    // A dead middle insert rolls the nucleus back: `oan` + `i@1` keeps `oan`, but still reports an error.
     err_case!(
         &['o', 'a', 'n'],
         1,

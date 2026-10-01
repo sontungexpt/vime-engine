@@ -1,11 +1,7 @@
 //! A read-only view over a vowel nucleus.
 //!
-//! Every nucleus consumer in the crate — the rule table in
-//! [`super::state::NucleusState`] and the tone-placement rules in
-//! [`super::tone_placement::TonePlacement`] — reads a nucleus through this
-//! one trait, so none of them care whether the vowels are held as
-//! [`BaseVowel`]s, as [`Vowel`]s (which pack the base vowel together with tone
-//! and case), or in the syllable builder's inline `Nucleus` buffer.
+//! The nucleus and tone-placement rules read through this trait, so it does not
+//! matter whether the vowels are [`BaseVowel`]s, [`Vowel`]s, or the inline buffer.
 
 use super::super::{BaseVowel, Vowel};
 
@@ -18,11 +14,8 @@ pub trait BaseVowelSlice {
     ///
     /// # Safety
     ///
-    /// `index` must be less than `self.len()`.
-    ///
-    /// Callers must ensure that the index is in bounds before calling this
-    /// method. Implementations may omit bounds checking based on this
-    /// invariant.
+    /// `index` must be less than `self.len()`; implementations may skip bounds
+    /// checks on that invariant.
     unsafe fn at_unchecked(&self, index: usize) -> BaseVowel;
 }
 
