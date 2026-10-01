@@ -125,20 +125,12 @@ impl Syllable {
     /// finished?".
     #[inline]
     pub fn is_valid(&self) -> bool {
-        use crate::phonology::{DefaultPhonotacticValidator, PhonotacticValidator};
+        use crate::phonology::DefaultPhonotacticValidator;
+
         match &self.phase {
-            Phase::Building(builder) => {
-                let nucleus = builder.nucleus();
-                !nucleus.is_empty()
-                    && DefaultPhonotacticValidator
-                        .validate(
-                            builder.onset_kind(),
-                            nucleus,
-                            builder.coda_kind(),
-                            builder.tone(),
-                        )
-                        .is_ok()
-            }
+            Phase::Building(builder) => builder
+                .validate(DefaultPhonotacticValidator::default())
+                .is_ok(),
             Phase::Dead(_) => false,
         }
     }

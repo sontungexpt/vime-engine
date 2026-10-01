@@ -39,7 +39,7 @@ impl CharState {
 /// [`Self::is_all_accepted`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadSyllable {
-    chars: SmallVec<CharState, INLINE_CHARS>,
+    chars: SmallVec<CharState, INLINE>,
     rejected_count: usize,
 }
 
@@ -48,7 +48,7 @@ pub struct DeadSyllable {
 /// A dead syllable is a whole word — a few characters of accepted prefix plus
 /// whatever the user typed after it — so twelve covers the ordinary case, and
 /// anything longer still works by spilling rather than by panicking.
-const INLINE_CHARS: usize = 12;
+const INLINE: usize = 12;
 
 impl DeadSyllable {
     /// Builds a buffer in which every character of `valid_chars` is
@@ -74,7 +74,7 @@ impl DeadSyllable {
         // slice mapped through `From<char>`. Collecting rather than pushing one
         // at a time means the size hint is exact, so a prefix that outgrows the
         // inline buffer spills once instead of per character.
-        let chars: SmallVec<CharState, INLINE_CHARS> = valid_chars
+        let chars: SmallVec<CharState, INLINE> = valid_chars
             .iter()
             .copied()
             .map(CharState::Accepted)
