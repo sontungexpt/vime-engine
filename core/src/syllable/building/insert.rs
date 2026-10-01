@@ -128,7 +128,9 @@ impl BuildingSyllable {
             if should_move_i_to_nucleus {
                 self.nucleus
                     .push(Vowel::new(BaseVowel::I, Tone::Flat, key == 'I'));
-                self.nucleus_state = NucleusState::InComplete;
+
+                // `i` is the only vowel in the nucleus, so it must be valid.
+                self.nucleus_state = NucleusState::Valid;
 
                 return true;
             }
@@ -197,7 +199,7 @@ impl BuildingSyllable {
         }
 
         if !self.try_update_nucleus(
-            |nucleus| nucleus.insert(vowel_index, vowel.without_tone()),
+            |nucleus| nucleus.insert(vowel_index, vowel),
             |nucleus, _| _ = nucleus.remove(vowel_index),
         ) {
             return false;

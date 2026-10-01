@@ -13,7 +13,7 @@
 use crate::{
     keymap::Keymap,
     phonology::{
-        BaseVowel, Coda, NucleusState, NucleusStateOf, Onset, PhonotacticError,
+        BaseVowel, Coda, NucleusState, NucleusStateResolver, Onset, PhonotacticError,
         PhonotacticValidator, RootVowel, Shape, Tone, TonePlacement, Vowel, NUCLEUS_MAX_LEN,
     },
 };
@@ -27,7 +27,8 @@ mod remove;
 mod types;
 
 pub use error::SyllableBuildError;
-pub use types::*;
+
+use types::*;
 
 /// A single Vietnamese syllable under construction.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -35,8 +36,8 @@ pub struct BuildingSyllable {
     onset_kind: Onset,
     onset: OnsetChars,
 
-    nucleus: Nucleus,            // All toneless vowels; the tone is held in `tone`
-    nucleus_state: NucleusState, // cached from check_nucleus(); never `Dead`
+    nucleus: FlatNucleus, // All toneless vowels; the tone is held in `tone`
+    nucleus_state: NucleusState,
 
     coda_kind: Coda,
     coda: CodaChars,
@@ -102,10 +103,17 @@ impl BuildingSyllable {
     /// off [`Self::tone`], or take it from the rendered word.
     #[inline(always)]
     pub fn nucleus(&self) -> &[Vowel] {
-        &self.nucleus
+        self.nucleus.vowels()
     }
 
     #[inline(always)]
+    #[allow(dead_code)]
+    pub fn nucleus_state(&self) -> NucleusState {
+        self.nucleus_state
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
     pub const fn tone(&self) -> Tone {
         self.tone
     }
@@ -289,18 +297,18 @@ impl BuildingSyllable {
     #[inline(always)]
     pub fn try_update_nucleus<F, R, T>(&mut self, update: F, rollback: R) -> bool
     where
-        F: FnOnce(&mut Nucleus) -> T,
-        R: FnOnce(&mut Nucleus, T),
+        F: FnOnce(&mut FlatNucleus) -> T,
+        R: FnOnce(&mut FlatNucleus, T),
     {
         let undo_data = update(&mut self.nucleus);
 
         // A single vowel is always a nucleus; there is nothing to check.
-        if self.nucleus.len() < 2 {
+        if self.nucleus.len() == 1 {
             self.nucleus_state = NucleusState::Valid;
             return true;
         }
 
-        let state = self.nucleus.state();
+        let state = self.nucleus.resolve_state();
 
         if state.is_dead() {
             rollback(&mut self.nucleus, undo_data);

@@ -122,10 +122,12 @@ impl BuildingSyllable {
             return false;
         }
 
-        let toneless_vowel = vowel.without_tone();
         // The first vowel sets the syllable tone.
         if len == 0 {
-            self.nucleus.push(toneless_vowel);
+            self.nucleus.push(vowel);
+            // Nucleus with a single vowel is always valid.
+            self.nucleus_state = NucleusState::Valid;
+
             self.tone = tone;
             return true;
         }
@@ -155,14 +157,16 @@ impl BuildingSyllable {
             self.onset_kind = Onset::Gi;
 
             // The new nucleus has one vowel, so adopt its tone directly.
-            self.nucleus.push(toneless_vowel);
+            self.nucleus.push(vowel);
+            // The nucleus is now valid, as it has one vowel.
+            self.nucleus_state = NucleusState::Valid;
             self.tone = new_tone;
 
             return true;
         }
 
         if !self.try_update_nucleus(
-            |nucleus| nucleus.push(toneless_vowel),
+            |nucleus| nucleus.push(vowel),
             |nucleus, _| {
                 nucleus.pop();
             },

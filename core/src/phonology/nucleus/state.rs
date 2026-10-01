@@ -7,16 +7,13 @@ use super::slice::BaseVowelSlice;
 
 pub const NUCLEUS_MAX_LEN: usize = 3;
 
-pub trait NucleusStateOf {
-    fn state(&self) -> NucleusState;
+pub trait NucleusStateResolver {
+    fn resolve_state(&self) -> NucleusState;
 }
 
-impl<T> NucleusStateOf for T
-where
-    T: BaseVowelSlice + ?Sized,
-{
+impl<T: BaseVowelSlice + ?Sized> NucleusStateResolver for T {
     #[inline(always)]
-    fn state(&self) -> NucleusState {
+    fn resolve_state(&self) -> NucleusState {
         nucleus_state(self)
     }
 }
