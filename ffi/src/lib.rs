@@ -2,7 +2,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 
 mod config;
-mod handle;
+mod factory;
+mod session;
 
 pub use config::{
     VimeConfig, VimeInputMethod, VimeTonePlacement, VIME_INPUT_METHOD_TELEX,
@@ -10,9 +11,9 @@ pub use config::{
     VIME_TONE_PLACEMENT_OLD,
 };
 
-pub use handle::{VimeSessionFactoryHandle, VimeSessionHandle};
+pub use factory::VimeSessionFactoryHandle;
 
-use crate::handle::VimeInsertResult;
+pub use session::{VimeInsertResult, VimeSessionHandle};
 
 /// Runs an FFI operation across the Rust panic boundary.
 ///
@@ -66,6 +67,11 @@ pub unsafe extern "C" fn vime_session_factory_create_with_config(
 ///
 /// Sessions created by the factory remain valid if the core's shared
 /// configuration is reference-counted independently.
+///
+/// # Safety
+///
+/// `factory` must be NULL or a live factory handle whose ownership is
+/// transferred to this call.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_factory_destroy(factory: *mut VimeSessionFactoryHandle) {
     let _ = catch_panic((), || {
@@ -116,6 +122,10 @@ pub unsafe extern "C" fn vime_session_factory_set_config(
 /// Returns the factory's current shared configuration.
 ///
 /// Returns the default configuration when `factory` is NULL.
+///
+/// # Safety
+///
+/// `factory` must be NULL or a valid live factory handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_factory_get_config(
     factory: *const VimeSessionFactoryHandle,
@@ -263,7 +273,7 @@ pub unsafe extern "C" fn vime_session_set_config(
             return false;
         };
 
-        session.set_config(config.to_ffi_session_config());
+        session.set_private_config(config.to_ffi_session_config());
         true
     })
 }
@@ -287,7 +297,7 @@ pub unsafe extern "C" fn vime_session_clear_config(session: *mut VimeSessionHand
             return false;
         };
 
-        session.clear_config();
+        session.clear_private_config();
         true
     })
 }
@@ -350,7 +360,7 @@ pub unsafe extern "C" fn vime_session_move_cursor_right(
 ///
 /// `session` must be NULL or a valid live session handle.
 #[no_mangle]
-pub extern "C" fn vime_session_insert(
+pub unsafe extern "C" fn vime_session_insert(
     session: *mut VimeSessionHandle,
     character: u32,
 ) -> VimeInsertResult {
@@ -363,20 +373,10 @@ pub extern "C" fn vime_session_insert(
     })
 }
 
-/// Performs Backspace at the current cursor.
-///
-/// Returns true when the session state changed.
-///
-/// # Safety
-///
-/// `session` must be NULL or a valid live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_backspace(session: *mut VimeSessionHandle) -> bool {
     catch_panic(false, || {
-        let Some(session) =
-            // SAFETY: The caller guarantees that the handle is valid.
-            (unsafe { VimeSessionHandle::from_raw(session) })
-        else {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
             return false;
         };
 
@@ -384,20 +384,10 @@ pub unsafe extern "C" fn vime_session_backspace(session: *mut VimeSessionHandle)
     })
 }
 
-/// Performs Delete at the current cursor.
-///
-/// Returns true when the session state changed.
-///
-/// # Safety
-///
-/// `session` must be NULL or a valid live session handle.
 #[no_mangle]
 pub unsafe extern "C" fn vime_session_delete(session: *mut VimeSessionHandle) -> bool {
     catch_panic(false, || {
-        let Some(session) =
-            // SAFETY: The caller guarantees that the handle is valid.
-            (unsafe { VimeSessionHandle::from_raw(session) })
-        else {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
             return false;
         };
 
@@ -405,10 +395,161 @@ pub unsafe extern "C" fn vime_session_delete(session: *mut VimeSessionHandle) ->
     })
 }
 
-/// Returns the VIME engine semantic version.
+/// Returns the caret position in the rendered buffer, in characters from the
+/// start.
 ///
-/// The returned pointer refers to static storage and must not be freed.
+/// Returns 0 when `session` is NULL.
+///
+/// # Safety
+///
+/// `session` must be NULL or a valid live session handle.
 #[no_mangle]
-pub extern "C" fn vime_version() -> *const std::ffi::c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
+pub unsafe extern "C" fn vime_session_get_rendered_cursor(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    catch_panic(0, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return 0;
+        };
+
+        session.rendered_cursor()
+    })
+}
+
+/// Returns the caret position in the raw keystroke buffer, in keystrokes from
+/// the start.
+///
+/// Not interchangeable with [`vime_session_get_rendered_cursor`]: a transform
+/// consumes a keystroke without lengthening the rendered word, so the two
+/// positions need not agree.
+///
+/// Returns 0 when `session` is NULL.
+///
+/// # Safety
+///
+/// `session` must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_get_raw_cursor(session: *mut VimeSessionHandle) -> usize {
+    catch_panic(0, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return 0;
+        };
+
+        session.raw_cursor()
+    })
+}
+
+/// Returns the length of the rendered buffer, in characters.
+///
+/// Returns 0 when `session` is NULL or the buffer is empty.
+///
+/// # Safety
+///
+/// `session` must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_get_rendered_len(session: *mut VimeSessionHandle) -> usize {
+    catch_panic(0, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return 0;
+        };
+
+        session.rendered_len()
+    })
+}
+
+/// Returns the length of the rendered buffer, in UTF-8 bytes.
+///
+/// Returns 0 when `session` is NULL or the buffer is empty.
+///
+/// # Safety
+///
+/// `session` must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_get_rendered_len_utf8(
+    session: *mut VimeSessionHandle,
+) -> usize {
+    catch_panic(0, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return 0;
+        };
+
+        session.rendered_len_utf8()
+    })
+}
+
+/// Returns the length of the raw keystroke buffer, in keystrokes.
+///
+/// Returns 0 when `session` is NULL or the buffer is empty.
+///
+/// # Safety
+///
+/// `session` must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_get_raw_len(session: *mut VimeSessionHandle) -> usize {
+    catch_panic(0, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return 0;
+        };
+
+        session.raw_len()
+    })
+}
+
+/// Returns the length of the raw keystroke buffer, in UTF-8 bytes.
+///
+/// Returns 0 when `session` is NULL or the buffer is empty.
+///
+/// # Safety
+///
+/// `session` must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_get_raw_len_utf8(session: *mut VimeSessionHandle) -> usize {
+    catch_panic(0, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return 0;
+        };
+
+        session.raw_len_utf8()
+    })
+}
+
+/// Reports whether the cursor can move one character left.
+/// Reports whether the cursor can move one character left.
+///
+/// Returns false when  is NULL or the cursor is already at the start.
+///
+/// # Safety
+///
+///  must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_can_move_cursor_left(
+    session: *mut VimeSessionHandle,
+) -> bool {
+    catch_panic(false, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return false;
+        };
+
+        session.can_move_cursor_left()
+    })
+}
+
+/// Reports whether the cursor can move one character right.
+///
+/// Returns false when  is NULL or the cursor is already at the end.
+///
+/// # Safety
+///
+///  must be NULL or a valid live session handle.
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_can_move_cursor_right(
+    session: *mut VimeSessionHandle,
+) -> bool {
+    catch_panic(false, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw_const(session) }) else {
+            return false;
+        };
+
+        session.can_move_cursor_right()
+    })
 }

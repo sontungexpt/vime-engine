@@ -1,7 +1,6 @@
 #ifndef VIME_ENGINE_H
 #define VIME_ENGINE_H
 
-#include <cstdint>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -85,8 +84,6 @@ bool vime_session_factory_set_config(VimeSessionFactoryHandle *factory, const Vi
 VimeConfig vime_session_factory_get_config(const VimeSessionFactoryHandle *factory);
 
 
-
-
 /* ========================================================================= */
 /* Session Lifecycle APIs                                                    */
 /* ========================================================================= */
@@ -150,6 +147,20 @@ bool vime_session_move_cursor_left(VimeSessionHandle *session, uint32_t by);
  */
 bool vime_session_move_cursor_right(VimeSessionHandle *session, uint32_t by);
 
+/**
+ * Reports whether the cursor can move one character left.
+ * @return true if the cursor can move left, false if at the start of the buffer
+ *         or session is NULL.
+ */
+bool vime_session_can_move_cursor_left(VimeSessionHandle *session);
+
+/**
+ * Reports whether the cursor can move one character right.
+ * @return true if the cursor can move right, false if at the end of the buffer
+ *         or session is NULL.
+ */
+bool vime_session_can_move_cursor_right(VimeSessionHandle *session);
+
 typedef uint32_t VimeInsertKind;
 #define VIME_INSERT_EXTENDED    ((VimeInsertKind)1u)
 #define VIME_INSERT_TRANSFORMED ((VimeInsertKind)2u)
@@ -157,7 +168,7 @@ typedef uint32_t VimeInsertKind;
 
 typedef struct VimeInsertResult {
     VimeInsertKind kind;
-    size_t first_changed;
+    size_t first_changed; // The first position in unicode buffer that was transformed by the insert.
 } VimeInsertResult;
 
 /**
@@ -180,9 +191,54 @@ bool vime_session_backspace(VimeSessionHandle *session);
 bool vime_session_delete(VimeSessionHandle *session);
 
 
+/**
+ * [VALIDATION] Checks if current buffer conforms to Vietnamese orthography rules.
+ * @note Returns false if session is NULL, buffer is empty, or feature is unimplemented.
+ */
+bool vime_session_is_valid_vietnamese(VimeSessionHandle *session);
+
 /* ========================================================================= */
 /* Session Render & State APIs                                               */
 /* ========================================================================= */
+
+/**
+ * Gets the caret position in the rendered buffer.
+ * @return Offset in characters from the start of the rendered buffer, or 0 if
+ *         session is NULL or the buffer is empty.
+ */
+size_t vime_session_get_rendered_cursor(VimeSessionHandle *session);
+
+/**
+ * Gets the caret position in the raw keystroke buffer.
+ * @note Not interchangeable with vime_session_get_rendered_cursor(): a transform
+ *       consumes a keystroke without lengthening the rendered word, so the two
+ *       positions need not agree.
+ * @return Offset in keystrokes from the start of the raw buffer, or 0 if
+ *         session is NULL or the buffer is empty.
+ */
+size_t vime_session_get_raw_cursor(VimeSessionHandle *session);
+
+/**
+ * Gets the length of the composed character buffer.
+ *
+ * @param session Pointer to the active Vime session handle.
+ * @return Number of composed Unicode characters (or UTF-8 bytes) in the buffer,
+ *         or 0 if session is NULL or the buffer is empty.
+ */
+size_t vime_session_get_rendered_len(VimeSessionHandle *session);
+
+size_t vime_session_get_rendered_len_utf8(VimeSessionHandle *session);
+
+/**
+ * Gets the length of the raw character buffer.
+ *
+ * @param session Pointer to the active Vime session handle.
+ * @return Number of raw Unicode characters (or UTF-8 bytes) in the buffer,
+ *         or 0 if session is NULL or the buffer is empty.
+ */
+size_t vime_session_get_raw_len(VimeSessionHandle *session);
+
+size_t vime_session_get_raw_len_utf8(VimeSessionHandle *session);
 
 
 // /**
@@ -198,37 +254,6 @@ bool vime_session_delete(VimeSessionHandle *session);
 //  * @note Returns empty string ("") if uninitialized or unimplemented.
 //  */
 // const char *vime_session_render_raw_text(VimeSessionHandle *session);
-//
-// /**
-//  * [VALIDATION] Checks if current buffer conforms to Vietnamese orthography rules.
-//  * @note Returns false if session is NULL, buffer is empty, or feature is unimplemented.
-//  */
-// bool vime_session_is_valid_vietnamese(VimeSessionHandle *session);
-//
-// /**
-//  * [RENDER CURSOR] Gets rendered cursor position in CodePoints (Unicode characters).
-//  * @note Returns 0 if session is NULL or unimplemented in core engine.
-//  */
-// size_t vime_session_get_cursor_char_idx(VimeSessionHandle *session);
-//
-// /**
-//  * [RENDER CURSOR] Gets rendered cursor position in UTF-8 Byte offset.
-//  * @note Returns 0 if session is NULL or unimplemented in core engine.
-//  */
-// size_t vime_session_get_cursor_byte_idx(VimeSessionHandle *session);
-//
-// /**
-//  * [RAW CURSOR] Gets raw cursor position in CodePoints (Unicode characters).
-//  * @note Returns 0 if session is NULL or unimplemented in core engine.
-//  */
-// size_t vime_session_get_raw_cursor_char_idx(VimeSessionHandle *session);
-//
-// /**
-//  * [RAW CURSOR] Gets raw cursor position in UTF-8 Byte offset.
-//  * @note Returns 0 if session is NULL or unimplemented in core engine.
-//  */
-// size_t vime_session_get_raw_cursor_byte_idx(VimeSessionHandle *session);
-//
 
 
 /* ========================================================================= */

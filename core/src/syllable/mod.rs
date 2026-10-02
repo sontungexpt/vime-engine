@@ -73,6 +73,15 @@ impl Syllable {
         }
     }
 
+    /// Number of UTF-8 bytes the syllable renders to.
+    #[inline]
+    pub fn len_utf8(&self) -> usize {
+        match &self.phase {
+            Phase::Building(builder) => builder.len_utf8(),
+            Phase::Dead(builder) => builder.len_utf8(),
+        }
+    }
+
     /// Whether the syllable holds no characters.
     #[inline]
     pub fn is_empty(&self) -> bool {

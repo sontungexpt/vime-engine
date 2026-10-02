@@ -453,6 +453,12 @@ impl Vowel {
         unsafe { std::mem::transmute(bits) }
     }
 
+    /// Returns `true` if this vowel is toned.
+    #[inline(always)]
+    pub const fn is_toned(self) -> bool {
+        self.0 as u8 & Self::TONE_MASK != 0
+    }
+
     /// Returns `true` if this vowel is uppercase.
     #[inline(always)]
     pub const fn is_upper(self) -> bool {
@@ -539,7 +545,7 @@ impl Vowel {
     /// Encodes this vowel as its precomposed Vietnamese character.
     #[inline(always)]
     pub const fn to_char(self) -> char {
-        encode_vowel(self.base().id(), self.tone(), self.is_upper())
+        encode_vowel(self.base(), self.tone(), self.is_upper())
     }
 
     /// Decodes a precomposed Vietnamese vowel, or returns `None` if `ch` is not one.
@@ -553,7 +559,7 @@ impl Vowel {
 ///
 /// This table is indexed by tone-placement priority, then tone and case.
 #[inline(always)]
-pub const fn encode_vowel(base_id: BaseVowelId, tone: Tone, uppercase: bool) -> char {
+pub const fn encode_vowel(base: BaseVowel, tone: Tone, uppercase: bool) -> char {
     #[rustfmt::skip]
     const ENCODED: [char; 144] = [
         // Priority 0: Y
@@ -582,7 +588,25 @@ pub const fn encode_vowel(base_id: BaseVowelId, tone: Tone, uppercase: bool) -> 
         'ơ', 'Ơ', 'ớ', 'Ớ', 'ờ', 'Ờ', 'ở', 'Ở', 'ỡ', 'Ỡ', 'ợ', 'Ợ',
     ];
 
-    let idx = ((base_id as usize * 6 + tone as usize) << 1) | uppercase as usize;
+    // Keep these so the base_id do not need to rely on `BaseVowelId`.
+    // So when the BaseVowelId changes, the ENCODED do not need to be updated.
+    use BaseVowel::*;
+    let base_id = match base {
+        Y => 0,
+        U => 1,
+        I => 2,
+        E => 3,
+        O => 4,
+        A => 5,
+        UHorn => 6,
+        ACircumflex => 7,
+        OCircumflex => 8,
+        ABreve => 9,
+        ECircumflex => 10,
+        OHorn => 11,
+    };
+
+    let idx = ((base_id * 6 + tone as usize) << 1) | uppercase as usize;
 
     // Safety: base_id (0..=11) * 12 + tone (0..=5) * 2 + uppercase (0..=1) <= 143
     unsafe { *ENCODED.as_ptr().add(idx) }
