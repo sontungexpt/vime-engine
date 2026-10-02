@@ -186,3 +186,95 @@ mod session_config_resolution {
         );
     }
 }
+
+mod buffer_queries {
+    use super::*;
+
+    fn session_with(raw: &str) -> Session<DefaultKeymap<'static>> {
+        let shared = shared();
+        let mut session = Session::new(shared);
+        for ch in raw.chars() {
+            session.insert(ch);
+        }
+        session
+    }
+
+    /// The rendered length counts the syllable, not the keys that built it.
+    #[test]
+    fn rendered_len_counts_the_syllable_not_the_keystrokes() {
+        let session = session_with("chaof");
+        assert_eq!(session.raw_cursor(), 5);
+        assert_eq!(session.rendered_len(), 4, "`chaof` renders as `chào`");
+    }
+
+    #[test]
+    fn rendered_len_is_zero_when_empty() {
+        assert_eq!(session_with("").rendered_len(), 0);
+    }
+
+    /// A dead buffer renders verbatim, so its length is the keystroke count.
+    #[test]
+    fn rendered_len_counts_a_dead_buffer_verbatim() {
+        // `z` is not a vowel/onset/coda character, so the word goes dead and the
+        // rest is recorded as typed.
+        let session = session_with("azxy");
+        assert_eq!(session.rendered_len(), 4);
+    }
+
+    /// An empty buffer can be moved in neither direction.
+    #[test]
+    fn an_empty_buffer_cannot_move() {
+        let session = session_with("");
+
+        assert!(!*session.can_move_cursor_left().rendered());
+        assert!(!*session.can_move_cursor_right().rendered());
+    }
+
+    /// With the caret at the end, only left is available; after one left move,
+    /// both are.
+    #[test]
+    fn can_move_follows_the_caret() {
+        let mut session = session_with("tan");
+
+        assert!(
+            *session.can_move_cursor_left().rendered(),
+            "caret starts at the end"
+        );
+        assert!(
+            !*session.can_move_cursor_right().rendered(),
+            "nothing sits to the right of the end"
+        );
+
+        session.move_cursor_left_by(1);
+
+        assert!(*session.can_move_cursor_left().rendered());
+        assert!(
+            *session.can_move_cursor_right().rendered(),
+            "one character now sits to the right of the caret"
+        );
+    }
+
+    /// Moving past the start leaves the caret there, so left stops being offered
+    /// while right stays available.
+    #[test]
+    fn can_move_left_stops_at_the_start() {
+        let mut session = session_with("tan");
+
+        session.move_cursor_left_by(9);
+
+        assert_eq!(session.rendered_cursor(), 0, "clamped at the start");
+        assert!(!*session.can_move_cursor_left().rendered());
+        assert!(*session.can_move_cursor_right().rendered());
+    }
+
+    /// The rendered caret and the raw caret are separate positions; a transform
+    /// collapses two keys into one character, so they do not have to agree.
+    #[test]
+    fn the_two_carets_are_independent_positions() {
+        let session = session_with("chaof");
+
+        assert_eq!(session.raw_cursor(), 5);
+        assert_eq!(session.rendered_cursor(), 4);
+        assert_eq!(session.rendered_len(), 4);
+    }
+}

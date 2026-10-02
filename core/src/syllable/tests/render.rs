@@ -222,9 +222,8 @@ fn classic_tone_placement() {
 /// such as `hoán`), which `classic_tone_placement` covers. The inversion is
 /// consistent crate-wide — `TonePlacement` docs, the `tone_index_2_*` inline
 /// comments and `ffi/include/vime_engine.h` all label the modes the other way
-/// round, and `ffi/tests/typing.rs`, `ffi/tests/lifecycle.rs` and
-/// `core/tests/config.rs` assert the current behaviour, so a fix must update
-/// those too.
+/// round, and `core/tests/config.rs` asserts the current behaviour, so a fix
+/// must update that too.
 ///
 /// Ignored rather than deleted so the fix has a spec waiting for it. Run with
 /// `cargo test -p vime-engine --lib render::open_diphthong -- --ignored`.

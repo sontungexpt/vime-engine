@@ -137,7 +137,8 @@ where
             .rendered(self.active_config.tone_placement())
     }
 
-    /// Allocation-free `rendered`; reuses `output` capacity. Pulls config first.
+    /// Allocation-free `rendered`; replaces `output`, reusing its capacity.
+    /// Pulls config first.
     #[inline(always)]
     pub fn write_rendered_to(&mut self, output: &mut String) {
         self.pull_config();
@@ -150,7 +151,7 @@ where
         self.composition.raw()
     }
 
-    /// Allocation-free `raw`; reuses `output` capacity. No config read.
+    /// Allocation-free `raw`; replaces `output`, reusing its capacity. No config read.
     #[inline(always)]
     pub fn write_raw_to(&self, output: &mut String) {
         self.composition.write_raw_to(output);
@@ -177,6 +178,12 @@ where
         self.composition.raw_cursor()
     }
 
+    /// Length of the rendered buffer, in characters.
+    #[inline(always)]
+    pub fn rendered_len(&self) -> usize {
+        self.composition.rendered_len()
+    }
+
     /// Whether the buffer is a complete, valid Vietnamese syllable.
     #[inline(always)]
     pub fn is_phonotactically_valid(&self) -> bool {
@@ -191,6 +198,18 @@ where
     #[inline(always)]
     pub fn move_cursor_right_by(&mut self, by: usize) -> Parallel<bool> {
         self.composition.move_cursor_right_by(by)
+    }
+
+    /// Whether the rendered cursor can move one position left.
+    #[inline(always)]
+    pub fn can_move_cursor_left(&self) -> Parallel<bool> {
+        self.composition.can_move_cursor_left()
+    }
+
+    /// Whether the rendered cursor can move one position right.
+    #[inline(always)]
+    pub fn can_move_cursor_right(&self) -> Parallel<bool> {
+        self.composition.can_move_cursor_right()
     }
 
     // ------------------------------------------------------------- editing

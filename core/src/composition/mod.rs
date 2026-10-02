@@ -9,19 +9,20 @@ use crate::{
     util::vec::SmallVec,
 };
 
-/// The raw keystroke buffer: one character per key, held inline up to
-/// [`RAW_INLINE`].
+/// The keystroke buffer: one character per key, held inline up to
+/// [`KEYSTROKE_INLINE`].
 ///
 /// The counterpart to [`SyllableChars`] (the parsed form); the two may hold
 /// different numbers of characters.
-type RawChars = SmallVec<char, RAW_INLINE>;
+type RawBuffer = SmallVec<char, KEYSTROKE_INLINE>;
 
-/// Inline capacity for raw keystrokes before spilling to the heap.
+/// Inline capacity for buffered keystrokes before spilling to the heap.
 ///
 /// Sixteen characters cover most ordinary words while keeping the inline
 /// buffer small. Longer input spills to the heap without imposing a limit.
-const RAW_INLINE: usize = 16;
+const KEYSTROKE_INLINE: usize = 16;
 
+/// One value per buffer, so an operation reports how each side fared.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parallel<T> {
     rendered: T,
@@ -29,11 +30,13 @@ pub struct Parallel<T> {
 }
 
 impl<T> Parallel<T> {
+    /// The rendered buffer's value.
     #[inline(always)]
     pub const fn rendered(&self) -> &T {
         &self.rendered
     }
 
+    /// The raw buffer's value.
     #[inline(always)]
     pub const fn raw(&self) -> &T {
         &self.raw
@@ -52,7 +55,7 @@ impl<T> Parallel<T> {
 /// scheme are arguments of the operations that use them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Composition {
-    raw: RawChars,
+    raw: RawBuffer,
 
     // Kept separate because raw and rendered positions are not one-to-one:
     // `raw_cursor` edits the raw buffer, `rendered_cursor` drives the rest.
@@ -70,14 +73,75 @@ impl Composition {
     #[inline(always)]
     pub fn new() -> Self {
         Self {
-            raw: RawChars::new(),
+            raw: RawBuffer::new(),
             raw_cursor: Cursor::start(),
             rendered: Syllable::new(),
             rendered_cursor: Cursor::start(),
         }
     }
 
-    // ------------------------------------------------------------ state
+    // ------------------------------------------------------------- queries
+
+    /// Caret position in the rendered buffer, in characters — the position a
+    /// frontend shows.
+    #[inline(always)]
+    pub const fn rendered_cursor(&self) -> usize {
+        self.rendered_cursor.get()
+    }
+
+    /// Caret position in the raw keystroke buffer, in keystrokes: the buffer the
+    /// editing operations act on.
+    #[inline(always)]
+    pub const fn raw_cursor(&self) -> usize {
+        self.raw_cursor.get()
+    }
+
+    /// Length of the rendered buffer, in characters — the extent
+    /// [`Self::rendered_cursor`] moves within.
+    #[inline]
+    pub fn rendered_len(&self) -> usize {
+        self.rendered.len()
+    }
+
+    /// Length of the raw keystroke buffer, in keystrokes.
+    #[inline]
+    pub fn raw_len(&self) -> usize {
+        self.raw.len()
+    }
+
+    /// The raw keystrokes, in the order typed.
+    #[inline]
+    pub fn raw(&self) -> &[char] {
+        &self.raw
+    }
+
+    /// Whether each cursor can move one position left, against its own buffer.
+    #[inline(always)]
+    pub fn can_move_cursor_left(&self) -> Parallel<bool> {
+        Parallel {
+            rendered: !self.rendered_cursor.is_at_start(),
+            raw: !self.raw_cursor.is_at_start(),
+        }
+    }
+
+    /// Whether each cursor can move one position right. The buffers may differ in
+    /// length, so each is checked against its own.
+    #[inline(always)]
+    pub fn can_move_cursor_right(&self) -> Parallel<bool> {
+        Parallel {
+            rendered: !self.rendered_cursor.is_at_end(self.rendered.len()),
+            raw: !self.raw_cursor.is_at_end(self.raw.len()),
+        }
+    }
+
+    /// Whether the buffered syllable spells a complete, valid Vietnamese
+    /// syllable; see [`Syllable::is_phonotactically_valid`].
+    #[inline]
+    pub fn is_phonotactically_valid(&self) -> bool {
+        self.rendered.is_phonotactically_valid()
+    }
+
+    // ------------------------------------------------------------ mutation
 
     /// Clears both buffers and both cursors, returning to the building phase.
     #[inline]
@@ -89,58 +153,12 @@ impl Composition {
         self.rendered_cursor.move_to_start();
     }
 
-    // --------------------------------------------------------- cursor move
-
-    /// Whether each cursor can move one position left, checked against its own
-    /// buffer.
-    #[inline(always)]
-    pub fn can_move_left(&self) -> Parallel<bool> {
-        Parallel {
-            rendered: self.rendered_cursor.is_at_start(),
-            raw: self.raw_cursor.is_at_start(),
-        }
-    }
-
-    /// Whether each cursor can move one position right, checked against its own
-    /// buffer length — the two buffers may differ.
-    #[inline(always)]
-    pub fn can_move_right(&self) -> Parallel<bool> {
-        Parallel {
-            rendered: !self.rendered_cursor.is_at_end(self.rendered.len()),
-            raw: !self.raw_cursor.is_at_end(self.raw.len()),
-        }
-    }
-
-    /// Moves both cursors up to `by` positions left, clamping each at the start.
-    ///
-    /// Raw and parsed positions differ, so each field reports whether *that*
-    /// cursor moved.
-    #[inline]
-    pub fn move_cursor_left_by(&mut self, by: usize) -> Parallel<bool> {
-        Parallel {
-            rendered: self.rendered_cursor.move_left_by(by),
-            raw: self.raw_cursor.move_left_by(by),
-        }
-    }
-
-    /// Moves both cursors up to `by` positions right, clamping each at its own
-    /// buffer length.
-    #[inline]
-    pub fn move_cursor_right_by(&mut self, by: usize) -> Parallel<bool> {
-        Parallel {
-            rendered: self.rendered_cursor.move_right_by(by, self.rendered.len()),
-            raw: self.raw_cursor.move_right_by(by, self.raw.len()),
-        }
-    }
-
-    // ----------------------------------------------------------- mutation
-
     /// Inserts `input` at both cursors, parsing under `keymap` and rendering
     /// under `tone_placement`.
     ///
     /// The raw buffer always gains a character; the parsed cursor advances only
-    /// on [`EditEffect::StructurallyChanged`], since a transformation consumes
-    /// the input without lengthening that buffer.
+    /// on [`InsertOutcome::Extended`], since a transformation consumes the input
+    /// without lengthening that buffer.
     pub fn insert<KM: Keymap>(
         &mut self,
         keymap: &KM,
@@ -231,28 +249,26 @@ impl Composition {
         result
     }
 
-    // ------------------------------------------------------------ positions
-
-    /// The rendered cursor position, in characters from the start — the caret a
-    /// frontend shows. [`Self::raw_cursor`] reports the raw buffer's own
-    /// position, since the two buffers differ in length.
-    #[inline(always)]
-    pub const fn rendered_cursor(&self) -> usize {
-        self.rendered_cursor.get()
-    }
-
-    /// The raw cursor position, in keystrokes from the start: the buffer the
-    /// editing operations act on.
-    #[inline(always)]
-    pub const fn raw_cursor(&self) -> usize {
-        self.raw_cursor.get()
-    }
-
-    /// Whether the buffered syllable spells a complete, valid Vietnamese
-    /// syllable; see [`Syllable::is_phonotactically_valid`].
+    /// Moves both cursors up to `by` positions left, clamping each at the start.
+    ///
+    /// Raw and parsed positions differ, so each field reports whether *that*
+    /// cursor moved.
     #[inline]
-    pub fn is_phonotactically_valid(&self) -> bool {
-        self.rendered.is_phonotactically_valid()
+    pub fn move_cursor_left_by(&mut self, by: usize) -> Parallel<bool> {
+        Parallel {
+            rendered: self.rendered_cursor.move_left_by(by),
+            raw: self.raw_cursor.move_left_by(by),
+        }
+    }
+
+    /// Moves both cursors up to `by` positions right, clamping each at its own
+    /// buffer length.
+    #[inline]
+    pub fn move_cursor_right_by(&mut self, by: usize) -> Parallel<bool> {
+        Parallel {
+            rendered: self.rendered_cursor.move_right_by(by, self.rendered.len()),
+            raw: self.raw_cursor.move_right_by(by, self.raw.len()),
+        }
     }
 
     // ----------------------------------------------------------- rendering
@@ -264,23 +280,24 @@ impl Composition {
         self.rendered.to_chars(tone_placement)
     }
 
-    /// Writes the rendered word into `output`, replacing its contents: the
-    /// Vietnamese syllable while parsing, the verbatim buffer once dead.
+    /// Replaces `output` with the rendered word: the Vietnamese syllable while
+    /// parsing, the verbatim buffer once dead.
     ///
     /// The allocation-free counterpart to [`Self::rendered`], for a caller that
-    /// writes on every keystroke and can reuse one buffer.
+    /// writes on every keystroke into one reused buffer. [`String::clear`] only
+    /// resets the length and keeps the capacity, so a buffer that has once grown
+    /// large enough is never reallocated.
     #[inline]
     pub fn write_rendered_to(&self, tone_placement: TonePlacement, output: &mut String) {
+        output.clear();
         self.rendered.write_to(tone_placement, output);
     }
 
-    #[inline]
-    pub fn raw(&self) -> &[char] {
-        &self.raw
-    }
-
+    /// Replaces `output` with the raw keystrokes; see [`Self::write_rendered_to`]
+    /// for why this does not reallocate.
     #[inline]
     pub fn write_raw_to(&self, output: &mut String) {
-        self.raw.iter().for_each(|c| output.push(*c));
+        output.clear();
+        output.extend(self.raw.iter().copied());
     }
 }
