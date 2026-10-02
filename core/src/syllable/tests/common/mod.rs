@@ -5,8 +5,8 @@
 //! mismatch, print expected and actual onset / vowels / tone / coda side by side.
 
 use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
-use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::syllable::EditEffect;
+use crate::syllable::building::{BuildingSyllable, SyllableBuildError, TransformEffect, TransformTarget};
+use crate::syllable::EditOutcome;
 
 /// Shorthand for `BaseVowel`, so dense corpus cases read `(V::A, C::Lower)`.
 pub use crate::phonology::BaseVowel as V;
@@ -132,7 +132,7 @@ impl ExpectedSyllable {
 /// can state success and failure with the same field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    Ok(EditEffect),
+    Ok(EditOutcome),
     Err(SyllableBuildError),
 }
 
@@ -140,12 +140,36 @@ pub enum Effect {
 /// both on a mismatch.
 pub fn check_effect(
     expected: &Effect,
-    got: Result<EditEffect, SyllableBuildError>,
+    got: Result<EditOutcome, SyllableBuildError>,
     label: &str,
 ) -> Result<(), String> {
     match (expected, got) {
         (Effect::Ok(want), Ok(actual)) if want == &actual => Ok(()),
         (Effect::Err(want), Err(actual)) if want == &actual => Ok(()),
+        (expected, got) => Err(format!("{label}: expected {expected:?}, got {got:?}")),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Building module test harness (uses TransformEffect)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Effect type for `BuildingSyllable` operations, which return `TransformEffect`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildingEffect {
+    Ok(TransformEffect),
+    Err(SyllableBuildError),
+}
+
+/// Compares expected effect with actual result for building module tests.
+pub fn check_building_effect(
+    expected: &BuildingEffect,
+    got: Result<TransformEffect, SyllableBuildError>,
+    label: &str,
+) -> Result<(), String> {
+    match (expected, got) {
+        (BuildingEffect::Ok(want), Ok(actual)) if want == &actual => Ok(()),
+        (BuildingEffect::Err(want), Err(actual)) if want == &actual => Ok(()),
         (expected, got) => Err(format!("{label}: expected {expected:?}, got {got:?}")),
     }
 }

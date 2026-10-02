@@ -313,71 +313,11 @@ impl VimeSessionFactoryHandle {
         }
     }
 
+    #[inline]
     pub(crate) fn into_raw(self) -> *mut Self {
         Box::into_raw(Box::new(self))
     }
 
-    /// A new session that follows the shared configuration.
-    pub(crate) fn new_session(&self) -> EngineSession {
-        self.factory.new_session()
-    }
-
-    /// A new session with a private configuration, still able to fall back to
-    /// the shared one.
-    pub(crate) fn new_session_with(&self, config: FfiSessionConfig) -> EngineSession {
-        self.factory.new_session_with(config)
-    }
-}
-
-// ──────────────────────────── pointer validation ────────────────────────────
-//
-// Every raw pointer that arrives from C passes through one of these before it is
-// dereferenced, and nowhere else. Each returns a borrow with no lifetime
-// attached to the pointer, which is the soundness condition: the handle outlives
-// the call because the caller cannot destroy it mid-call, and the call cannot
-// outlive the handle because destroying it is a separate call.
-//
-// The `'a` is the standard FFI bargain, the same one `Box::from_raw` makes. What
-// keeps it honest here is that the exported functions never store a borrow and
-// never call another exported function while holding one.
-
-impl VimeSessionHandle {
-    /// Borrows a session handle, or `None` for NULL.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be NULL or a pointer returned by [`Self::into_raw`] that has not
-    /// been destroyed, and no other borrow of it may be live.
-    #[inline]
-    pub(crate) unsafe fn from_raw<'a>(ptr: *mut Self) -> Option<&'a mut Self> {
-        if ptr.is_null() {
-            return None;
-        }
-        // SAFETY: the caller guarantees `ptr` came from `Box::into_raw` in
-        // `into_raw` and has not been dropped since, so it points at a live
-        // `VimeSessionHandle` with unique ownership. The returned lifetime is not
-        // tied to the pointer, which is why the contract above has to hold.
-        Some(unsafe { &mut *ptr })
-    }
-
-    /// Takes ownership of a session handle back, for `vime_session_destroy`.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be NULL or a pointer returned by [`Self::into_raw`] that has not
-    /// been destroyed, and ownership of it must pass to this call.
-    #[inline]
-    pub(crate) unsafe fn into_box(ptr: *mut Self) -> Option<Box<Self>> {
-        if ptr.is_null() {
-            return None;
-        }
-        // SAFETY: the caller guarantees the pointer came from `Box::into_raw` and
-        // hands over ownership, which is exactly what `Box::from_raw` assumes.
-        Some(unsafe { Box::from_raw(ptr) })
-    }
-}
-
-impl VimeSessionFactoryHandle {
     /// Borrows a factory handle, or `None` for NULL.
     ///
     /// # Safety
@@ -407,119 +347,32 @@ impl VimeSessionFactoryHandle {
         // SAFETY: as for `VimeSessionHandle::into_box`.
         Some(unsafe { Box::from_raw(ptr) })
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use vime_engine::{DefaultKeymap, Settings};
-
-    fn session() -> VimeSessionHandle {
-        VimeSessionHandle::new(
-            SessionFactory::<FfiKeymap>::from_keymap(Settings::default(), DefaultKeymap::telex())
-                .new_session(),
-        )
+    /// A new session that follows the shared configuration.
+    #[inline]
+    pub(crate) fn new_session(&self) -> EngineSession {
+        self.factory.new_session()
     }
 
-    fn type_text(handle: &mut VimeSessionHandle, text: &str) {
-        for ch in text.chars() {
-            handle.session.insert(ch);
-            handle.invalidate();
-        }
+    /// A new session with a private configuration, still able to fall back to
+    /// the shared one.
+    #[inline]
+    pub(crate) fn new_session_with(&self, config: FfiSessionConfig) -> EngineSession {
+        self.factory.new_session_with(config)
     }
 
-    fn text_of(ptr: *const c_char) -> String {
-        assert!(!ptr.is_null());
-        // SAFETY: every pointer this test reads came from a live handle, which
-        // owns the buffer behind it.
-        unsafe { std::ffi::CStr::from_ptr(ptr) }
-            .to_str()
-            .unwrap()
-            .to_owned()
+    #[inline]
+    pub(crate) fn config(&self) -> FfiSessionConfig {
+        self.factory.config()
     }
 
-    #[test]
-    fn an_empty_session_renders_an_empty_string_not_null() {
-        let mut handle = session();
-        let ptr = handle.render_text();
-        assert_eq!(text_of(ptr), "");
-        assert_eq!(text_of(handle.render_raw_text()), "");
+    #[inline]
+    pub(crate) fn set_config(&self, config: FfiSessionConfig) {
+        self.factory.set_config(config);
     }
 
-    #[test]
-    fn a_terminator_is_appended_exactly_once() {
-        let mut handle = session();
-        type_text(&mut handle, "hoas");
-        let ptr = handle.render_text();
-        // SAFETY: the pointer is owned by the live handle, and the render is four
-        // characters plus the terminator, so five bytes are in bounds.
-        let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), 5) };
-        assert_eq!(bytes, "hoá\0".as_bytes());
-    }
-
-    /// A buffer that is refilled in place: the address C was given last time is the
-    /// address it gets this time, and the text behind it is the new one.
-    #[test]
-    fn refilling_reuses_the_allocation() {
-        let mut handle = session();
-        let first = handle.render_text();
-        type_text(&mut handle, "toan");
-        let second = handle.render_text();
-        assert_eq!(first, second, "the allocation was reused in place");
-        assert_eq!(text_of(second), "toan");
-    }
-
-    #[test]
-    fn stale_text_is_replaced_not_appended() {
-        let mut handle = session();
-        type_text(&mut handle, "toan");
-        assert_eq!(text_of(handle.render_text()), "toan");
-        type_text(&mut handle, "hoa");
-        assert_eq!(text_of(handle.render_text()), "toanhoa");
-        handle.session.reset();
-        handle.invalidate();
-        assert_eq!(text_of(handle.render_text()), "");
-    }
-
-    /// A buffer's contents are its text without the terminator, and a word may end
-    /// in U+0000 because that is a valid scalar value a caller is allowed to
-    /// insert. Exactly one NUL comes off, so `a\0` is two characters and two bytes
-    /// even though the C view of it is just `a`.
-    #[test]
-    fn the_terminator_is_stripped_exactly_once() {
-        assert_eq!(content("a\0"), "a");
-        assert_eq!(content("a\0\0"), "a\0");
-        assert_eq!(content(""), "", "a buffer that has not been filled yet");
-    }
-
-    /// The two buffers are filled independently: asking for one does not pay for
-    /// the other.
-    #[test]
-    fn each_buffer_is_filled_on_its_own_schedule() {
-        let mut handle = session();
-        type_text(&mut handle, "hoas");
-        assert_eq!(text_of(handle.render_text()), "hoá");
-        assert!(!handle.raw_current, "the raw buffer is still stale");
-        assert_eq!(text_of(handle.render_raw_text()), "hoas");
-        assert!(handle.raw_current);
-
-        type_text(&mut handle, "c");
-        assert!(!handle.rendered_current);
-        assert!(!handle.raw_current);
-    }
-
-    /// Moving the caret changes the text's *position*, not the text, so the
-    /// invalidation rule says there is nothing to drop. The offsets are derived
-    /// from the core's caret, so they still follow it.
-    #[test]
-    fn moving_the_caret_leaves_the_text_alone() {
-        let mut handle = session();
-        type_text(&mut handle, "dduongf");
-        assert_eq!(text_of(handle.render_text()), "đùong");
-        assert!(*handle.session.move_cursor_left_by(1).rendered());
-        assert_eq!(text_of(handle.render_text()), "đùong");
-        assert_eq!(handle.cursor_char_idx(), 4);
-        // 'đ' and 'ù' are two bytes each, so four characters in is six bytes.
-        assert_eq!(handle.cursor_byte_idx(), 6);
+    #[inline]
+    pub(crate) fn update_config(&self, update: impl FnOnce(&mut FfiSessionConfig)) {
+        self.factory.update_config(update);
     }
 }

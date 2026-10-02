@@ -3,7 +3,7 @@
 //! invalid, so a rejected removal leaves the syllable unchanged.
 
 use super::*;
-use crate::{phonology::TonePlacement, syllable::EditEffect};
+use crate::{phonology::TonePlacement, syllable::EditOutcome};
 
 impl BuildingSyllable {
     // ─────────────────────────── Remove ───────────────────────────
@@ -12,7 +12,7 @@ impl BuildingSyllable {
         &mut self,
         index: usize,
         tone_placement: TonePlacement,
-    ) -> Result<EditEffect, SyllableBuildError> {
+    ) -> Result<(), SyllableBuildError> {
         let onset_len = self.onset.len();
         let vowels_len = self.nucleus.len();
         let total_len = onset_len + vowels_len + self.coda.len();
@@ -27,7 +27,7 @@ impl BuildingSyllable {
         if index < onset_len {
             if self.onset_kind == Onset::Gi {
                 if self.remove_gi_onset(index) {
-                    return Ok(EditEffect::StructurallyChanged);
+                    return Ok(());
                 }
                 return Err(SyllableBuildError::InvalidNucleus);
             }
@@ -36,7 +36,7 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidOnset);
             }
 
-            return Ok(EditEffect::StructurallyChanged);
+            return Ok(());
         }
 
         // ─────────────────────────── Vowel ───────────────────────────
@@ -48,7 +48,7 @@ impl BuildingSyllable {
                 return Err(SyllableBuildError::InvalidNucleus);
             }
 
-            return Ok(EditEffect::StructurallyChanged);
+            return Ok(());
         }
 
         // ─────────────────────────── Coda ───────────────────────────
@@ -59,7 +59,7 @@ impl BuildingSyllable {
             return Err(SyllableBuildError::InvalidCoda);
         }
 
-        Ok(EditEffect::StructurallyChanged)
+        Ok(())
     }
 
     /// Removes one character from the onset, restoring it if the result is invalid.

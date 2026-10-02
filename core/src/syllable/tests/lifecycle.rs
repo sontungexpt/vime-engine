@@ -5,7 +5,7 @@
 
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Onset, TonePlacement};
-use crate::syllable::{EditEffect, Syllable, TransformTarget};
+use crate::syllable::{EditOutcome, Syllable, TransformTarget};
 
 /// The keymap every test parses under; `Syllable` holds none, so each call gets it.
 fn keymap() -> DefaultKeymap<'static> {
@@ -39,7 +39,7 @@ fn initially_building_and_empty() {
 fn valid_pushes_stay_in_building_phase() {
     let mut s = builder();
     for ch in ['t', 'a', 'n'] {
-        assert_eq!(s.push(&keymap(), TONE, ch), EditEffect::StructurallyChanged);
+        assert_eq!(s.push(&keymap(), TONE, ch), EditOutcome::Changed);
     }
 
     assert!(s.is_building());
@@ -60,7 +60,7 @@ fn rejected_push_falls_back_to_dead() {
     // `z` is no vowel/onset/coda char, so the rejection hands the accepted prefix to a dead buffer.
     assert_eq!(
         s.push(&keymap(), TONE, 'z'),
-        EditEffect::StructurallyChanged
+        EditOutcome::Changed
     );
 
     assert!(!s.is_building());
@@ -316,10 +316,7 @@ fn keymap_is_supplied_per_operation() {
     s.push(&telex, TONE, 'a');
     assert_eq!(
         s.push(&telex, TONE, 'w'),
-        EditEffect::Transformed {
-            target: TransformTarget::Nucleus(0),
-            reverted: false,
-        }
+        EditOutcome::Transformed { first_changed: 0 }
     );
     assert!(s.is_building());
     assert_eq!(s.to_chars(TONE).iter().collect::<String>(), "ă");
@@ -328,7 +325,7 @@ fn keymap_is_supplied_per_operation() {
     let viqr = DefaultKeymap::viqr();
     let mut v = Syllable::new();
     v.push(&viqr, TONE, 'a');
-    assert_eq!(v.push(&viqr, TONE, 'w'), EditEffect::StructurallyChanged);
+    assert_eq!(v.push(&viqr, TONE, 'w'), EditOutcome::Changed);
     assert!(!v.is_building());
     assert_eq!(v.to_chars(TONE).iter().collect::<String>(), "aw");
 }

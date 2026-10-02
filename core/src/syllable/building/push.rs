@@ -15,28 +15,16 @@ impl BuildingSyllable {
         &mut self,
         keymap: &KM,
         key: char,
-    ) -> Result<EditEffect, SyllableBuildError> {
-        let mut effect = EditEffect::StructurallyChanged;
+    ) -> Result<TransformEffect, SyllableBuildError> {
+        let mut effect = TransformEffect::None;
 
         // ─────────────────────────── Onset ───────────────────────────
         // No nucleus or coda yet: try the D/Đ stroke, then the onset, then the first vowel.
         if self.coda.is_empty() && self.nucleus.is_empty() {
-            match self.try_toggle_d_stroke(keymap, key) {
-                TransformResult::Applied(target) => {
-                    return Ok(EditEffect::Transformed {
-                        target: target,
-                        reverted: false,
-                    });
-                }
+            let effect = self.try_toggle_d_stroke(keymap, key);
 
-                TransformResult::Reverted(target) => {
-                    effect = EditEffect::Transformed {
-                        target: target,
-                        reverted: true,
-                    };
-                }
-
-                TransformResult::NotApplicable => {}
+            if matches!(effect, TransformEffect::Applied(_)) {
+                return Ok(effect);
             }
 
             if self.push_onset(key) {
@@ -61,20 +49,9 @@ impl BuildingSyllable {
 
         // ─────────────────────────── Nucleus ───────────────────────────
         // After the first vowel, transforms get first chance at each key.
-        match self.try_transform(keymap, key, None) {
-            TransformResult::Applied(target) => {
-                return Ok(EditEffect::Transformed {
-                    target: target,
-                    reverted: false,
-                });
-            }
-            TransformResult::Reverted(target) => {
-                effect = EditEffect::Transformed {
-                    target: target,
-                    reverted: true,
-                };
-            }
-            TransformResult::NotApplicable => {}
+        let effect = self.try_transform(keymap, key, None);
+        if matches!(effect, TransformEffect::Applied(_)) {
+            return Ok(effect);
         }
 
         if self.coda.is_empty() {

@@ -6,7 +6,6 @@ use super::*;
 use crate::{
     keymap::Keymap,
     phonology::{BaseVowel, Onset, Tone, Vowel, NUCLEUS_MAX_LEN},
-    syllable::EditEffect,
 };
 
 impl BuildingSyllable {
@@ -17,7 +16,7 @@ impl BuildingSyllable {
         keymap: &KM,
         index: usize,
         key: char,
-    ) -> Result<EditEffect, SyllableBuildError> {
+    ) -> Result<TransformEffect, SyllableBuildError> {
         let onset_len = self.onset.len();
         let vowels_len = self.nucleus.len();
         // Absolute indices at the boundaries between syllable parts.
@@ -36,25 +35,12 @@ impl BuildingSyllable {
 
         // ─────────────────────────── Onset ───────────────────────────
 
-        let mut effect = EditEffect::StructurallyChanged;
         if index <= onset_len {
             // Give the d/đ stroke transform priority over literal insertion.
-            match self.try_toggle_d_stroke(keymap, key) {
-                TransformResult::Applied(target) => {
-                    return Ok(EditEffect::Transformed {
-                        target: target,
-                        reverted: false,
-                    });
-                }
+            let effect = self.try_toggle_d_stroke(keymap, key);
 
-                TransformResult::Reverted(target) => {
-                    effect = EditEffect::Transformed {
-                        target: target,
-                        reverted: true,
-                    };
-                }
-
-                TransformResult::NotApplicable => {}
+            if matches!(effect, TransformEffect::Applied(_)) {
+                return Ok(effect);
             }
 
             // Try the key as an onset character first.
@@ -83,20 +69,9 @@ impl BuildingSyllable {
             let vowel_index = index - onset_len;
 
             // At a vowel position, try transforms before literal insertion.
-            match self.try_transform(keymap, key, Some(vowel_index)) {
-                TransformResult::Applied(target) => {
-                    return Ok(EditEffect::Transformed {
-                        target: target,
-                        reverted: false,
-                    });
-                }
-                TransformResult::Reverted(target) => {
-                    effect = EditEffect::Transformed {
-                        target: target,
-                        reverted: true,
-                    };
-                }
-                TransformResult::NotApplicable => {}
+            let effect = self.try_transform(keymap, key, Some(vowel_index));
+            if matches!(effect, TransformEffect::Applied(_)) {
+                return Ok(effect);
             }
 
             if let Some(decoded) = Vowel::from_char(key) {
@@ -119,21 +94,9 @@ impl BuildingSyllable {
         }
 
         // ─────────────────────────── Coda ───────────────────────────
-
-        match self.try_transform(keymap, key, None) {
-            TransformResult::Applied(target) => {
-                return Ok(EditEffect::Transformed {
-                    target: target,
-                    reverted: false,
-                });
-            }
-            TransformResult::Reverted(target) => {
-                effect = EditEffect::Transformed {
-                    target: target,
-                    reverted: true,
-                };
-            }
-            TransformResult::NotApplicable => {}
+        let effect = self.try_transform(keymap, key, None);
+        if matches!(effect, TransformEffect::Applied(_)) {
+            return Ok(effect);
         }
 
         let coda_index = index - vowel_boundary;

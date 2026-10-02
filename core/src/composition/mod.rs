@@ -5,7 +5,7 @@ pub use cursor::Cursor;
 use crate::{
     keymap::Keymap,
     phonology::TonePlacement,
-    syllable::{EditEffect, Syllable, SyllableChars},
+    syllable::{EditOutcome, Syllable, SyllableChars},
     util::vec::SmallVec,
 };
 
@@ -154,7 +154,7 @@ impl Composition {
             .rendered
             .insert(keymap, tone_placement, self.rendered_cursor.get(), input)
         {
-            EditEffect::StructurallyChanged => {
+            EditOutcome::Changed => {
                 // SAFETY: only this arm lengthens the parsed buffer, so the next
                 // position is valid; a transformation leaves it unchanged.
                 unsafe {

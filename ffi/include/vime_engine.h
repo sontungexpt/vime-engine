@@ -20,16 +20,16 @@ typedef struct VimeSessionHandle VimeSessionHandle;
 /* Enums & Config Struct                                                     */
 /* ========================================================================= */
 
-typedef enum VimeInputMethod {
-    VIME_INPUT_METHOD_TELEX = 1u,
-    VIME_INPUT_METHOD_VNI   = 2u,
-    VIME_INPUT_METHOD_VIQR  = 3u,
-} VimeInputMethod;
+typedef uint32_t VimeInputMethod;
 
-typedef enum VimeTonePlacement {
-    VIME_TONE_PLACEMENT_MODERN = 1u,
-    VIME_TONE_PLACEMENT_OLD    = 2u,
-} VimeTonePlacement;
+#define VIME_INPUT_METHOD_TELEX ((VimeInputMethod)1u)
+#define VIME_INPUT_METHOD_VNI   ((VimeInputMethod)2u)
+#define VIME_INPUT_METHOD_VIQR  ((VimeInputMethod)3u)
+
+typedef uint32_t VimeTonePlacement;
+
+#define VIME_TONE_PLACEMENT_MODERN ((VimeTonePlacement)1u)
+#define VIME_TONE_PLACEMENT_OLD    ((VimeTonePlacement)2u)
 
 typedef struct VimeConfig {
     VimeInputMethod input_method;
@@ -39,10 +39,10 @@ typedef struct VimeConfig {
 /**
  * Helper macro for default C-style configuration initialization.
  */
-#define VIME_CONFIG_INIT \
+#define VIME_CONFIG_DEFAULT \
     ((VimeConfig){ \
-        .input_method = VIME_INPUT_METHOD_TELEX, \
-        .tone_placement = VIME_TONE_PLACEMENT_MODERN \
+        VIME_INPUT_METHOD_TELEX, \
+        VIME_TONE_PLACEMENT_MODERN \
     })
 
 /* ========================================================================= */
@@ -76,6 +76,16 @@ void vime_session_factory_destroy(VimeSessionFactoryHandle *factory);
  */
 bool vime_session_factory_set_config(VimeSessionFactoryHandle *factory, const VimeConfig *config);
 
+/**
+ * Returns the current shared configuration.
+ *
+ * The configuration is returned by value.
+ */
+VimeConfig vime_session_factory_get_config(const VimeSessionFactoryHandle *factory);
+
+
+
+
 /* ========================================================================= */
 /* Session Lifecycle APIs                                                    */
 /* ========================================================================= */
@@ -100,6 +110,12 @@ VimeSessionHandle *vime_session_create_with_config(VimeSessionFactoryHandle *fac
  * @param session Pointer to session handle.
  */
 void vime_session_destroy(VimeSessionHandle *session);
+
+/**
+ * Clears input buffers and resets session state to initial conditions.
+ * Safe to call with NULL pointer (no-op).
+ */
+void vime_session_reset(VimeSessionHandle *session);
 
 /* ========================================================================= */
 /* Session Config Isolation APIs                                             */
@@ -155,27 +171,6 @@ bool vime_session_move_cursor_right(VimeSessionHandle *session);
 /* Session Render & State APIs                                               */
 /* ========================================================================= */
 
-/**
- * Detailed render state snapshot for UI, uinput, and IME frameworks.
- */
-typedef struct VimeRenderState {
-    const char *text;             /* Transformed Vietnamese UTF-8 text (e.g., "viê") */
-    const char *raw_text;         /* Raw UTF-8 key sequence entered by user (e.g., "viee") */
-
-    /* Cursor indicators for Rendered (Display) string */
-    size_t cursor_byte_idx;       /* Rendered cursor index in Bytes */
-    size_t cursor_char_idx;       /* Rendered cursor index in CodePoints (Chars) */
-
-    /* Cursor indicators for Raw string */
-    size_t raw_cursor_byte_idx;   /* Raw cursor index in Bytes */
-    size_t raw_cursor_char_idx;   /* Raw cursor index in CodePoints (Chars) */
-
-    /* uinput & IME Integration indicators */
-    size_t bytes_to_delete;       /* Number of UTF-8 bytes to remove from previous render */
-    size_t chars_to_delete;       /* Number of CodePoints (Backspaces) to delete from host buffer */
-
-    bool is_valid_vietnamese;     /* True if current buffer forms a valid Vietnamese word */
-} VimeRenderState;
 
 /**
  * [RENDER TEXT] Gets the transformed Vietnamese UTF-8 display string.
@@ -221,18 +216,7 @@ size_t vime_session_get_raw_cursor_char_idx(VimeSessionHandle *session);
  */
 size_t vime_session_get_raw_cursor_byte_idx(VimeSessionHandle *session);
 
-/**
- * [ADVANCED STATE] Retrieves a complete snapshot of current session render state.
- * Returned pointer is managed by Session and remains valid until next session call.
- * @note Fields for unimplemented core features will fallback to zeroed/empty defaults.
- */
-const VimeRenderState *vime_session_render_state(VimeSessionHandle *session);
 
-/**
- * Clears input buffers and resets session state to initial conditions.
- * Safe to call with NULL pointer (no-op).
- */
-void vime_session_reset(VimeSessionHandle *session);
 
 /* ========================================================================= */
 /* System Info                                                               */

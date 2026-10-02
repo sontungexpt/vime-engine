@@ -267,3 +267,93 @@ fn validity_answers_whether_the_buffer_is_a_word() {
     assert!(!verdict(&mut session, "hoc"), "hoc without a tone");
     assert!(verdict(&mut session, "hocs"), "hocs carries one");
 }
+
+// ────────────────────────── Config resolution edge cases ────────────────────
+
+/// A config-dependent operation adopts a pending change on its own, without an
+/// explicit `pull_config`.
+#[test]
+fn a_config_dependent_operation_resolves_the_config_itself() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+    type_str(&mut session, "hoas");
+    assert_eq!(rendered_to_string(&mut session), MODERN_HOA);
+
+    engine.set_config(old_telex());
+
+    // No explicit pull: `rendered` is the thing that must resolve the change.
+    assert_eq!(rendered_to_string(&mut session), OLD_HOA);
+}
+
+/// Cursor movement reads no configuration, so it must not adopt a pending
+/// change: a later config-independent read would misreport what the session
+/// has resolved.
+#[test]
+fn cursor_movement_does_not_resolve_the_config() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+    type_str(&mut session, "hoas");
+    let resolved_before = session.config().tone_placement();
+    let start = session.rendered_cursor();
+
+    engine.set_config(old_telex());
+
+    assert!(
+        session.move_cursor_left_by(1).rendered(),
+        "left is available"
+    );
+    assert!(session.move_cursor_left_by(1).rendered(), "and again");
+    assert!(
+        session.move_cursor_right_by(1).rendered(),
+        "right is available"
+    );
+    assert_eq!(session.rendered_cursor(), start - 1);
+
+    assert_eq!(
+        session.config().tone_placement(),
+        resolved_before,
+        "cursor movement must leave the resolved config alone"
+    );
+}
+
+/// Nor do the raw-keystroke reads, which are the raw buffer verbatim.
+#[test]
+fn raw_reads_do_not_resolve_the_config() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+    type_str(&mut session, "hoas");
+    let resolved_before = session.config().tone_placement();
+
+    engine.set_config(old_telex());
+
+    let mut out = String::new();
+    session.write_raw_to(&mut out);
+    assert_eq!(out, "hoas");
+    assert_eq!(session.raw().iter().collect::<String>(), "hoas");
+    assert!(session.is_phonotactically_valid());
+
+    assert_eq!(
+        session.config().tone_placement(),
+        resolved_before,
+        "raw reads must leave the resolved config alone"
+    );
+}
+
+/// `pull_config` reports that a config was adopted without re-rendering: the
+/// word only moves when a config-dependent operation reads it.
+#[test]
+fn pull_config_reports_adoption_without_rendering() {
+    let engine = SessionFactory::telex(Settings::default());
+    let mut session = engine.new_session();
+    type_str(&mut session, "hoas");
+    engine.set_config(old_telex());
+
+    assert!(
+        session.pull_config(),
+        "a moved generation means a config was adopted"
+    );
+    assert!(
+        !session.pull_config(),
+        "the generation is resolved now, so a second pull is silent"
+    );
+}

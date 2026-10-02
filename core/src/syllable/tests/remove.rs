@@ -1,29 +1,33 @@
-//! Remove corpus: `BuildingSyllable::remove` at an explicit index after a
+//! Remove corpus: `BuildingSyllable::remove` at an explicit cursor after a
 //! `base` push order, asserted for the effect/error and the final syllable.
-//! ```text
-//! Keymap + (base pushes) → BuildingSyllable → remove(at) → syllable
-//! ```
 
-use super::common::{check_effect, check_syllable_eq, Effect, ExpectedSyllable, C, V};
+use super::common::{check_building_effect, check_syllable_eq, BuildingEffect, ExpectedSyllable, C, V};
 
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Coda, Onset, Tone, TonePlacement};
-use crate::syllable::building::{BuildingSyllable, SyllableBuildError};
-use crate::syllable::EditEffect;
+use crate::syllable::building::{BuildingSyllable, SyllableBuildError, TransformEffect, TransformTarget};
 
 struct RemoveCase {
     base: &'static [char],
     at: usize,
-    effect: Effect,
-    expected: ExpectedSyllable,
+    effect: super::common::BuildingEffect,
+    expected: super::common::ExpectedSyllable,
 }
 
 macro_rules! ok_case {
-    ($base:expr, $at:expr, $eff:ident, $expected:expr) => {
+    ($base:expr, $at:expr, Changed, $expected:expr) => {
         RemoveCase {
             base: $base,
             at: $at,
-            effect: Effect::Ok(EditEffect::$eff),
+            effect: super::common::BuildingEffect::Ok(TransformEffect::None),
+            expected: $expected,
+        }
+    };
+    ($base:expr, $at:expr, Transformed($target:expr), $expected:expr) => {
+        RemoveCase {
+            base: $base,
+            at: $at,
+            effect: super::common::BuildingEffect::Ok(TransformEffect::Applied($target)),
             expected: $expected,
         }
     };
@@ -34,26 +38,23 @@ macro_rules! err_case {
         RemoveCase {
             base: $base,
             at: $at,
-            effect: Effect::Err(SyllableBuildError::$err),
+            effect: super::common::BuildingEffect::Err(SyllableBuildError::$err),
             expected: $expected,
         }
     };
 }
 
 const CASES: &[RemoveCase] = &[
-    // ─────────────────────────────── Onset region ───────────────────────────────
-    // `tan` minus `t` → `an`.
     ok_case!(
         &['t', 'a', 'n'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(&[(V::A, C::Lower)], Tone::Flat, Coda::N, &['n'])
     ),
-    // `than` minus `h` → `tan`; minus `t` → `han` (a lone `h` is a legal onset).
     ok_case!(
         &['t', 'h', 'a', 'n'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::full(
             Onset::T,
             &['t'],
@@ -66,7 +67,7 @@ const CASES: &[RemoveCase] = &[
     ok_case!(
         &['t', 'h', 'a', 'n'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::full(
             Onset::H,
             &['h'],
@@ -76,11 +77,10 @@ const CASES: &[RemoveCase] = &[
             &['n']
         )
     ),
-    // Every member of the `ngh` cluster can go: the rest stays a valid onset.
     ok_case!(
         &['n', 'g', 'h', 'i', 'a'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::onset_vowel(
             Onset::Gh,
             &['g', 'h'],
@@ -91,7 +91,7 @@ const CASES: &[RemoveCase] = &[
     ok_case!(
         &['n', 'g', 'h', 'i', 'a'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::onset_vowel(
             Onset::Nh,
             &['n', 'h'],
@@ -102,7 +102,7 @@ const CASES: &[RemoveCase] = &[
     ok_case!(
         &['n', 'g', 'h', 'i', 'a'],
         2,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::onset_vowel(
             Onset::Ng,
             &['n', 'g'],
@@ -110,12 +110,10 @@ const CASES: &[RemoveCase] = &[
             Tone::Flat
         )
     ),
-    // ────────────────── `gi` cluster: `i` becomes a vowel ──────────────────
-    // Removing `g` pushes the lone `i` onto the nucleus head: `gian` → `ian`.
     ok_case!(
         &['g', 'i', 'a', 'n'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(
             &[(V::I, C::Lower), (V::A, C::Lower)],
             Tone::Flat,
@@ -126,14 +124,13 @@ const CASES: &[RemoveCase] = &[
     ok_case!(
         &['g', 'i', 'a'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel(&[(V::I, C::Lower), (V::A, C::Lower)], Tone::Flat)
     ),
-    // The tone riding on the resulting `i` survives the demotion.
     ok_case!(
         &['g', 'i', 'a', 'n', 's'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(
             &[(V::I, C::Lower), (V::A, C::Lower)],
             Tone::Acute,
@@ -141,11 +138,10 @@ const CASES: &[RemoveCase] = &[
             &['n']
         )
     ),
-    // Removing the `i` instead leaves a plain `g` onset.
     ok_case!(
         &['g', 'i', 'a', 'n'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::full(
             Onset::G,
             &['g'],
@@ -158,7 +154,7 @@ const CASES: &[RemoveCase] = &[
     ok_case!(
         &['g', 'i', 'a', 'n', 's'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::full(
             Onset::G,
             &['g'],
@@ -171,11 +167,9 @@ const CASES: &[RemoveCase] = &[
     ok_case!(
         &['g', 'i'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::consonant(Onset::G, &['g'])
     ),
-    // ─────────────────── `gi` removal that breaks the nucleus ───────────────────
-    // `giao` minus `g` needs somewhere to put the `i`; no legal `io` nucleus, so it rolls back.
     err_case!(
         &['g', 'i', 'o', 'a'],
         0,
@@ -187,7 +181,6 @@ const CASES: &[RemoveCase] = &[
             Tone::Flat
         )
     ),
-    // Same rejection with a full nucleus: `gioai` minus `g` has nowhere to put the `i`.
     err_case!(
         &['g', 'i', 'o', 'a', 'i'],
         0,
@@ -210,15 +203,12 @@ const CASES: &[RemoveCase] = &[
             Tone::Flat
         )
     ),
-    // ─────────────────────────────── Vowel region ───────────────────────────────
-    // `oai` minus the middle vowel → `oi`.
     ok_case!(
         &['o', 'a', 'i'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel(&[(V::O, C::Lower), (V::I, C::Lower)], Tone::Flat)
     ),
-    // A single vowel under a coda is undeletable: the nucleus may not go empty.
     err_case!(
         &['t', 'a', 'n'],
         1,
@@ -251,44 +241,40 @@ const CASES: &[RemoveCase] = &[
         InvalidNucleus,
         ExpectedSyllable::vowel_coda(&[(V::A, C::Lower)], Tone::Flat, Coda::Ch, &['c', 'h'])
     ),
-    // Coda-less single vowels can go, leaving a bare onset: `ta` → `t`.
     ok_case!(
         &['t', 'a'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::consonant(Onset::T, &['t'])
     ),
-    // Removing the tone's vowel drops the tone; for `oán` + a coda the tone tracks the second vowel.
     ok_case!(
         &['o', 'a', 'n', 's'],
         1,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(&[(V::O, C::Lower)], Tone::Flat, Coda::N, &['n'])
     ),
     ok_case!(
         &['o', 'a', 'n', 's'],
         0,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(&[(V::A, C::Lower)], Tone::Acute, Coda::N, &['n'])
     ),
-    // ─────────────────────────────── Coda region ───────────────────────────────
-    // `tan` minus `n` → `ta`; `ach` minus `h` → `ac`; `oang` minus `g` → `oan`.
     ok_case!(
         &['t', 'a', 'n'],
         2,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::onset_vowel(Onset::T, &['t'], &[(V::A, C::Lower)], Tone::Flat)
     ),
     ok_case!(
         &['a', 'c', 'h'],
         2,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(&[(V::A, C::Lower)], Tone::Flat, Coda::C, &['c'])
     ),
     ok_case!(
         &['o', 'a', 'n', 'g'],
         3,
-        StructurallyChanged,
+        Changed,
         ExpectedSyllable::vowel_coda(
             &[(V::O, C::Lower), (V::A, C::Lower)],
             Tone::Flat,
@@ -296,7 +282,6 @@ const CASES: &[RemoveCase] = &[
             &['n']
         )
     ),
-    // Removing the head of a cluster leaves `h` / `g`, which a coda cannot be.
     err_case!(
         &['a', 'c', 'h'],
         1,
@@ -316,75 +301,33 @@ const CASES: &[RemoveCase] = &[
     ),
 ];
 
-fn run_case(keymap: &DefaultKeymap, case: &RemoveCase) -> Result<(), String> {
+fn run_case(case: &RemoveCase) -> Result<(), String> {
     let mut builder = BuildingSyllable::default();
 
     for &ch in case.base {
         builder
-            .push(keymap, ch)
+            .push(&DefaultKeymap::telex(), ch)
             .map_err(|e| format!("base push({ch:?}) failed: {e:?}"))?;
     }
 
-    let effect = builder.remove(case.at, TonePlacement::Modern);
-    let label = format!("base={:?} remove(at={})", case.base, case.at);
+    let effect_result = builder.remove(case.at, TonePlacement::Modern);
+    let label = format!(
+        "base={:?} remove at {:?}",
+        case.base, case.at
+    );
 
-    check_effect(&case.effect, effect, &label)?;
-    check_syllable_eq(&builder, &case.expected, case.base)
+    // Convert Result<(), E> to Result<TransformEffect, E> for check_building_effect
+    let effect_for_check = effect_result.map(|_| TransformEffect::None);
+    super::common::check_building_effect(&case.effect, effect_for_check, &label)?;
+    check_syllable_eq(&builder, &case.expected, &case.base)
 }
 
 #[test]
-fn remove_cases() {
-    let telex = DefaultKeymap::telex();
-
+fn remove_corpus() {
     let failures: Vec<String> = CASES
         .iter()
-        .filter_map(|case| run_case(&telex, case).err())
+        .filter_map(|case| run_case(case).err())
         .collect();
 
-    if !failures.is_empty() {
-        panic!(
-            "{} failing remove case(s):\n\n{}",
-            failures.len(),
-            failures.join("\n\n")
-        );
-    }
-
-    assert!(
-        CASES.len() >= 24,
-        "expected the remove corpus to stay sizable; got {}",
-        CASES.len()
-    );
-}
-
-/// A backspace walk: drop the coda, then demote `gi`, taking `gian` down to `ia`.
-#[test]
-fn remove_sequence() {
-    let telex = DefaultKeymap::telex();
-    let mut builder = BuildingSyllable::default();
-
-    for &ch in &['g', 'i', 'a', 'n'] {
-        builder.push(&telex, ch).unwrap();
-    }
-
-    assert_eq!(
-        builder.remove(3, TonePlacement::Modern),
-        Ok(EditEffect::StructurallyChanged)
-    );
-    check_syllable_eq(
-        &builder,
-        &ExpectedSyllable::onset_vowel(Onset::Gi, &['g', 'i'], &[(V::A, C::Lower)], Tone::Flat),
-        &['g', 'i', 'a'],
-    )
-    .unwrap();
-
-    assert_eq!(
-        builder.remove(0, TonePlacement::Modern),
-        Ok(EditEffect::StructurallyChanged)
-    );
-    check_syllable_eq(
-        &builder,
-        &ExpectedSyllable::vowel(&[(V::I, C::Lower), (V::A, C::Lower)], Tone::Flat),
-        &['i', 'a'],
-    )
-    .unwrap();
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }

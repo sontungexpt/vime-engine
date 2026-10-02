@@ -13,26 +13,15 @@ pub enum TransformTarget {
     Tone,
 }
 
-/// How the rendered buffer changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditEffect {
-    StructurallyChanged,
-
-    Transformed {
-        target: TransformTarget,
-        reverted: bool,
-    },
-}
-
 /// Outcome of trying a transform key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TransformResult {
+pub enum TransformEffect {
     /// Applied a new mark to the syllable (e.g. `a` + `w` -> `ă`).
     Applied(TransformTarget),
     /// Undid an existing mark back to base (e.g. `ă` + `w` -> `a`).
     Reverted(TransformTarget),
     /// The key cannot transform the current state; pass through as a literal char.
-    NotApplicable,
+    None,
 }
 
 pub(super) type OnsetChars = ArrayVec<char, { Onset::MAX_LEN }>;
@@ -42,11 +31,11 @@ pub(super) type CodaChars = ArrayVec<char, { Coda::MAX_LEN }>;
 /// [`NucleusState`](crate::phonology::NucleusState); an internal helper whose
 /// mutations strip incoming tones — the syllable's tone lives in `BuildingSyllable`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(super) struct FlatNucleus {
+pub(super) struct TonelessNucleus {
     vowels: ArrayVec<Vowel, NUCLEUS_MAX_LEN>,
 }
 
-impl FlatNucleus {
+impl TonelessNucleus {
     /// Borrow the underlying toneless vowels.
     #[inline(always)]
     pub fn vowels(&self) -> &[Vowel] {
@@ -96,13 +85,13 @@ impl FlatNucleus {
     }
 
     /// Empties the nucleus.
-    #[inline]
+    #[inline(always)]
     pub fn clear(&mut self) {
         self.vowels.clear();
     }
 }
 
-impl core::ops::Index<usize> for FlatNucleus {
+impl core::ops::Index<usize> for TonelessNucleus {
     type Output = Vowel;
 
     #[inline(always)]
@@ -111,14 +100,14 @@ impl core::ops::Index<usize> for FlatNucleus {
     }
 }
 
-impl core::ops::IndexMut<usize> for FlatNucleus {
+impl core::ops::IndexMut<usize> for TonelessNucleus {
     #[inline(always)]
     fn index_mut(&mut self, index: usize) -> &mut Vowel {
         &mut self.vowels[index]
     }
 }
 
-impl BaseVowelSlice for FlatNucleus {
+impl BaseVowelSlice for TonelessNucleus {
     #[inline(always)]
     fn len(&self) -> usize {
         self.len()
@@ -130,7 +119,7 @@ impl BaseVowelSlice for FlatNucleus {
     }
 }
 
-impl Default for FlatNucleus {
+impl Default for TonelessNucleus {
     fn default() -> Self {
         Self {
             vowels: ArrayVec::new(),

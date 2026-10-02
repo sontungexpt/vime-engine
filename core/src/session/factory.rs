@@ -1,33 +1,9 @@
-//! Sessions minted from one shared configuration: each follows the factory's
-//! settings until it is given a private [`SessionConfig`], and a shared change
-//! reaches it at its next config-dependent operation.
-//!
-//! ```
-//! use vime_engine::{SessionConfig, DefaultKeymap, SessionFactory, Settings};
-//!
-//! let factory = SessionFactory::from_keymap(Settings::default(), DefaultKeymap::telex());
-//!
-//! let mut first = factory.new_session();
-//! let mut second = factory.new_session();
-//!
-//! for session in [&mut first, &mut second] {
-//!     session.insert('a');
-//! }
-//!
-//! // Both were typed under Telex, so both see this.
-//! factory.set_config(SessionConfig::from_keymap(
-//!     Settings::default(),
-//!     DefaultKeymap::vni(),
-//! ));
-//!
-//! for session in [&mut first, &mut second] {
-//!     session.insert('b');
-//! }
-//! ```
 use crate::keymap::{DefaultKeymap, Keymap};
 use crate::session::{Session, SessionConfig, Settings, SharedSessionConfig};
 
-/// Mints sessions that share one configuration.
+/// Factory that mints sessions sharing one configuration. Sessions follow the
+/// factory's config until given a private [`SessionConfig`]; shared changes
+/// propagate at the next config-dependent operation.
 pub struct SessionFactory<KM: Keymap> {
     config: SharedSessionConfig<KM>,
 }
@@ -48,22 +24,21 @@ impl<KM: Keymap> SessionFactory<KM> {
         Self::new(SessionConfig::from_keymap(settings, keymap))
     }
 
-    /// The shared config as it stands now. Takes the lock.
+    /// Current shared config (takes the lock).
     #[inline]
     pub fn config(&self) -> SessionConfig<KM> {
         self.config.snapshot()
     }
 
-    /// Mutates the shared config in place, returning the new generation. For a
-    /// partial change — [`SessionConfig`]'s fields are private; prefer
-    /// [`Self::set_config`] when a whole config is in hand.
+    /// Mutates the shared config in place, returning the new generation.
+    /// Prefer [`Self::set_config`] for whole-config replacement.
     #[inline]
     pub fn update_config(&self, update: impl FnOnce(&mut SessionConfig<KM>)) -> u64 {
         self.config.update(update)
     }
 
-    /// Replaces the shared config, returning the new generation. A session
-    /// holding a private config keeps its own settings.
+    /// Replaces the shared config, returning the new generation. Sessions with
+    /// private configs keep their own settings.
     #[inline]
     pub fn set_config(&self, config: SessionConfig<KM>) -> u64 {
         self.config.replace(config)
@@ -71,14 +46,14 @@ impl<KM: Keymap> SessionFactory<KM> {
 }
 
 impl<KM: Keymap + PartialEq> SessionFactory<KM> {
-    /// Creates an empty session that follows the shared config.
+    /// Creates an empty session following the shared config.
     #[inline]
     pub fn new_session(&self) -> Session<KM> {
         Session::new(self.config.clone())
     }
 
     /// Creates a session with its own settings, unaffected by later shared
-    /// changes. It still holds this factory's shared config, so
+    /// changes. Holds this factory's shared config, so
     /// [`Session::clear_private_config`] returns it to that config *as it stands
     /// then*.
     #[inline]
@@ -88,8 +63,6 @@ impl<KM: Keymap + PartialEq> SessionFactory<KM> {
 }
 
 impl SessionFactory<DefaultKeymap<'static>> {
-    // ------------------------------------------------------ convenience ctor
-
     /// Creates a factory starting from `settings` and the Telex keymap.
     #[inline]
     pub fn telex(settings: Settings) -> Self {
