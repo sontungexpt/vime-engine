@@ -553,3 +553,22 @@ pub unsafe extern "C" fn vime_session_can_move_cursor_right(
         session.can_move_cursor_right()
     })
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn vime_session_is_valid_vietnamese(session: *mut VimeSessionHandle) -> bool {
+    catch_panic(false, || {
+        let Some(session) = (unsafe { VimeSessionHandle::from_raw(session) }) else {
+            return false;
+        };
+
+        session.is_valid_vietnamese()
+    })
+}
+
+/// Returns the VIME engine semantic version.
+///
+/// The returned pointer refers to static storage and must not be freed.
+#[no_mangle]
+pub extern "C" fn vime_version() -> *const std::ffi::c_char {
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
+}
