@@ -1,9 +1,3 @@
-//! Turns the core's character positions into byte positions.
-//!
-//! The core keeps character indices and no byte ones, because nothing inside the
-//! engine indexes a buffer by byte. The FFI derives them in one walk that sums
-//! `len_utf8` up to the caret while counting characters.
-
 use std::ffi::c_char;
 
 /// Byte offset of a caret, and the character count of the same string.
@@ -24,6 +18,4 @@ pub(crate) fn measure(text: &str, caret_chars: usize) -> (usize, usize) {
         }
         len_chars += 1;
     }
-
-    (byte_idx, len_chars)
 }

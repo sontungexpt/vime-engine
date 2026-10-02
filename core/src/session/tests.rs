@@ -1,12 +1,16 @@
-//! Unit tests for [`SharedSessionConfig`].
+//! Unit tests for [`Session`].
 //!
-//! Kept in-crate: they drive `SessionConfig`'s `pub(crate)` setters, which an
-//! integration test compiling as an external caller cannot see.
+//! Kept in-crate: they drive `SessionConfig`'s `pub(crate)` setters and read the
+//! generation counter, which an integration test compiling as an external
+//! caller cannot see.
 
 use super::{Session, SessionConfig, SharedSessionConfig};
 use crate::keymap::DefaultKeymap;
 use crate::phonology::TonePlacement;
 use crate::session::Settings;
+
+/// A session on the default keymap, which is what these tests are about.
+type TestSession = Session<DefaultKeymap<'static>>;
 
 /// Default shared config for tests: Telex + Modern.
 fn shared() -> SharedSessionConfig<DefaultKeymap<'static>> {
@@ -16,15 +20,33 @@ fn shared() -> SharedSessionConfig<DefaultKeymap<'static>> {
     ))
 }
 
-/// A session with "hoas" typed in.
-fn session_with_hoas(
-    shared: &SharedSessionConfig<DefaultKeymap<'static>>,
-) -> Session<DefaultKeymap<'static>> {
+/// A session with `input` typed in. Reads `shared` rather than making its own,
+/// so a test can observe the config the session has resolved.
+fn session_with(shared: &SharedSessionConfig<DefaultKeymap<'static>>, input: &str) -> TestSession {
     let mut session = Session::new(shared.clone());
-    for ch in "hoas".chars() {
+    for ch in input.chars() {
         session.insert(ch);
     }
     session
+}
+
+/// A session with "hoas" typed in: the two tone-placement schemes render it
+/// differently (`hoá` Modern, `hóa` Old), which is what makes it the probe for
+/// whether a read resolved the config.
+fn session_with_hoas(shared: &SharedSessionConfig<DefaultKeymap<'static>>) -> TestSession {
+    session_with(shared, "hoas")
+}
+
+/// `(rendered, raw)`: whether each caret can move one position left.
+fn can_left(session: &TestSession) -> (bool, bool) {
+    let reachable = session.can_move_cursor_left();
+    (*reachable.rendered(), *reachable.raw())
+}
+
+/// `(rendered, raw)`: whether each caret can move one position right.
+fn can_right(session: &TestSession) -> (bool, bool) {
+    let reachable = session.can_move_cursor_right();
+    (*reachable.rendered(), *reachable.raw())
 }
 
 mod config_updates {
@@ -88,25 +110,11 @@ mod config_updates {
 mod session_config_resolution {
     use super::*;
 
-    fn shared_config() -> SharedSessionConfig<DefaultKeymap<'static>> {
-        shared()
-    }
-
-    fn session_with_hoas(
-        shared: &SharedSessionConfig<DefaultKeymap<'static>>,
-    ) -> Session<DefaultKeymap<'static>> {
-        let mut session = Session::new(shared.clone());
-        for ch in "hoas".chars() {
-            session.insert(ch);
-        }
-        session
-    }
-
     /// A config-dependent operation adopts a pending change on its own, without an
     /// explicit `pull_config`.
     #[test]
     fn a_config_dependent_operation_resolves_the_config_itself() {
-        let shared = shared_config();
+        let shared = shared();
         let mut session = session_with_hoas(&shared);
         assert_eq!(session.rendered().iter().collect::<String>(), "hoá");
 
@@ -121,22 +129,23 @@ mod session_config_resolution {
     /// has resolved.
     #[test]
     fn cursor_movement_does_not_resolve_the_config() {
-        let shared = shared_config();
+        let shared = shared();
         let mut session = session_with_hoas(&shared);
         let resolved_before = session.config().tone_placement();
         let start = session.rendered_cursor();
 
         shared.update(|c| c.set_tone_placement(TonePlacement::Old));
 
-        assert!(
-            session.move_cursor_left_by(1).rendered(),
-            "left is available"
+        assert_eq!(can_left(&session), (true, true), "left is available");
+        assert!(session.move_cursor_left_by(1).rendered());
+        assert_eq!(can_left(&session), (true, true), "and again");
+        assert_eq!(
+            can_right(&session),
+            (true, true),
+            "one character now sits right of the caret"
         );
-        assert!(session.move_cursor_left_by(1).rendered(), "and again");
-        assert!(
-            session.move_cursor_right_by(1).rendered(),
-            "right is available"
-        );
+        assert!(session.move_cursor_left_by(1).rendered(), "left twice");
+        assert!(session.move_cursor_right_by(1).rendered(), "then right");
         assert_eq!(session.rendered_cursor(), start - 1);
 
         assert_eq!(
@@ -149,7 +158,7 @@ mod session_config_resolution {
     /// Nor do the raw-keystroke reads, which are the raw buffer verbatim.
     #[test]
     fn raw_reads_do_not_resolve_the_config() {
-        let shared = shared_config();
+        let shared = shared();
         let session = session_with_hoas(&shared);
         let resolved_before = session.config().tone_placement();
 
@@ -172,7 +181,7 @@ mod session_config_resolution {
     /// word only moves when a config-dependent operation reads it.
     #[test]
     fn pull_config_reports_adoption_without_rendering() {
-        let shared = shared_config();
+        let shared = shared();
         let mut session = session_with_hoas(&shared);
         shared.update(|c| c.set_tone_placement(TonePlacement::Old));
 
@@ -190,26 +199,22 @@ mod session_config_resolution {
 mod buffer_queries {
     use super::*;
 
-    fn session_with(raw: &str) -> Session<DefaultKeymap<'static>> {
-        let shared = shared();
-        let mut session = Session::new(shared);
-        for ch in raw.chars() {
-            session.insert(ch);
-        }
-        session
+    /// A session with `input` typed in, on a config no test here inspects.
+    fn typed(input: &str) -> TestSession {
+        session_with(&shared(), input)
     }
 
     /// The rendered length counts the syllable, not the keys that built it.
     #[test]
     fn rendered_len_counts_the_syllable_not_the_keystrokes() {
-        let session = session_with("chaof");
+        let session = typed("chaof");
         assert_eq!(session.raw_cursor(), 5);
         assert_eq!(session.rendered_len(), 4, "`chaof` renders as `chào`");
     }
 
     #[test]
     fn rendered_len_is_zero_when_empty() {
-        assert_eq!(session_with("").rendered_len(), 0);
+        assert_eq!(typed("").rendered_len(), 0);
     }
 
     /// A dead buffer renders verbatim, so its length is the keystroke count.
@@ -217,61 +222,76 @@ mod buffer_queries {
     fn rendered_len_counts_a_dead_buffer_verbatim() {
         // `z` is not a vowel/onset/coda character, so the word goes dead and the
         // rest is recorded as typed.
-        let session = session_with("azxy");
+        let session = typed("azxy");
         assert_eq!(session.rendered_len(), 4);
+        assert_eq!(session.raw().len(), 4, "and so does the raw buffer");
+    }
+
+    /// The raw buffer counts keys, so no transform ever shortens it.
+    #[test]
+    fn the_raw_buffer_counts_the_keystrokes_verbatim() {
+        let session = typed("chaof");
+        assert_eq!(session.raw().len(), 5, "5 keys, 4 rendered characters");
+        assert_eq!(typed("").raw().len(), 0);
     }
 
     /// An empty buffer can be moved in neither direction.
     #[test]
     fn an_empty_buffer_cannot_move() {
-        let session = session_with("");
-
-        assert!(!*session.can_move_cursor_left().rendered());
-        assert!(!*session.can_move_cursor_right().rendered());
+        let session = typed("");
+        assert_eq!(can_left(&session), (false, false));
+        assert_eq!(can_right(&session), (false, false));
     }
 
     /// With the caret at the end, only left is available; after one left move,
     /// both are.
     #[test]
     fn can_move_follows_the_caret() {
-        let mut session = session_with("tan");
+        let mut session = typed("tan");
 
-        assert!(
-            *session.can_move_cursor_left().rendered(),
-            "caret starts at the end"
+        assert_eq!(
+            can_left(&session),
+            (true, true),
+            "the caret starts at the end"
         );
-        assert!(
-            !*session.can_move_cursor_right().rendered(),
+        assert_eq!(
+            can_right(&session),
+            (false, false),
             "nothing sits to the right of the end"
         );
 
         session.move_cursor_left_by(1);
 
-        assert!(*session.can_move_cursor_left().rendered());
-        assert!(
-            *session.can_move_cursor_right().rendered(),
+        assert_eq!(can_left(&session), (true, true));
+        assert_eq!(
+            can_right(&session),
+            (true, true),
             "one character now sits to the right of the caret"
         );
     }
 
     /// Moving past the start leaves the caret there, so left stops being offered
-    /// while right stays available.
+    /// while right stays available. Moving past the end is the mirror image.
     #[test]
-    fn can_move_left_stops_at_the_start() {
-        let mut session = session_with("tan");
+    fn moving_past_an_end_clamps_and_stops_offering() {
+        let mut session = typed("tan");
 
         session.move_cursor_left_by(9);
-
         assert_eq!(session.rendered_cursor(), 0, "clamped at the start");
-        assert!(!*session.can_move_cursor_left().rendered());
-        assert!(*session.can_move_cursor_right().rendered());
+        assert_eq!(can_left(&session), (false, false), "nowhere left to go");
+        assert_eq!(can_right(&session), (true, true));
+
+        session.move_cursor_right_by(9);
+        assert_eq!(session.rendered_cursor(), 3, "clamped at the end");
+        assert_eq!(can_left(&session), (true, true));
+        assert_eq!(can_right(&session), (false, false), "nowhere right to go");
     }
 
     /// The rendered caret and the raw caret are separate positions; a transform
     /// collapses two keys into one character, so they do not have to agree.
     #[test]
     fn the_two_carets_are_independent_positions() {
-        let session = session_with("chaof");
+        let session = typed("chaof");
 
         assert_eq!(session.raw_cursor(), 5);
         assert_eq!(session.rendered_cursor(), 4);

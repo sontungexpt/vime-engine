@@ -66,6 +66,19 @@ impl DeadSyllable {
         self.chars.len()
     }
 
+    /// Total UTF-8 length of the buffer.
+    #[inline(always)]
+    pub fn len_utf8(&self) -> usize {
+        let mut sum = 0;
+        let mut i = 0;
+        let len = self.chars.len();
+        while i < len {
+            sum += self.chars[i].char().len_utf8();
+            i += 1;
+        }
+        sum
+    }
+
     /// Returns `true` when nothing has been buffered.
     #[allow(dead_code)]
     #[inline(always)]

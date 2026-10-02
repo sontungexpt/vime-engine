@@ -16,8 +16,6 @@ impl BuildingSyllable {
         keymap: &KM,
         key: char,
     ) -> Result<TransformEffect, SyllableBuildError> {
-        let mut effect = TransformEffect::None;
-
         // ─────────────────────────── Onset ───────────────────────────
         // No nucleus or coda yet: try the D/Đ stroke, then the onset, then the first vowel.
         if self.coda.is_empty() && self.nucleus.is_empty() {

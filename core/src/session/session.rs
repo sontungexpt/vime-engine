@@ -137,8 +137,7 @@ where
             .rendered(self.active_config.tone_placement())
     }
 
-    /// Allocation-free `rendered`; replaces `output`, reusing its capacity.
-    /// Pulls config first.
+    /// Allocation-free `rendered`; reuses `output` capacity. Pulls config first.
     #[inline(always)]
     pub fn write_rendered_to(&mut self, output: &mut String) {
         self.pull_config();
@@ -151,7 +150,7 @@ where
         self.composition.raw()
     }
 
-    /// Allocation-free `raw`; replaces `output`, reusing its capacity. No config read.
+    /// Allocation-free `raw`; reuses `output` capacity. No config read.
     #[inline(always)]
     pub fn write_raw_to(&self, output: &mut String) {
         self.composition.write_raw_to(output);
@@ -182,6 +181,24 @@ where
     #[inline(always)]
     pub fn rendered_len(&self) -> usize {
         self.composition.rendered_len()
+    }
+
+    /// Total UTF-8 length of the rendered buffer.
+    #[inline(always)]
+    pub fn rendered_len_utf8(&self) -> usize {
+        self.composition.rendered_len_utf8()
+    }
+
+    /// Length of the raw buffer, in characters.
+    #[inline(always)]
+    pub fn raw_len(&self) -> usize {
+        self.composition.raw_len()
+    }
+
+    /// Total UTF-8 length of the raw buffer.
+    #[inline(always)]
+    pub fn raw_len_utf8(&self) -> usize {
+        self.composition.raw_len_utf8()
     }
 
     /// Whether the buffer is a complete, valid Vietnamese syllable.

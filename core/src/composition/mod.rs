@@ -98,19 +98,38 @@ impl Composition {
 
     /// Length of the rendered buffer, in characters — the extent
     /// [`Self::rendered_cursor`] moves within.
-    #[inline]
+    #[inline(always)]
     pub fn rendered_len(&self) -> usize {
         self.rendered.len()
     }
 
+    /// Number of UTF-8 bytes the rendered buffer renders to.
+    #[inline(always)]
+    pub fn rendered_len_utf8(&self) -> usize {
+        self.rendered.len_utf8()
+    }
+
     /// Length of the raw keystroke buffer, in keystrokes.
-    #[inline]
+    #[inline(always)]
     pub fn raw_len(&self) -> usize {
         self.raw.len()
     }
 
+    /// Number of UTF-8 bytes the raw buffer renders to.
+    #[inline(always)]
+    pub fn raw_len_utf8(&self) -> usize {
+        let mut sum = 0;
+        let mut i = 0;
+        let len = self.raw.len();
+        while i < len {
+            sum += self.raw[i].len_utf8();
+            i += 1;
+        }
+        sum
+    }
+
     /// The raw keystrokes, in the order typed.
-    #[inline]
+    #[inline(always)]
     pub fn raw(&self) -> &[char] {
         &self.raw
     }
@@ -280,24 +299,19 @@ impl Composition {
         self.rendered.to_chars(tone_placement)
     }
 
-    /// Replaces `output` with the rendered word: the Vietnamese syllable while
+    /// Appends the rendered word to `output`: the Vietnamese syllable while
     /// parsing, the verbatim buffer once dead.
     ///
-    /// The allocation-free counterpart to [`Self::rendered`], for a caller that
-    /// writes on every keystroke into one reused buffer. [`String::clear`] only
-    /// resets the length and keeps the capacity, so a buffer that has once grown
-    /// large enough is never reallocated.
+    /// The allocation-free counterpart to [`Self::rendered`]. `output` is not
+    /// cleared, so a caller reusing one buffer must empty it first.
     #[inline]
     pub fn write_rendered_to(&self, tone_placement: TonePlacement, output: &mut String) {
-        output.clear();
         self.rendered.write_to(tone_placement, output);
     }
 
-    /// Replaces `output` with the raw keystrokes; see [`Self::write_rendered_to`]
-    /// for why this does not reallocate.
+    /// Appends the raw keystrokes to `output`, which is not cleared.
     #[inline]
     pub fn write_raw_to(&self, output: &mut String) {
-        output.clear();
-        output.extend(self.raw.iter().copied());
+        self.raw.iter().for_each(|c| output.push(*c));
     }
 }
