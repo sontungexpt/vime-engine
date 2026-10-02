@@ -3,7 +3,7 @@
 //! invalid, so a rejected removal leaves the syllable unchanged.
 
 use super::*;
-use crate::{phonology::TonePlacement, syllable::EditOutcome};
+use crate::phonology::TonePlacement;
 
 impl BuildingSyllable {
     // ─────────────────────────── Remove ───────────────────────────
@@ -129,8 +129,9 @@ impl BuildingSyllable {
             return false;
         }
 
-        // Never reached: with at least one vowel the `i` has already moved
-        // into the onset.
+        // Unreachable: When 2 or more vowels follow 'g', the leading 'i' is
+        // canonicalized into the onset (`Onset::Gi`), so `nucleus[0]` can
+        // never be `BaseVowel::I` when `len >= 2`.
         // if len == 2 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
         // }
 

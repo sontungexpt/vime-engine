@@ -5,8 +5,10 @@
 //! mismatch, print expected and actual onset / vowels / tone / coda side by side.
 
 use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
-use crate::syllable::building::{BuildingSyllable, SyllableBuildError, TransformEffect, TransformTarget};
-use crate::syllable::EditOutcome;
+use crate::syllable::building::{
+    BuildingSyllable, SyllableBuildError, TransformEffect, TransformTarget,
+};
+use crate::syllable::InsertOutcome;
 
 /// Shorthand for `BaseVowel`, so dense corpus cases read `(V::A, C::Lower)`.
 pub use crate::phonology::BaseVowel as V;
@@ -132,7 +134,7 @@ impl ExpectedSyllable {
 /// can state success and failure with the same field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    Ok(EditOutcome),
+    Ok(InsertOutcome),
     Err(SyllableBuildError),
 }
 
@@ -140,7 +142,7 @@ pub enum Effect {
 /// both on a mismatch.
 pub fn check_effect(
     expected: &Effect,
-    got: Result<EditOutcome, SyllableBuildError>,
+    got: Result<InsertOutcome, SyllableBuildError>,
     label: &str,
 ) -> Result<(), String> {
     match (expected, got) {

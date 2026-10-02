@@ -16,9 +16,8 @@ pub use building::{SyllableBuildError, TransformTarget};
 
 /// How the rendered buffer changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditOutcome {
-    Changed,
-
+pub enum InsertOutcome {
+    Extended,
     Transformed { first_changed: usize },
 }
 
@@ -65,16 +64,8 @@ impl Syllable {
         }
     }
 
-    // ---------------------------------------------------------- state
-
-    /// Whether the syllable is still in the parsing (building) phase.
-    #[inline(always)]
-    pub const fn is_building(&self) -> bool {
-        matches!(self.phase, Phase::Building(_))
-    }
-
     /// Number of characters the syllable renders to (`onset + vowels + coda`).
-    #[inline(always)]
+    #[inline]
     pub fn len(&self) -> usize {
         match &self.phase {
             Phase::Building(builder) => builder.len(),
@@ -83,7 +74,7 @@ impl Syllable {
     }
 
     /// Whether the syllable holds no characters.
-    #[inline(always)]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -137,7 +128,7 @@ impl Syllable {
         }
     }
 
-    /// The coda characters, `None` once dead.
+    /// The coda characters, `None once the syllable has fallen back to dead.
     #[inline(always)]
     pub fn coda(&self) -> Option<&[char]> {
         match &self.phase {
@@ -185,6 +176,7 @@ impl Syllable {
     #[inline]
     pub fn iter_chars(&self, tone_placement: TonePlacement) -> impl Iterator<Item = char> + '_ {
         use crate::syllable::iter::SyllableCharsIter;
+
         match &self.phase {
             Phase::Building(builder) => {
                 SyllableCharsIter::Building(builder.iter_chars(tone_placement))
@@ -195,6 +187,27 @@ impl Syllable {
 
     // -------------------------------------------------------- mutation
 
+    #[inline]
+    fn transform_outcome(
+        effect: TransformEffect,
+        builder: &BuildingSyllable,
+        tone_placement: TonePlacement,
+    ) -> InsertOutcome {
+        match effect {
+            TransformEffect::Applied(target) | TransformEffect::Reverted(target) => {
+                let first_changed = match target {
+                    TransformTarget::DStroke => 0,
+                    TransformTarget::UoPair => builder.onset().len(),
+                    TransformTarget::Tone => builder.tone_vowel_index(tone_placement).unwrap(),
+                    TransformTarget::Nucleus(index) => index,
+                };
+
+                InsertOutcome::Transformed { first_changed }
+            }
+            TransformEffect::None => InsertOutcome::Extended,
+        }
+    }
+
     /// Appends `input` at the end under `keymap`. When the building phase
     /// rejects it, the accepted prefix is frozen into a dead buffer, rendered
     /// with `tone_placement`, and the input appended verbatim.
@@ -204,38 +217,20 @@ impl Syllable {
         keymap: &KM,
         tone_placement: TonePlacement,
         input: char,
-    ) -> EditOutcome {
+    ) -> InsertOutcome {
         match &mut self.phase {
             Phase::Dead(builder) => {
                 builder.push(input);
-                EditOutcome::Changed
+                InsertOutcome::Extended
             }
             Phase::Building(builder) => match builder.push(keymap, input) {
-                Ok(effect) => match effect {
-                    TransformEffect::Applied(target) | TransformEffect::Reverted(target) => {
-                        match target {
-                            TransformTarget::DStroke => {
-                                EditOutcome::Transformed { first_changed: 0 }
-                            }
-                            TransformTarget::UoPair => EditOutcome::Transformed {
-                                first_changed: builder.onset().len(),
-                            },
-                            TransformTarget::Tone => EditOutcome::Transformed {
-                                first_changed: builder.tone_vowel_index(tone_placement).unwrap(),
-                            },
-                            TransformTarget::Nucleus(index) => EditOutcome::Transformed {
-                                first_changed: index,
-                            },
-                        }
-                    }
-                    TransformEffect::None => EditOutcome::Changed,
-                },
+                Ok(effect) => Self::transform_outcome(effect, builder, tone_placement),
                 Err(_err) => {
                     let chars = builder.to_chars(tone_placement);
                     let mut dead = DeadSyllable::from_accepted(&chars);
                     dead.push(input);
                     self.phase = Phase::Dead(dead);
-                    EditOutcome::Changed
+                    InsertOutcome::Extended
                 }
             },
         }
@@ -250,38 +245,20 @@ impl Syllable {
         tone_placement: TonePlacement,
         index: usize,
         input: char,
-    ) -> EditOutcome {
+    ) -> InsertOutcome {
         match &mut self.phase {
             Phase::Dead(builder) => {
                 builder.insert(index, input);
-                EditOutcome::Changed
+                InsertOutcome::Extended
             }
             Phase::Building(builder) => match builder.insert(keymap, index, input) {
-                Ok(effect) => match effect {
-                    TransformEffect::Applied(target) | TransformEffect::Reverted(target) => {
-                        match target {
-                            TransformTarget::DStroke => {
-                                EditOutcome::Transformed { first_changed: 0 }
-                            }
-                            TransformTarget::UoPair => EditOutcome::Transformed {
-                                first_changed: builder.onset().len(),
-                            },
-                            TransformTarget::Tone => EditOutcome::Transformed {
-                                first_changed: builder.tone_vowel_index(tone_placement).unwrap(),
-                            },
-                            TransformTarget::Nucleus(index) => EditOutcome::Transformed {
-                                first_changed: index,
-                            },
-                        }
-                    }
-                    TransformEffect::None => EditOutcome::Changed,
-                },
+                Ok(effect) => Self::transform_outcome(effect, builder, tone_placement),
                 Err(_err) => {
                     let chars = builder.to_chars(tone_placement);
                     let mut dead = DeadSyllable::from_accepted(&chars);
                     dead.insert(index, input);
                     self.phase = Phase::Dead(dead);
-                    EditOutcome::Changed
+                    InsertOutcome::Extended
                 }
             },
         }
@@ -295,7 +272,7 @@ impl Syllable {
         keymap: &KM,
         tone_placement: TonePlacement,
         index: usize,
-    ) -> EditOutcome {
+    ) {
         match &mut self.phase {
             Phase::Dead(builder) => {
                 builder.remove(index);
@@ -303,16 +280,20 @@ impl Syllable {
                     let mut building = BuildingSyllable::default();
                     for ch in builder.iter_chars() {
                         if building.push(keymap, ch).is_err() {
-                            return EditOutcome::Changed;
+                            return;
                         }
                     }
                     self.phase = Phase::Building(building);
                 }
-                EditOutcome::Changed
             }
             Phase::Building(builder) => match builder.remove(index, tone_placement) {
-                Ok(_) => EditOutcome::Changed,
-                Err(_) => EditOutcome::Changed,
+                Ok(_) => return,
+                Err(_) => {
+                    let chars = builder.to_chars(tone_placement);
+                    let mut dead = DeadSyllable::from_accepted(&chars);
+                    dead.remove(index);
+                    self.phase = Phase::Dead(dead);
+                }
             },
         }
     }

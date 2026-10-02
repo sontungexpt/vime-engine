@@ -5,7 +5,7 @@
 
 use crate::keymap::DefaultKeymap;
 use crate::phonology::{Onset, TonePlacement};
-use crate::syllable::{EditOutcome, Syllable, TransformTarget};
+use crate::syllable::{InsertOutcome, Syllable, TransformTarget};
 
 /// The keymap every test parses under; `Syllable` holds none, so each call gets it.
 fn keymap() -> DefaultKeymap<'static> {
@@ -30,7 +30,7 @@ fn chars(s: &Syllable) -> String {
 #[test]
 fn initially_building_and_empty() {
     let s = builder();
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     assert!(s.is_empty());
     assert_eq!(s.len(), 0);
 }
@@ -39,10 +39,10 @@ fn initially_building_and_empty() {
 fn valid_pushes_stay_in_building_phase() {
     let mut s = builder();
     for ch in ['t', 'a', 'n'] {
-        assert_eq!(s.push(&keymap(), TONE, ch), EditOutcome::Changed);
+        assert_eq!(s.push(&keymap(), TONE, ch), InsertOutcome::Extended);
     }
 
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     assert_eq!(chars(&s), "tan");
     assert_eq!(s.onset(), Some(&['t'][..]));
     assert_eq!(s.onset_kind(), Some(Onset::T));
@@ -58,12 +58,9 @@ fn rejected_push_falls_back_to_dead() {
     s.push(&keymap(), TONE, 'a');
 
     // `z` is no vowel/onset/coda char, so the rejection hands the accepted prefix to a dead buffer.
-    assert_eq!(
-        s.push(&keymap(), TONE, 'z'),
-        EditOutcome::Changed
-    );
+    assert_eq!(s.push(&keymap(), TONE, 'z'), InsertOutcome::Extended);
 
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "az");
     assert_eq!(s.len(), 2);
 
@@ -84,7 +81,7 @@ fn dead_pushes_are_recorded_verbatim() {
     s.push(&keymap(), TONE, 'x');
     s.push(&keymap(), TONE, 'y');
 
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "azxy");
 }
 
@@ -96,7 +93,7 @@ fn dead_insert_lands_at_the_cursor() {
 
     s.insert(&keymap(), TONE, 1, 'z');
 
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "azz");
 }
 
@@ -109,7 +106,7 @@ fn rejected_insert_falls_back_to_dead() {
     // `z` at the onset head is invalid: `ta` is frozen and the rejection recorded at the cursor.
     s.insert(&keymap(), TONE, 0, 'z');
 
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "zta");
 }
 
@@ -119,11 +116,11 @@ fn reset_recovers_from_dead() {
     let mut s = builder();
     s.push(&keymap(), TONE, 'a');
     s.push(&keymap(), TONE, 'z');
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
 
     s.reset();
 
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     assert!(s.is_empty());
 }
 
@@ -137,17 +134,17 @@ fn removing_rejected_chars_returns_to_building() {
     s.push(&keymap(), TONE, 'a');
     s.push(&keymap(), TONE, 'z');
     s.push(&keymap(), TONE, 'g');
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "azg");
 
     // Still rejected (`z` remains) -> dead, verbatim text now "az".
     s.remove(&keymap(), TONE, 2);
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "az");
 
     // The last rejected char goes -> "a" parses again.
     s.remove(&keymap(), TONE, 1);
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     assert_eq!(chars(&s), "a");
     assert!(s.nucleus().is_some());
 }
@@ -163,7 +160,7 @@ fn removing_accepted_char_keeps_dead() {
 
     s.remove(&keymap(), TONE, 0);
 
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "z");
 }
 
@@ -177,7 +174,7 @@ fn remove_on_building_path() {
 
     s.remove(&keymap(), TONE, 1);
 
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     assert_eq!(chars(&s), "t");
 }
 
@@ -191,14 +188,14 @@ fn write_to_matches_to_chars_in_both_phases() {
     for ch in "nguye".chars() {
         s.push(&keymap(), TONE, ch);
     }
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     let mut out = String::new();
     s.write_to(TONE, &mut out);
     assert_eq!(out, s.to_chars(TONE).iter().collect::<String>());
 
     // Dead phase: verbatim buffer, reached after a rejected character.
     s.push(&keymap(), TONE, 'z');
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     let mut out = String::new();
     s.write_to(TONE, &mut out);
     assert_eq!(out, s.to_chars(TONE).iter().collect::<String>());
@@ -237,7 +234,7 @@ fn write_to_walks_dead_buffer_in_order() {
     for ch in "toizq".chars() {
         s.push(&keymap(), TONE, ch);
     }
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
     assert_eq!(chars(&s), "toizq");
 }
 
@@ -245,7 +242,7 @@ fn write_to_walks_dead_buffer_in_order() {
 #[test]
 fn write_to_on_empty_syllable() {
     let mut s = builder();
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     let mut out = String::new();
     s.write_to(TONE, &mut out);
     assert_eq!(out, "");
@@ -266,7 +263,7 @@ fn dead_write_to_matches_to_chars_and_appends() {
     for ch in "toizq".chars() {
         s.push(&keymap(), TONE, ch);
     }
-    assert!(!s.is_building());
+    assert!(!s.onset().is_some());
 
     let mut out = String::from("head|");
     s.write_to(TONE, &mut out);
@@ -288,7 +285,7 @@ fn tone_placement_is_supplied_per_render() {
     for ch in "hoas".chars() {
         s.push(&telex, TONE, ch);
     }
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
 
     // Modern and Old mark opposite vowels of `oa`, so one parsed state renders two words.
     let modern: String = s.to_chars(TonePlacement::Modern).into_iter().collect();
@@ -316,17 +313,17 @@ fn keymap_is_supplied_per_operation() {
     s.push(&telex, TONE, 'a');
     assert_eq!(
         s.push(&telex, TONE, 'w'),
-        EditOutcome::Transformed { first_changed: 0 }
+        InsertOutcome::Transformed { first_changed: 0 }
     );
-    assert!(s.is_building());
+    assert!(s.onset().is_some());
     assert_eq!(s.to_chars(TONE).iter().collect::<String>(), "ă");
 
     // VIQR binds no shape on `w`: it is literal input, and `w` cannot follow a vowel, so the buffer goes dead.
     let viqr = DefaultKeymap::viqr();
     let mut v = Syllable::new();
     v.push(&viqr, TONE, 'a');
-    assert_eq!(v.push(&viqr, TONE, 'w'), EditOutcome::Changed);
-    assert!(!v.is_building());
+    assert_eq!(v.push(&viqr, TONE, 'w'), InsertOutcome::Extended);
+    assert!(!v.onset().is_some());
     assert_eq!(v.to_chars(TONE).iter().collect::<String>(), "aw");
 }
 
@@ -472,7 +469,7 @@ fn a_buildable_word_never_spills() {
     for ch in word.chars() {
         s.push(&keymap(), TONE, ch);
     }
-    assert!(s.is_building(), "{word} should still parse");
+    assert!(s.onset().is_some(), "{word} should still parse");
 
     let rendered: SyllableChars = s.to_chars(TONE);
     assert!(

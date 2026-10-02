@@ -130,16 +130,31 @@ impl<'a> DefaultKeymap<'a> {
         Self::new(telex::CONFIG)
     }
 
+    #[inline(always)]
+    pub fn is_telex(&self) -> bool {
+        self.rules == telex::CONFIG
+    }
+
     /// The VNI input method.
     #[inline(always)]
     pub const fn vni() -> Self {
         Self::new(vni::CONFIG)
     }
 
+    #[inline(always)]
+    pub fn is_vni(&self) -> bool {
+        self.rules == vni::CONFIG
+    }
+
     /// The VIQR input method.
     #[inline(always)]
     pub const fn viqr() -> Self {
         Self::new(viqr::CONFIG)
+    }
+
+    #[inline(always)]
+    pub fn is_viqr(&self) -> bool {
+        self.rules == viqr::CONFIG
     }
 
     /// The underlying configuration.

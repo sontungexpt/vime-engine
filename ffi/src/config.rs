@@ -1,5 +1,3 @@
-//! C ABI configuration and validation.
-
 use vime_engine::phonology::TonePlacement;
 use vime_engine::{DefaultKeymap, SessionConfig, Settings};
 
@@ -9,17 +7,18 @@ pub(crate) type FfiKeymap = DefaultKeymap<'static>;
 /// Session configuration used by the C ABI.
 pub(crate) type FfiSessionConfig = SessionConfig<FfiKeymap>;
 
+/// Input method identifier for the C ABI.
 pub type VimeInputMethod = u32;
-
 pub const VIME_INPUT_METHOD_TELEX: VimeInputMethod = 1;
 pub const VIME_INPUT_METHOD_VNI: VimeInputMethod = 2;
 pub const VIME_INPUT_METHOD_VIQR: VimeInputMethod = 3;
 
+/// Tone placement scheme for the C ABI.
 pub type VimeTonePlacement = u32;
-
 pub const VIME_TONE_PLACEMENT_MODERN: VimeTonePlacement = 1;
 pub const VIME_TONE_PLACEMENT_OLD: VimeTonePlacement = 2;
 
+/// C-compatible configuration (8 bytes, 4-byte aligned).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VimeConfig {
@@ -41,13 +40,9 @@ const INPUT_METHOD_OFFSET: usize = 0;
 const TONE_PLACEMENT_OFFSET: usize = 4;
 
 impl VimeConfig {
-    /// Reads and validates a C configuration.
-    ///
-    /// Fields are read as `u32` before validation so invalid C enum values are
-    /// never constructed as Rust values.
+    /// Reads and validates a C configuration from a pointer.
     ///
     /// # Safety
-    ///
     /// `config` must be non-null and point to a readable, correctly aligned
     /// `VimeConfig` for the duration of the call.
     #[inline]
@@ -74,7 +69,6 @@ impl VimeConfig {
     }
 
     /// Converts a validated C configuration to an engine configuration.
-    #[inline]
     pub(crate) fn to_ffi_session_config(self) -> FfiSessionConfig {
         let keymap = match self.input_method {
             VIME_INPUT_METHOD_TELEX => FfiKeymap::telex(),
@@ -91,9 +85,26 @@ impl VimeConfig {
 
         FfiSessionConfig::new(Settings::default(), keymap, tone_placement)
     }
+
+    pub fn from_ffi_session_config(config: FfiSessionConfig) -> Self {
+        Self {
+            input_method: if config.keymap().is_vni() {
+                VIME_INPUT_METHOD_VNI
+            } else if config.keymap().is_viqr() {
+                VIME_INPUT_METHOD_VIQR
+            } else {
+                VIME_INPUT_METHOD_TELEX
+            },
+            tone_placement: if config.tone_placement() == TonePlacement::Old {
+                VIME_TONE_PLACEMENT_OLD
+            } else {
+                VIME_TONE_PLACEMENT_MODERN
+            },
+        }
+    }
 }
 
-// ABI locks.
+// ABI layout guarantees.
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};
 
@@ -123,11 +134,8 @@ mod tests {
     impl Bytes {
         fn new(input_method: u32, tone_placement: u32) -> Self {
             let mut bytes = [0; 8];
-
             bytes[INPUT_METHOD_OFFSET..][..4].copy_from_slice(&input_method.to_ne_bytes());
-
             bytes[TONE_PLACEMENT_OFFSET..][..4].copy_from_slice(&tone_placement.to_ne_bytes());
-
             Self(bytes)
         }
 
@@ -145,8 +153,6 @@ mod tests {
         ] {
             for tone_placement in [VIME_TONE_PLACEMENT_MODERN, VIME_TONE_PLACEMENT_OLD] {
                 let raw = Bytes::new(input_method, tone_placement);
-
-                // SAFETY: `raw` has the required size and alignment.
                 let config = unsafe { VimeConfig::read(raw.as_config()) };
 
                 assert_eq!(
@@ -166,22 +172,12 @@ mod tests {
             let input_method = Bytes::new(value, VIME_TONE_PLACEMENT_MODERN);
             let tone_placement = Bytes::new(VIME_INPUT_METHOD_TELEX, value);
 
-            // SAFETY: both buffers have the required size and alignment.
             assert_eq!(unsafe { VimeConfig::read(input_method.as_config()) }, None);
-
             assert_eq!(
                 unsafe { VimeConfig::read(tone_placement.as_config()) },
                 None
             );
         }
-    }
-
-    #[test]
-    fn null_uses_default() {
-        // SAFETY: `NULL` is explicitly supported.
-        let config = unsafe { VimeConfig::read(core::ptr::null()) };
-
-        assert_eq!(config, Some(VimeConfig::default()));
     }
 
     #[test]
@@ -196,8 +192,6 @@ mod tests {
                     input_method,
                     tone_placement,
                 };
-
-                // SAFETY: `config` is a valid live value.
                 assert_eq!(unsafe { VimeConfig::read(&config) }, Some(config));
             }
         }

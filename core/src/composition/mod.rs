@@ -5,7 +5,7 @@ pub use cursor::Cursor;
 use crate::{
     keymap::Keymap,
     phonology::TonePlacement,
-    syllable::{EditOutcome, Syllable, SyllableChars},
+    syllable::{InsertOutcome, Syllable, SyllableChars},
     util::vec::SmallVec,
 };
 
@@ -141,7 +141,17 @@ impl Composition {
     /// The raw buffer always gains a character; the parsed cursor advances only
     /// on [`EditEffect::StructurallyChanged`], since a transformation consumes
     /// the input without lengthening that buffer.
-    pub fn insert<KM: Keymap>(&mut self, keymap: &KM, tone_placement: TonePlacement, input: char) {
+    pub fn insert<KM: Keymap>(
+        &mut self,
+        keymap: &KM,
+        tone_placement: TonePlacement,
+        input: char,
+    ) -> Parallel<InsertOutcome> {
+        let mut outcome = Parallel {
+            rendered: InsertOutcome::Extended,
+            raw: InsertOutcome::Extended,
+        };
+
         self.raw.insert(self.raw_cursor.get(), input);
 
         // SAFETY: insertion always increases the raw buffer length by one, so
@@ -154,15 +164,18 @@ impl Composition {
             .rendered
             .insert(keymap, tone_placement, self.rendered_cursor.get(), input)
         {
-            EditOutcome::Changed => {
+            InsertOutcome::Extended => {
                 // SAFETY: only this arm lengthens the parsed buffer, so the next
                 // position is valid; a transformation leaves it unchanged.
                 unsafe {
                     self.rendered_cursor.move_right_unchecked_by(1);
                 }
             }
-            _ => {} // EditEffect::Transformed => {}
+            edit_outcome @ InsertOutcome::Transformed { .. } => {
+                outcome.rendered = edit_outcome;
+            }
         }
+        outcome
     }
 
     /// Removes the character immediately before each cursor, parsing under
