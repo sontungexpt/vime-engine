@@ -9,10 +9,8 @@ use crate::keymap::DefaultKeymap;
 use crate::phonology::TonePlacement;
 use crate::session::Settings;
 
-/// A session on the default keymap, which is what these tests are about.
 type TestSession = Session<DefaultKeymap<'static>>;
 
-/// Default shared config for tests: Telex + Modern.
 fn shared() -> SharedSessionConfig<DefaultKeymap<'static>> {
     SharedSessionConfig::new(SessionConfig::from_keymap(
         Settings::default(),
@@ -20,281 +18,196 @@ fn shared() -> SharedSessionConfig<DefaultKeymap<'static>> {
     ))
 }
 
-/// A session with `input` typed in. Reads `shared` rather than making its own,
-/// so a test can observe the config the session has resolved.
 fn session_with(shared: &SharedSessionConfig<DefaultKeymap<'static>>, input: &str) -> TestSession {
-    let mut session = Session::new(shared.clone());
-    for ch in input.chars() {
-        session.insert(ch);
-    }
-    session
+    let mut s = Session::new(shared.clone());
+    for ch in input.chars() { s.insert(ch); }
+    s
 }
 
-/// A session with "hoas" typed in: the two tone-placement schemes render it
-/// differently (`hoá` Modern, `hóa` Old), which is what makes it the probe for
-/// whether a read resolved the config.
 fn session_with_hoas(shared: &SharedSessionConfig<DefaultKeymap<'static>>) -> TestSession {
     session_with(shared, "hoas")
 }
 
-/// `(rendered, raw)`: whether each caret can move one position left.
-fn can_left(session: &TestSession) -> (bool, bool) {
-    let reachable = session.can_move_cursor_left();
-    (*reachable.rendered(), *reachable.raw())
+fn can_left(s: &TestSession) -> (bool, bool) {
+    let r = s.can_move_cursor_left();
+    (*r.rendered(), *r.raw())
 }
-
-/// `(rendered, raw)`: whether each caret can move one position right.
-fn can_right(session: &TestSession) -> (bool, bool) {
-    let reachable = session.can_move_cursor_right();
-    (*reachable.rendered(), *reachable.raw())
+fn can_right(s: &TestSession) -> (bool, bool) {
+    let r = s.can_move_cursor_right();
+    (*r.rendered(), *r.raw())
 }
 
 mod config_updates {
     use super::*;
 
     #[test]
-    fn update_swaps_the_tone_placement_only() {
-        let shared = shared();
-        assert_eq!(shared.generation(), 0);
-
-        let generation = shared.update(|config| config.set_tone_placement(TonePlacement::Old));
-
-        assert_eq!(generation, 1);
-        assert_eq!(shared.generation(), 1);
-        let after = shared.snapshot();
+    fn update_tone_only() {
+        let s = shared();
+        assert_eq!(s.generation(), 0);
+        let gen = s.update(|c| c.set_tone_placement(TonePlacement::Old));
+        assert_eq!(gen, 1);
+        assert_eq!(s.generation(), 1);
+        let after = s.snapshot();
         assert_eq!(after.tone_placement(), TonePlacement::Old);
         assert_eq!(after.keymap(), &DefaultKeymap::telex());
     }
 
     #[test]
-    fn update_swaps_the_keymap_only() {
-        let shared = shared();
-
-        assert_eq!(
-            shared.update(|config| config.set_keymap(DefaultKeymap::vni())),
-            1
-        );
-        let after = shared.snapshot();
+    fn update_keymap_only() {
+        let s = shared();
+        assert_eq!(s.update(|c| c.set_keymap(DefaultKeymap::vni())), 1);
+        let after = s.snapshot();
         assert_eq!(after.keymap(), &DefaultKeymap::vni());
         assert_eq!(after.tone_placement(), TonePlacement::Modern);
     }
 
     #[test]
-    fn update_sees_the_current_value() {
-        let shared = shared();
-
-        shared.update(|config| {
-            let seen = config.tone_placement();
-            config.set_tone_placement(match seen {
+    fn update_sees_current_value() {
+        let s = shared();
+        s.update(|c| {
+            let seen = c.tone_placement();
+            c.set_tone_placement(match seen {
                 TonePlacement::Modern => TonePlacement::Old,
                 TonePlacement::Old => TonePlacement::Modern,
             });
         });
-
-        assert_eq!(shared.snapshot().tone_placement(), TonePlacement::Old);
+        assert_eq!(s.snapshot().tone_placement(), TonePlacement::Old);
     }
 
     #[test]
-    fn each_update_bumps_the_generation() {
-        let shared = shared();
-
-        assert_eq!(shared.update(|c| c.set_keymap(DefaultKeymap::telex())), 1);
-        assert_eq!(
-            shared.update(|c| c.set_tone_placement(TonePlacement::Old)),
-            2
-        );
-        assert_eq!(shared.generation(), 2);
+    fn each_update_bumps_generation() {
+        let s = shared();
+        assert_eq!(s.update(|c| c.set_keymap(DefaultKeymap::telex())), 1);
+        assert_eq!(s.update(|c| c.set_tone_placement(TonePlacement::Old)), 2);
+        assert_eq!(s.generation(), 2);
     }
 }
 
-mod session_config_resolution {
+mod config_resolution {
     use super::*;
 
-    /// A config-dependent operation adopts a pending change on its own, without an
-    /// explicit `pull_config`.
     #[test]
-    fn a_config_dependent_operation_resolves_the_config_itself() {
-        let shared = shared();
-        let mut session = session_with_hoas(&shared);
-        assert_eq!(session.rendered().iter().collect::<String>(), "hoá");
-
-        shared.update(|c| c.set_tone_placement(TonePlacement::Old));
-
-        // No explicit pull: `rendered` is the thing that must resolve the change.
-        assert_eq!(session.rendered().iter().collect::<String>(), "hóa");
+    fn rendered_resolves_pending_config() {
+        let s = shared();
+        let mut ss = session_with_hoas(&s);
+        assert_eq!(ss.rendered().iter().collect::<String>(), "hoá");
+        s.update(|c| c.set_tone_placement(TonePlacement::Old));
+        assert_eq!(ss.rendered().iter().collect::<String>(), "hóa");
     }
 
-    /// Cursor movement reads no configuration, so it must not adopt a pending
-    /// change: a later config-independent read would misreport what the session
-    /// has resolved.
     #[test]
-    fn cursor_movement_does_not_resolve_the_config() {
-        let shared = shared();
-        let mut session = session_with_hoas(&shared);
-        let resolved_before = session.config().tone_placement();
-        let start = session.rendered_cursor();
+    fn cursor_movement_does_not_resolve() {
+        let s = shared();
+        let mut ss = session_with_hoas(&s);
+        let before = ss.config().tone_placement();
+        let start = ss.rendered_cursor();
 
-        shared.update(|c| c.set_tone_placement(TonePlacement::Old));
+        s.update(|c| c.set_tone_placement(TonePlacement::Old));
 
-        assert_eq!(can_left(&session), (true, true), "left is available");
-        assert!(session.move_cursor_left_by(1).rendered());
-        assert_eq!(can_left(&session), (true, true), "and again");
-        assert_eq!(
-            can_right(&session),
-            (true, true),
-            "one character now sits right of the caret"
-        );
-        assert!(session.move_cursor_left_by(1).rendered(), "left twice");
-        assert!(session.move_cursor_right_by(1).rendered(), "then right");
-        assert_eq!(session.rendered_cursor(), start - 1);
-
-        assert_eq!(
-            session.config().tone_placement(),
-            resolved_before,
-            "cursor movement must leave the resolved config alone"
-        );
+        assert_eq!(can_left(&ss), (true, true));
+        assert!(ss.move_cursor_left_by(1).rendered());
+        assert_eq!(can_left(&ss), (true, true));
+        assert_eq!(can_right(&ss), (true, true));
+        assert!(ss.move_cursor_left_by(1).rendered());
+        assert!(ss.move_cursor_right_by(1).rendered());
+        assert_eq!(ss.rendered_cursor(), start - 1);
+        assert_eq!(ss.config().tone_placement(), before);
     }
 
-    /// Nor do the raw-keystroke reads, which are the raw buffer verbatim.
     #[test]
-    fn raw_reads_do_not_resolve_the_config() {
-        let shared = shared();
-        let session = session_with_hoas(&shared);
-        let resolved_before = session.config().tone_placement();
-
-        shared.update(|c| c.set_tone_placement(TonePlacement::Old));
+    fn raw_reads_do_not_resolve() {
+        let s = shared();
+        let ss = session_with_hoas(&s);
+        let before = ss.config().tone_placement();
+        s.update(|c| c.set_tone_placement(TonePlacement::Old));
 
         let mut out = String::new();
-        session.write_raw_to(&mut out);
+        ss.write_raw_to(&mut out);
         assert_eq!(out, "hoas");
-        assert_eq!(session.raw().iter().collect::<String>(), "hoas");
-        assert!(session.is_phonotactically_valid());
-
-        assert_eq!(
-            session.config().tone_placement(),
-            resolved_before,
-            "raw reads must leave the resolved config alone"
-        );
+        assert_eq!(ss.raw().iter().collect::<String>(), "hoas");
+        assert!(ss.is_phonotactically_valid());
+        assert_eq!(ss.config().tone_placement(), before);
     }
 
-    /// `pull_config` reports that a config was adopted without re-rendering: the
-    /// word only moves when a config-dependent operation reads it.
     #[test]
-    fn pull_config_reports_adoption_without_rendering() {
-        let shared = shared();
-        let mut session = session_with_hoas(&shared);
-        shared.update(|c| c.set_tone_placement(TonePlacement::Old));
-
-        assert!(
-            session.pull_config(),
-            "a moved generation means a config was adopted"
-        );
-        assert!(
-            !session.pull_config(),
-            "the generation is resolved now, so a second pull is silent"
-        );
+    fn pull_config_reports_adoption() {
+        let s = shared();
+        let mut ss = session_with_hoas(&s);
+        s.update(|c| c.set_tone_placement(TonePlacement::Old));
+        assert!(ss.pull_config());
+        assert!(!ss.pull_config());
     }
 }
 
 mod buffer_queries {
     use super::*;
 
-    /// A session with `input` typed in, on a config no test here inspects.
     fn typed(input: &str) -> TestSession {
         session_with(&shared(), input)
     }
 
-    /// The rendered length counts the syllable, not the keys that built it.
     #[test]
-    fn rendered_len_counts_the_syllable_not_the_keystrokes() {
-        let session = typed("chaof");
-        assert_eq!(session.raw_cursor(), 5);
-        assert_eq!(session.rendered_len(), 4, "`chaof` renders as `chào`");
+    fn rendered_len_counts_syllable() {
+        let s = typed("chaof");
+        assert_eq!(s.raw_cursor(), 5);
+        assert_eq!(s.rendered_len(), 4);
     }
 
     #[test]
-    fn rendered_len_is_zero_when_empty() {
+    fn rendered_len_empty() {
         assert_eq!(typed("").rendered_len(), 0);
     }
 
-    /// A dead buffer renders verbatim, so its length is the keystroke count.
     #[test]
-    fn rendered_len_counts_a_dead_buffer_verbatim() {
-        // `z` is not a vowel/onset/coda character, so the word goes dead and the
-        // rest is recorded as typed.
-        let session = typed("azxy");
-        assert_eq!(session.rendered_len(), 4);
-        assert_eq!(session.raw().len(), 4, "and so does the raw buffer");
+    fn rendered_len_dead_buffer() {
+        let s = typed("azxy");
+        assert_eq!(s.rendered_len(), 4);
+        assert_eq!(s.raw().len(), 4);
     }
 
-    /// The raw buffer counts keys, so no transform ever shortens it.
     #[test]
-    fn the_raw_buffer_counts_the_keystrokes_verbatim() {
-        let session = typed("chaof");
-        assert_eq!(session.raw().len(), 5, "5 keys, 4 rendered characters");
+    fn raw_len_counts_keystrokes() {
+        let s = typed("chaof");
+        assert_eq!(s.raw().len(), 5);
         assert_eq!(typed("").raw().len(), 0);
     }
 
-    /// An empty buffer can be moved in neither direction.
     #[test]
-    fn an_empty_buffer_cannot_move() {
-        let session = typed("");
-        assert_eq!(can_left(&session), (false, false));
-        assert_eq!(can_right(&session), (false, false));
+    fn empty_buffer_cannot_move() {
+        let s = typed("");
+        assert_eq!(can_left(&s), (false, false));
+        assert_eq!(can_right(&s), (false, false));
     }
 
-    /// With the caret at the end, only left is available; after one left move,
-    /// both are.
     #[test]
-    fn can_move_follows_the_caret() {
-        let mut session = typed("tan");
-
-        assert_eq!(
-            can_left(&session),
-            (true, true),
-            "the caret starts at the end"
-        );
-        assert_eq!(
-            can_right(&session),
-            (false, false),
-            "nothing sits to the right of the end"
-        );
-
-        session.move_cursor_left_by(1);
-
-        assert_eq!(can_left(&session), (true, true));
-        assert_eq!(
-            can_right(&session),
-            (true, true),
-            "one character now sits to the right of the caret"
-        );
+    fn caret_movement_follows_position() {
+        let mut s = typed("tan");
+        assert_eq!(can_left(&s), (true, true));
+        assert_eq!(can_right(&s), (false, false));
+        s.move_cursor_left_by(1);
+        assert_eq!(can_left(&s), (true, true));
+        assert_eq!(can_right(&s), (true, true));
     }
 
-    /// Moving past the start leaves the caret there, so left stops being offered
-    /// while right stays available. Moving past the end is the mirror image.
     #[test]
-    fn moving_past_an_end_clamps_and_stops_offering() {
-        let mut session = typed("tan");
+    fn movement_clamps_at_bounds() {
+        let mut s = typed("tan");
+        s.move_cursor_left_by(9);
+        assert_eq!(s.rendered_cursor(), 0);
+        assert_eq!(can_left(&s), (false, false));
+        assert_eq!(can_right(&s), (true, true));
 
-        session.move_cursor_left_by(9);
-        assert_eq!(session.rendered_cursor(), 0, "clamped at the start");
-        assert_eq!(can_left(&session), (false, false), "nowhere left to go");
-        assert_eq!(can_right(&session), (true, true));
-
-        session.move_cursor_right_by(9);
-        assert_eq!(session.rendered_cursor(), 3, "clamped at the end");
-        assert_eq!(can_left(&session), (true, true));
-        assert_eq!(can_right(&session), (false, false), "nowhere right to go");
+        s.move_cursor_right_by(9);
+        assert_eq!(s.rendered_cursor(), 3);
+        assert_eq!(can_left(&s), (true, true));
+        assert_eq!(can_right(&s), (false, false));
     }
 
-    /// The rendered caret and the raw caret are separate positions; a transform
-    /// collapses two keys into one character, so they do not have to agree.
     #[test]
-    fn the_two_carets_are_independent_positions() {
-        let session = typed("chaof");
-
-        assert_eq!(session.raw_cursor(), 5);
-        assert_eq!(session.rendered_cursor(), 4);
-        assert_eq!(session.rendered_len(), 4);
+    fn rendered_and_raw_cursors_differ() {
+        let s = typed("chaof");
+        assert_eq!(s.raw_cursor(), 5);
+        assert_eq!(s.rendered_cursor(), 4);
+        assert_eq!(s.rendered_len(), 4);
     }
 }
