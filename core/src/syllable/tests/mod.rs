@@ -6,6 +6,7 @@
 
 mod common;
 mod corpus;
+mod edge_cases;
 mod insert;
 mod lifecycle;
 mod push;

@@ -1,13 +1,11 @@
 //! Shared assertion harness for the syllable-builder tests.
 //!
 //! [`ExpectedSyllable`] describes the state a case must produce;
-//! [`check_syllable_eq`] and [`check_effect`] compare against it and, on a
-//! mismatch, print expected and actual onset / vowels / tone / coda side by side.
+//! [`check_syllable_eq`] compares against it and, on a mismatch, prints
+//! expected and actual onset / vowels / tone / coda side by side.
 
-use crate::phonology::{BaseVowel, Coda, Onset, Tone, Vowel};
-use crate::syllable::building::{
-    BuildingSyllable, SyllableBuildError, TransformEffect, TransformTarget,
-};
+use crate::phonology::{BaseVowel, Coda, Onset, Tone};
+use crate::syllable::building::{BuildingSyllable, SyllableBuildError, TransformEffect, TransformTarget};
 use crate::syllable::InsertOutcome;
 
 /// Shorthand for `BaseVowel`, so dense corpus cases read `(V::A, C::Lower)`.
@@ -127,33 +125,7 @@ impl ExpectedSyllable {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Edit effects
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// The result an `insert` / `remove` case must produce, tagged so a case table
-/// can state success and failure with the same field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Effect {
-    Ok(InsertOutcome),
-    Err(SyllableBuildError),
-}
-
-/// Compares a case's expected [`Effect`] with the actual result, labelling
-/// both on a mismatch.
-pub fn check_effect(
-    expected: &Effect,
-    got: Result<InsertOutcome, SyllableBuildError>,
-    label: &str,
-) -> Result<(), String> {
-    match (expected, got) {
-        (Effect::Ok(want), Ok(actual)) if want == &actual => Ok(()),
-        (Effect::Err(want), Err(actual)) if want == &actual => Ok(()),
-        (expected, got) => Err(format!("{label}: expected {expected:?}, got {got:?}")),
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Building module test harness (uses TransformEffect)
+// Edit effects (for BuildingSyllable insert/remove)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Effect type for `BuildingSyllable` operations, which return `TransformEffect`.
@@ -199,7 +171,7 @@ pub fn check_syllable_eq(
     expected: &ExpectedSyllable,
     input: &[char],
 ) -> Result<(), String> {
-    let vowel_pair = |v: &Vowel| {
+    let vowel_pair = |v: &crate::phonology::Vowel| {
         (
             v.base(),
             if v.is_upper() {

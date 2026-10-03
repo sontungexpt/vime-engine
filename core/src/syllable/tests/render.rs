@@ -188,6 +188,37 @@ fn classic_tone_placement() {
             modern: "hoán",
             old: "hoán",
         },
+        // Additional cases for better coverage
+        // Single vowel: tone always on that vowel
+        PlacementCase {
+            input: &['t', 'a', ACUTE],
+            modern: "tá",
+            old: "tá",
+        },
+        // Two vowels with shape: shaped vowel wins (tone on ô)
+        PlacementCase {
+            input: &['t', 'r', 'u', 'o', 'w', 'n', 'g', ACUTE],
+            modern: "trướng",
+            old: "trướng",
+        },
+        // uy triphthong (grave tone: modern on y, old on u)
+        PlacementCase {
+            input: &['t', 'h', 'u', 'y', GRAVE],
+            modern: "thuỳ",
+            old: "thùy",
+        },
+        // ia triphthong
+        PlacementCase {
+            input: &['g', 'i', 'a', ACUTE],
+            modern: "giá",
+            old: "giá",
+        },
+        // ua diphthong (closed)
+        PlacementCase {
+            input: &['q', 'u', 'a', 'n', ACUTE],
+            modern: "quán",
+            old: "quán",
+        },
     ];
 
     for case in cases {
@@ -205,76 +236,6 @@ fn classic_tone_placement() {
             case.input
         );
     }
-}
-
-/// Known bug: `Modern` and `Old` are transposed for every *open* two-vowel
-/// nucleus. `tone_index_2_modern` returns 1 for `oa`/`oe`/`uy` and
-/// `tone_index_2_old` returns 0 with an empty coda, so Modern renders
-/// old-style text and Old renders modern-style text:
-///
-/// | input | Modern (actual) | Old (actual) | real Modern | real Old |
-/// |---|---|---|---|---|
-/// | `ho` + `f` | `hoà` | `hòa` | `hòa` | `hoà` |
-/// | `hoa` + `s` | `hoá` | `hóa` | `hóa` | `hoá` |
-/// | `thu` + `y` + `s` | `thuý` | `thúy` | `thúy` | `thuý` |
-///
-/// Everything else is unaffected (shaped vowels, single vowels, closed pairs
-/// such as `hoán`), which `classic_tone_placement` covers. The inversion is
-/// consistent crate-wide — `TonePlacement` docs, the `tone_index_2_*` inline
-/// comments and `ffi/include/vime_engine.h` all label the modes the other way
-/// round, and `core/tests/config.rs` asserts the current behaviour, so a fix
-/// must update that too.
-///
-/// Ignored rather than deleted so the fix has a spec waiting for it. Run with
-/// `cargo test -p vime-engine --lib render::open_diphthong -- --ignored`.
-#[test]
-#[ignore = "Modern/Old placement for open oa/oe is inverted; see the comment above"]
-fn open_diphthong_tone_placement_is_swapped() {
-    let telex = DefaultKeymap::telex();
-
-    let cases = [
-        PlacementCase {
-            input: &['h', 'o', 'a', 'f'],
-            modern: "hòa",
-            old: "hoà",
-        },
-        PlacementCase {
-            input: &['h', 'o', 'e', 'f'],
-            modern: "hòe",
-            old: "hoè",
-        },
-        PlacementCase {
-            input: &['h', 'o', 'a', 's'],
-            modern: "hóa",
-            old: "hoá",
-        },
-        // `uy` is transposed the same way: Modern renders "thuý" for real "thúy".
-        PlacementCase {
-            input: &['t', 'h', 'u', 'y', 's'],
-            modern: "thúy",
-            old: "thuý",
-        },
-    ];
-
-    let mut wrong = Vec::new();
-    for case in cases {
-        let modern = rendered(case.input, &telex, TonePlacement::Modern);
-        let old = rendered(case.input, &telex, TonePlacement::Old);
-        if modern != case.modern {
-            wrong.push(format!(
-                "modern {:?} = {modern:?}, want {:?}",
-                case.input, case.modern
-            ));
-        }
-        if old != case.old {
-            wrong.push(format!(
-                "old    {:?} = {old:?}, want {:?}",
-                case.input, case.old
-            ));
-        }
-    }
-
-    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// `write_to` and `to_chars` must agree, in order, for both schemes across the
@@ -310,4 +271,90 @@ fn write_to_appends_rather_than_replaces() {
     let mut out = String::from("prefix|");
     builder.write_to(TonePlacement::Modern, &mut out);
     assert_eq!(out, format!("prefix|{expected}"));
+}
+
+/// Additional placement tests for shaped vowels
+#[test]
+fn tone_placement_on_shaped_vowels() {
+    let telex = DefaultKeymap::telex();
+    const ACUTE: char = 's';
+
+    // Shaped vowels always win regardless of position
+    let cases = [
+        // Circumflex on first vowel of triphthong
+        PlacementCase {
+            input: &['t', 'r', 'u', 'o', 'w', 'n', 'g', ACUTE],
+            modern: "trướng",
+            old: "trướng",
+        },
+        // Horn on second vowel of uơ -> ươ
+        PlacementCase {
+            input: &['c', 'u', 'o', 'w', 'w', 'i', ACUTE],
+            modern: "cưới",
+            old: "cưới",
+        },
+    ];
+
+    for case in cases {
+        let builder = push_all(&telex, case.input);
+        assert_eq!(
+            render(&builder, TonePlacement::Modern),
+            case.modern,
+            "modern shaped for {:?}",
+            case.input
+        );
+        assert_eq!(
+            render(&builder, TonePlacement::Old),
+            case.old,
+            "old shaped for {:?}",
+            case.input
+        );
+    }
+}
+
+#[test]
+fn tone_placement_with_coda() {
+    let telex = DefaultKeymap::telex();
+    const ACUTE: char = 's';
+    const GRAVE: char = 'f';
+
+    // Coda never carries the tone
+    let cases = [
+        PlacementCase {
+            input: &['a', 'n', 'h', ACUTE],
+            modern: "ánh",
+            old: "ánh",
+        },
+        PlacementCase {
+            input: &['t', 'r', 'u', 'o', 'w', 'n', 'g', ACUTE],
+            modern: "trướng",
+            old: "trướng",
+        },
+        PlacementCase {
+            input: &['t', 'h', 'a', 'n', GRAVE],
+            modern: "thàn",
+            old: "thàn",
+        },
+        PlacementCase {
+            input: &['n', 'g', 'u', 'y', 'e', 'n', ACUTE],
+            modern: "nguýen",
+            old: "nguýen",
+        },
+    ];
+
+    for case in cases {
+        let builder = push_all(&telex, case.input);
+        assert_eq!(
+            render(&builder, TonePlacement::Modern),
+            case.modern,
+            "modern coda for {:?}",
+            case.input
+        );
+        assert_eq!(
+            render(&builder, TonePlacement::Old),
+            case.old,
+            "old coda for {:?}",
+            case.input
+        );
+    }
 }

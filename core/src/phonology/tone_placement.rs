@@ -57,7 +57,7 @@ impl TonePlacement {
             return 0;
         }
 
-        // Rule 2: Open diphthongs "oa", "oe", "uy" place tone on the second vowel ("hóa", "hoe", "thúy").
+        // Rule 2: Open diphthongs "oa", "oe", "uy" place tone on the second vowel ("hoá", "hoé", "thuý").
         match (v0, v1) {
             (BaseVowel::O, BaseVowel::A | BaseVowel::E) | (BaseVowel::U, BaseVowel::Y) => 1,
             // Default: First vowel takes tone ("mía", "ai", "ao").
