@@ -63,19 +63,14 @@ impl BuildingSyllable {
     /// Total UTF-8 length: onset + vowels + coda.
     #[inline(always)]
     pub fn len_utf8(&self) -> usize {
-        let mut sum = 0;
+        let mut sum = (self.onset.len() + (self.onset_kind == Onset::DStroke) as usize)
+            + self.coda.len()
+            + (self.tone.is_some() as usize);
 
         // Temp vars
+        let len = self.nucleus.len();
+
         let mut i = 0;
-        let mut len = self.onset.len();
-
-        while i < len {
-            sum += self.onset[i].len_utf8();
-            i += 1;
-        }
-
-        i = 0;
-        len = self.nucleus.len();
         while i < len {
             sum += if self.nucleus[i].base().is_shaped() {
                 2
@@ -84,15 +79,8 @@ impl BuildingSyllable {
             };
             i += 1;
         }
-        i = 0;
 
-        len = self.coda.len();
-        while i < len {
-            sum += self.coda[i].len_utf8();
-            i += 1;
-        }
-
-        sum + self.tone.is_some() as usize
+        sum
     }
 
     #[inline(always)]

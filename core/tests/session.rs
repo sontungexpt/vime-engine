@@ -1,7 +1,4 @@
-//! A shared config change reaching every session that follows it.
-//!
-//! These are the tests that pin the feature down: the change is made once, in
-//! one place, and no session is notified by name.
+//! Session integration tests: config propagation, private config isolation, cursor independence, validity, config resolution edge cases.
 
 mod common;
 use common::*;

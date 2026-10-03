@@ -1,16 +1,6 @@
-//! Discriminant-layout pins for the `repr(u8)` enums.
-//!
-//! `Coda::from_id` and `Onset::from_id` convert an integer to an enum
-//! discriminant with a `transmute`, guarded only by `id < COUNT`. That guard is
-//! sound *only* while the variants are declared contiguously from zero. Adding a
-//! variant out of order, or bumping `COUNT` past the last discriminant, would
-//! make the transmute produce an invalid enum value — Undefined Behavior that
-//! compiles cleanly and reads plausible memory.
-//!
-//! These tests fail at compile time if the representation changes, and at run
-//! time if the contiguity invariant breaks. `vowel.rs` already pins its own
-//! layout (`size_of::<BaseVowel>() == 1`); this covers the two enums that had
-//! no such pin.
+//! Discriminant contiguity pins for `repr(u8)` enums (`Coda`, `Onset`).
+//! `from_id` uses transmute guarded by `id < COUNT`; breaks if variants aren't contiguous from 0.
+//! Catches UB at compile/run time. `vowel.rs` covers `BaseVowel`.
 
 use vime_engine::phonology::{Coda, Onset};
 

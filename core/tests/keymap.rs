@@ -1,11 +1,4 @@
-//! Integration tests for the configuration-driven [`Keymap`] layer and its
-//! compile-time `u128` bitmask lookups.
-//!
-//! - `is_tone_key` / `is_shape_key` / `is_stroke_key` are backed by `u128`
-//!   bitmasks precomputed in `DefaultKeymap::new`. These tests verify bit
-//!   positions for ASCII keys, case-insensitivity via `to_ascii_lowercase`,
-//!   and that non-ASCII / out-of-range input is safely rejected without a
-//!   shift-overflow panic.
+//! Keymap integration tests: `u128` bitmask lookups for Telex/VNI/VIQR tone/shape/stroke keys, ASCII case-insensitivity, non-ASCII rejection.
 
 use vime_engine::phonology::{RootVowel, Shape, Tone};
 use vime_engine::{DefaultKeymap, Keymap, Rules, ShapeRule, ToneRule};

@@ -11,10 +11,3 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
 vime-engine = { path = "../core" }
-
-# A hand-rolled harness rather than criterion: the thing worth measuring here is a
-# per-keystroke cost in the tens of nanoseconds, and a dev-dependency would be a
-# second build of the whole engine graph for numbers `Instant` gives directly.
-[[bench]]
-name = "hot_path"
-harness = false

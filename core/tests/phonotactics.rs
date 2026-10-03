@@ -1,25 +1,5 @@
-//! Integration tests for `validate_phonotactics` — the spelling rules of a
-//! Vietnamese syllable.
-//!
-//! Every case is a real Vietnamese word, spelled out, so a failure names
-//! something a reader can look up rather than a tuple of enums. The four parts
-//! are passed separately, which is how the engine holds them:
-//!
-//! ```text
-//! onset + nucleus + coda + tone
-//!  kh     oa       ng     huyền
-//! ```
-//!
-//! Each rule is checked from both sides: a word it accepts, and a near miss it
-//! rejects. The rejections matter more — a rule that accepts everything passes
-//! as quietly as one that rejects everything.
-//!
-//! Cases are tuples rather than named structs so that a dozen words stay
-//! readable side by side; the field order is fixed once, in [`Ok_`] and
-//! [`Bad`] below.
-//!
-//! The nucleus is [`BaseVowel`], not [`BaseVowelId`], because
-//! [`BaseVowelSlice`] is implemented for `[BaseVowel]`, so a plain array works.
+//! Integration tests for `validate_phonotactics` — Vietnamese syllable spelling rules.
+//! Each rule tested with valid words and near-miss rejections. Cases as tuples for readability.
 
 use vime_engine::phonology::{
     validate_phonotactics, BaseVowel, Coda, Onset, PhonotacticError, Tone,

@@ -1,8 +1,4 @@
-//! `SmallVec` behaviour: the inline fast path, the spill, and the `ArrayVec`
-//! hand-off.
-//!
-//! The `ArrayVec` grow/consume paths are in `array_vec.rs`; this file covers the
-//! container that wraps one and can outgrow it.
+//! `SmallVec` tests: inline path, spill behavior, ArrayVec hand-off, VecLike trait conformance, std integrations.
 
 use vime_engine::util::vec::{ArrayVec, SmallVec, VecLike};
 

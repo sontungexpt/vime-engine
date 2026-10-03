@@ -1,40 +1,5 @@
-//! `ArrayVec` grow-path and consume-path tests.
-//!
-//! The inline buffer is the allocation-free backing for a syllable's onset,
-//! nucleus and coda. These tests exercise the public insert surface:
-//!
-//! - `extend`/`from_iter` growing within capacity
-//! - overflow panics that must not mutate the buffer
-//! - `extend_from_slice` including an empty continuation
-//!
-//! and the `IntoIterator` surface it gained afterwards:
-//!
-//! - order and completeness at every fill level
-//! - `len`/`size_hint` staying exact as either end is consumed
-//! - the iterator outliving the `ArrayVec` it came from
-//!
-//! ## Why the lifetime tests exist
-//!
-//! The buffer lives *inside* `ArrayVec`, so an iterator cannot hold pointers
-//! into the container it was taken from: the container is dropped (and its
-//! stack slot reused) before the first `next()`. `IntoIter` therefore owns the
-//! buffer by value and tracks `front`/`back` as offsets. An earlier
-//! implementation stored `ptr`/`end` into its own `buf` field, which reads
-//! freed memory as soon as the struct is moved — and moves happen on the
-//! ordinary path, because `into_iter(self)` returns by value.
-//!
-//! Plain `cargo test` does **not** reliably catch that: the dangling read
-//! lands on whatever the compiler left in the reused stack slot, so a
-//! self-referential version passes the whole suite. Run these under Miri,
-//! which models the allocation and the move:
-//!
-//! ```sh
-//! cargo +nightly miri test --test array_vec
-//! ```
-//!
-//! [`iterator_outlives_the_array_vec`] and [`iterator_survives_being_moved`]
-//! are written to force a real move (`#[inline(never)]`, an out-of-line
-//! constructor) so the difference is observable rather than elided.
+//! `ArrayVec` tests: grow (extend, from_iter, extend_from_slice), overflow panics (no mutation),
+//! IntoIterator (order, exact size_hint, iterator outlives container, Miri-catchable lifetime bugs).
 
 use vime_engine::util::vec::{ArrayVec, SmallVec};
 

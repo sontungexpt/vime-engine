@@ -1,61 +1,9 @@
-//! Vowel codec and classification tests.
+//! Vowel codec and classification tests for 144 Vietnamese vowels (12 base × 6 tones × 2 cases).
 //!
-//! The public vowel surface covers:
-//!
-//! - 6 [`RootVowel`]s
-//! - 4 [`Shape`]s
-//! - 12 [`BaseVowel`]s
-//! - 6 [`Tone`]s
-//! - 2 cases
-//! - 144 precomposed Vietnamese vowel characters in total.
-//!
-//! The tests verify:
-//!
-//! - `Default`/`is_some` semantics for the marker enums
-//! - `BaseVowel` ID ordering, round-trip, packed bit layout and one-byte size
-//! - the `(root, shape)` -> ID table, including every invalid combination
-//! - exhaustive encode/decode bijection
-//! - exact lowercase/uppercase surface forms
-//! - one exhaustive scan over the Unicode scalar range checking that the
-//!   classifier and decoder accept exactly the same characters, that decoding
-//!   round-trips, and that the accepted set is all 144 vowels
-//! - rejection of non-vowels
-//! - `Vowel` field layout, accessors, mutating setters, copying `with_*`
-//!   builders, `remove_tone` / `remove_shape` and their `without_*` copies
-//! - `Eq` / `Hash` behavior, and `BaseVowel` ordering by priority ID. `Vowel`
-//!   and `Tone` are deliberately unordered - only `BaseVowel` implements
-//!   `Ord`, because it is the only one of the three whose stored value and
-//!   priority order disagree.
-//! - const-evaluability of the codec
-//! - shape replacement and `is_plain` / `is_shaped` consistency
-//!
-//! ## Keeping the assertions from multiplying
-//!
-//! These enums are all `#[repr(u8)]` with dense-from-zero discriminants, and
-//! several claims are consequences of each other. A naive transcription is a
-//! weak test anyway — it restates the implementation and passes when both drift
-//! together — so this file spends its assertions where they still fail for a
-//! different reason:
-//!
-//! - `marker_enum_dense!` generates one density test per marker enum, so
-//!   `RootVowel`, `Shape` and `Tone` are checked identically and a fix applied
-//!   to two of them cannot be forgotten on the third.
-//! - `id()` is pinned to stay the *identity* (`id() == self as u8`), not merely
-//!   to produce the right numbers. Density and declaration order are then one
-//!   assertion, and a remap is caught before it can mis-index a lookup table.
-//! - `BaseVowel` ids are pinned once in `base_vowel_id_table_is_pinned`, and
-//!   every `from_u8` case in `base_vowel_id_from_u8_covers_every_discriminant`.
-//! - Codec round-tripping is asserted **once**, as whole-`Vowel` equality, in
-//!   `encode_vowel_covers_all_144_combinations`. Because `Vowel` is a
-//!   `#[repr(transparent)] u16` with a derived `PartialEq`, that single
-//!   comparison pins every field and every bit, so a separate per-field
-//!   round-trip test would only restate it.
-//! - Both ordering pins (packed value vs. priority id) are folded into
-//!   `ordering_follows_priority_not_packed_value`.
-//!
-//! Iteration helpers below walk the tables in canonical order (`root`/`base`
-//! by priority ID, then `tone` by ID, then lowercase before uppercase) so no
-//! test has to repeat the nested loops.
+//! Tests cover: marker enum density/ordering, BaseVowel ID table, encode/decode bijection,
+//! Unicode scan, field layout, setters/getters, Eq/Hash, const-eval, shape queries.
+//! Assertions are deduplicated: density via macro, round-trip once via whole-Vowel equality,
+//! ordering pinned in one test.
 
 use std::collections::HashSet;
 
@@ -665,10 +613,10 @@ fn base_id_tracks_the_base_through_every_mutation() {
         for &tone in TONES {
             for upper in CASES {
                 let v = Vowel::new(base, tone, upper);
-                assert_eq!(v.to_char(), encode_vowel(base.id(), tone, upper));
+                assert_eq!(v.to_char(), encode_vowel(base, tone, upper));
                 let mut w = v;
                 w.set_base(base);
-                assert_eq!(w.to_char(), encode_vowel(base.id(), tone, upper));
+                assert_eq!(w.to_char(), encode_vowel(base, tone, upper));
             }
         }
     }
@@ -996,7 +944,7 @@ fn ordering_follows_priority_not_packed_value() {
 fn free_functions_agree_with_the_vowel_methods() {
     each_vowel(|base, tone, upper| {
         let vowel = Vowel::new(base, tone, upper);
-        let ch = encode_vowel(base.id(), tone, upper);
+        let ch = encode_vowel(base, tone, upper);
         assert_eq!(ch, vowel.to_char());
         assert_eq!(decode_vowel(ch), Some(vowel));
         assert_eq!(decode_vowel(ch), Vowel::from_char(ch));
@@ -1023,7 +971,7 @@ fn encode_vowel_covers_all_144_combinations() {
     for &base in BASES {
         for &tone in TONES {
             for &upper in &CASES {
-                let ch = encode_vowel(base.id(), tone, upper);
+                let ch = encode_vowel(base, tone, upper);
                 assert!(
                     seen.insert(ch),
                     "duplicate encode_vowel output for {base:?} {tone:?} {upper:?}"
@@ -1209,7 +1157,7 @@ const CONST_ROOT: RootVowel = CONST_VOWEL.root();
 const CONST_BASE: BaseVowel = CONST_VOWEL.base();
 const CONST_TONE: Tone = CONST_VOWEL.tone();
 const CONST_BITS: u16 = CONST_VOWEL.bits();
-const CONST_ENCODED: char = encode_vowel(BaseVowelId::ACircumflex, Tone::Dot, true);
+const CONST_ENCODED: char = encode_vowel(BaseVowel::ACircumflex, Tone::Dot, true);
 const CONST_DECODED: Option<Vowel> = decode_vowel('Ậ');
 
 #[test]

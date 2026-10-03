@@ -1,5 +1,4 @@
-//! Where a session's settings come from: the shared config it is created from,
-//! and the private config it can be given instead.
+//! Session config basics: shared vs private config, caret movement boundaries.
 
 mod common;
 use common::*;

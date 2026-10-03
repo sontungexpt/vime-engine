@@ -1,12 +1,4 @@
-//! `Composition`'s raw keystroke buffer: what it holds, and where it spills.
-//!
-//! `raw` is a [`SmallVec`] rather than a `Vec`, so it keeps a whole word inside
-//! the struct instead of on the heap. Nothing bounds it — once parsing dies
-//! every further key is recorded verbatim, and a user can type forever — so the
-//! case that matters here is the boundary: the inline buffer is an optimisation,
-//! not a limit, and everything past it has to keep working.
-//!
-//! [`SmallVec`]: vime_engine::util::vec::SmallVec
+//! `Composition` raw buffer tests: inline `SmallVec` behavior, spill boundary, shrink-back, cursor clamping independence.
 
 use vime_engine::composition::Composition;
 use vime_engine::phonology::TonePlacement;
