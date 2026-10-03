@@ -111,8 +111,15 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     #[inline]
     fn spill(&mut self, min: usize) {
         if let Phase::Inline(inline) = self.phase {
-            let mut heap = Vec::with_capacity((N * 2).max(inline.len() + min));
-            heap.extend_from_slice(inline.as_slice());
+            let len = inline.len();
+            let capacity = (N * 2).max(len + min);
+            // Use Vec::from for single-copy conversion from slice
+            let mut heap = Vec::with_capacity(capacity);
+            unsafe {
+                // SAFETY: inline.as_slice() returns initialized elements
+                core::ptr::copy_nonoverlapping(inline.as_slice().as_ptr(), heap.as_mut_ptr(), len);
+                heap.set_len(len);
+            }
             self.phase = Phase::Heap(heap);
         } else if min > 0 {
             if let Phase::Heap(heap) = &mut self.phase {
@@ -136,12 +143,15 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     /// it takes; one call makes a coming burst a single allocation.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
-        if let Phase::Inline(inline) = &self.phase {
-            if additional > N - inline.len() {
-                self.spill(additional);
+        match &mut self.phase {
+            Phase::Inline(inline) => {
+                if additional > N - inline.len() {
+                    self.spill(additional);
+                }
             }
-        } else if let Phase::Heap(heap) = &mut self.phase {
-            heap.reserve(additional);
+            Phase::Heap(heap) => {
+                heap.reserve(additional);
+            }
         }
     }
 
@@ -175,8 +185,10 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     #[inline]
     pub fn push(&mut self, value: T) {
         match &mut self.phase {
-            // SAFETY: the guard proved `len < N`, which is the whole contract.
-            Phase::Inline(inline) if inline.len() < N => unsafe { inline.push_unchecked(value) },
+            Phase::Inline(inline) if inline.len() < N => {
+                // SAFETY: guard proved `len < N`
+                unsafe { inline.push_unchecked(value) }
+            }
             _ => self.heap_mut(1).push(value),
         }
     }
@@ -196,10 +208,9 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     #[inline]
     pub fn insert(&mut self, index: usize, value: T) {
         match &mut self.phase {
-            // SAFETY: the guard proved `len < N`; `index` keeps the caller's
-            // `insert` contract, which the heap arm checks the same way.
             Phase::Inline(inline) if inline.len() < N => {
                 debug_assert!(index <= inline.len());
+                // SAFETY: guard proved `len < N` and `index <= len`
                 unsafe { inline.insert_unchecked(index, value) }
             }
             _ => self.heap_mut(1).insert(index, value),
@@ -219,22 +230,43 @@ impl<T: Copy, const N: usize> SmallVec<T, N> {
     /// the clear nor the refill after it allocates.
     #[inline]
     pub fn clear(&mut self) {
-        match &mut self.phase {
-            Phase::Inline(inline) => inline.clear(),
-            Phase::Heap(heap) => heap.clear(),
+        if let Phase::Inline(inline) = &mut self.phase {
+            inline.clear();
+            return;
         }
+        if let Phase::Heap(heap) = &mut self.phase {
+            heap.clear();
+            return;
+        }
+        unreachable!()
     }
 
     /// Appends every element of `values`, spilling once if they do not fit.
     #[inline]
     pub fn extend_from_slice(&mut self, values: &[T]) {
-        // Checked against the inline buffer first, so a slice that fits is one
-        // `ptr::copy` and never reaches for the heap.
+        // Fast path: fits in inline buffer
         if let Phase::Inline(inline) = &mut self.phase {
             if values.len() <= N - inline.len() {
                 inline.extend_from_slice(values);
                 return;
             }
+            // Will spill: do single copy directly to new heap
+            let len = inline.len();
+            let capacity = (N * 2).max(len + values.len());
+            let mut heap = Vec::with_capacity(capacity);
+            unsafe {
+                // Copy inline data
+                core::ptr::copy_nonoverlapping(inline.as_slice().as_ptr(), heap.as_mut_ptr(), len);
+                // Copy new values
+                core::ptr::copy_nonoverlapping(
+                    values.as_ptr(),
+                    heap.as_mut_ptr().add(len),
+                    values.len(),
+                );
+                heap.set_len(len + values.len());
+            }
+            self.phase = Phase::Heap(heap);
+            return;
         }
         self.heap_mut(values.len()).extend_from_slice(values);
     }

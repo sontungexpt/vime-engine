@@ -65,3 +65,8 @@ harness = false
 name = "bench_composition"
 path = "benches/bench_composition.rs"
 harness = false
+
+[[bench]]
+name = "bench_small_vec"
+path = "benches/bench_small_vec.rs"
+harness = false
