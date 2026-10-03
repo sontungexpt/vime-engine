@@ -160,7 +160,7 @@ impl Composition {
         self.rendered.is_phonotactically_valid()
     }
 
-    // ------------------------------------------------------------ mutation
+    // ------------------------------------------------------------ state mutation
 
     /// Clears both buffers and both cursors, returning to the building phase.
     #[inline]
@@ -171,6 +171,8 @@ impl Composition {
         self.rendered.reset();
         self.rendered_cursor.move_to_start();
     }
+
+    // ------------------------------------------------------------ editing
 
     /// Inserts `input` at both cursors, parsing under `keymap` and rendering
     /// under `tone_placement`.
@@ -267,6 +269,8 @@ impl Composition {
         }
         result
     }
+
+    // ------------------------------------------------------------ cursor movement
 
     /// Moves both cursors up to `by` positions left, clamping each at the start.
     ///

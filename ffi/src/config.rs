@@ -40,15 +40,11 @@ const INPUT_METHOD_OFFSET: usize = 0;
 const TONE_PLACEMENT_OFFSET: usize = 4;
 
 impl VimeConfig {
-    /// Reads and validates a C configuration from a pointer.
-    ///
-    /// # Safety
-    /// `config` must be non-null and point to a readable, correctly aligned
-    /// `VimeConfig` for the duration of the call.
+    /// Reads and validates a C config from a pointer.
+    /// # Safety: `config` must be non-null, readable, correctly aligned.
     #[inline]
     pub(crate) unsafe fn read(config: *const Self) -> Option<Self> {
         let base = config.cast::<u8>();
-
         let input_method = unsafe { base.add(INPUT_METHOD_OFFSET).cast::<u32>().read() };
         let tone_placement = unsafe { base.add(TONE_PLACEMENT_OFFSET).cast::<u32>().read() };
 
@@ -61,14 +57,13 @@ impl VimeConfig {
         ) {
             return None;
         }
-
         Some(Self {
             input_method,
             tone_placement,
         })
     }
 
-    /// Converts a validated C configuration to an engine configuration.
+    /// Converts validated C config to engine config.
     pub(crate) fn to_ffi_session_config(self) -> FfiSessionConfig {
         let keymap = match self.input_method {
             VIME_INPUT_METHOD_TELEX => FfiKeymap::telex(),
@@ -76,16 +71,15 @@ impl VimeConfig {
             VIME_INPUT_METHOD_VIQR => FfiKeymap::viqr(),
             _ => unreachable!(),
         };
-
         let tone_placement = match self.tone_placement {
             VIME_TONE_PLACEMENT_MODERN => TonePlacement::Modern,
             VIME_TONE_PLACEMENT_OLD => TonePlacement::Old,
             _ => unreachable!(),
         };
-
         FfiSessionConfig::new(Settings::default(), keymap, tone_placement)
     }
 
+    /// Converts engine config back to C-compatible config.
     pub fn from_ffi_session_config(config: FfiSessionConfig) -> Self {
         Self {
             input_method: if config.keymap().is_vni() {
@@ -107,15 +101,12 @@ impl VimeConfig {
 // ABI layout guarantees.
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};
-
     assert!(size_of::<VimeConfig>() == 8);
     assert!(align_of::<VimeConfig>() == 4);
     assert!(offset_of!(VimeConfig, input_method) == INPUT_METHOD_OFFSET);
     assert!(offset_of!(VimeConfig, tone_placement) == TONE_PLACEMENT_OFFSET);
-
     assert!(size_of::<VimeConfig>() >= TONE_PLACEMENT_OFFSET + size_of::<u32>());
     assert!(align_of::<VimeConfig>() >= size_of::<u32>());
-
     assert!(VIME_INPUT_METHOD_TELEX == 1);
     assert!(VIME_INPUT_METHOD_VNI == 2);
     assert!(VIME_INPUT_METHOD_VIQR == 3);
