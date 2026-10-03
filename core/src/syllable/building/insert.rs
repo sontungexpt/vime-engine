@@ -18,7 +18,7 @@ impl BuildingSyllable {
         key: char,
     ) -> Result<TransformEffect, SyllableBuildError> {
         let onset_len = self.onset.len();
-        let vowels_len = self.nucleus.len();
+        let vowels_len = self.toneless_nucleus.len();
         // Absolute indices at the boundaries between syllable parts.
         let vowel_boundary = onset_len + vowels_len;
         let total_len = vowel_boundary + self.coda.len();
@@ -122,10 +122,10 @@ impl BuildingSyllable {
         if is_i_ignore_case(key) {
             // `i` follows the one-character G onset, before any nucleus vowel.
             let should_move_i_to_nucleus =
-                self.onset_kind == Onset::G && onset_index == 1 && self.nucleus.is_empty();
+                self.onset_kind == Onset::G && onset_index == 1 && self.toneless_nucleus.is_empty();
 
             if should_move_i_to_nucleus {
-                self.nucleus
+                self.toneless_nucleus
                     .push(Vowel::new(BaseVowel::I, Tone::Flat, key == 'I'));
 
                 // `i` is the only vowel in the nucleus, so it must be valid.
@@ -151,7 +151,7 @@ impl BuildingSyllable {
     /// Inserts a literal vowel into the nucleus; transforms are already handled by `insert()`.
     #[inline]
     fn insert_vowel(&mut self, vowel_index: usize, vowel: Vowel) -> bool {
-        let len = self.nucleus.len();
+        let len = self.toneless_nucleus.len();
 
         debug_assert!(
             vowel_index <= len,
@@ -191,9 +191,9 @@ impl BuildingSyllable {
             return true;
         }
 
-        if !self.try_update_nucleus(
-            |nucleus| nucleus.insert(vowel_index, vowel),
-            |nucleus, _| _ = nucleus.remove(vowel_index),
+        if !self.try_update_toneless_nucleus(
+            |toneless_nucleus| toneless_nucleus.insert(vowel_index, vowel.without_tone()),
+            |toneless_nucleus, _| _ = toneless_nucleus.remove(vowel_index),
         ) {
             return false;
         }

@@ -18,7 +18,7 @@ impl BuildingSyllable {
     ) -> Result<TransformEffect, SyllableBuildError> {
         // ─────────────────────────── Onset ───────────────────────────
         // No nucleus or coda yet: try the D/Đ stroke, then the onset, then the first vowel.
-        if self.coda.is_empty() && self.nucleus.is_empty() {
+        if self.coda.is_empty() && self.toneless_nucleus.is_empty() {
             let effect = self.try_toggle_d_stroke(keymap, key);
 
             if matches!(effect, TransformEffect::Applied(_)) {
@@ -112,7 +112,7 @@ impl BuildingSyllable {
     #[inline]
     pub(super) fn push_vowel(&mut self, vowel: Vowel) -> bool {
         let tone = vowel.tone();
-        let len = self.nucleus.len();
+        let len = self.toneless_nucleus.len();
 
         if len >= NUCLEUS_MAX_LEN {
             return false;
@@ -120,7 +120,7 @@ impl BuildingSyllable {
 
         // The first vowel sets the syllable tone.
         if len == 0 {
-            self.nucleus.push(vowel);
+            self.toneless_nucleus.push(vowel.without_tone());
             // Nucleus with a single vowel is always valid.
             self.nucleus_state = NucleusState::Valid;
 
@@ -139,17 +139,18 @@ impl BuildingSyllable {
         };
 
         // When a vowel follows `g i`, move `i` into the onset: `G + I + V` -> `Gi + V`.
-        let should_form_gi =
-            len == 1 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I;
+        let should_form_gi = len == 1
+            && self.onset_kind == Onset::G
+            && self.toneless_nucleus[0].base() == BaseVowel::I;
 
         if should_form_gi {
-            let i = self.nucleus.pop().expect("nucleus contains i");
+            let i = self.toneless_nucleus.pop().expect("nucleus contains i");
 
             self.onset.push(if i.is_upper() { 'I' } else { 'i' });
             self.onset_kind = Onset::Gi;
 
             // The new nucleus has one vowel, so adopt its tone directly.
-            self.nucleus.push(vowel);
+            self.toneless_nucleus.push(vowel.without_tone());
             // The nucleus is now valid, as it has one vowel.
             self.nucleus_state = NucleusState::Valid;
             self.tone = new_tone;
@@ -157,10 +158,10 @@ impl BuildingSyllable {
             return true;
         }
 
-        if !self.try_update_nucleus(
-            |nucleus| nucleus.push(vowel),
-            |nucleus, _| {
-                nucleus.pop();
+        if !self.try_update_toneless_nucleus(
+            |toneless_nucleus| toneless_nucleus.push(vowel.without_tone()),
+            |toneless_nucleus, _| {
+                toneless_nucleus.pop();
             },
         ) {
             return false;

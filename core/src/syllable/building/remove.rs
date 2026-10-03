@@ -14,7 +14,7 @@ impl BuildingSyllable {
         tone_placement: TonePlacement,
     ) -> Result<(), SyllableBuildError> {
         let onset_len = self.onset.len();
-        let vowels_len = self.nucleus.len();
+        let vowels_len = self.toneless_nucleus.len();
         let total_len = onset_len + vowels_len + self.coda.len();
 
         debug_assert!(
@@ -93,12 +93,12 @@ impl BuildingSyllable {
 
         // Removing `G` moves `i` into the nucleus.
 
-        if self.nucleus.len() >= NUCLEUS_MAX_LEN {
+        if self.toneless_nucleus.len() >= NUCLEUS_MAX_LEN {
             return false;
         }
 
         let i = self.onset[1];
-        if !self.try_update_nucleus(
+        if !self.try_update_toneless_nucleus(
             |nucleus| nucleus.insert(0, Vowel::new(BaseVowel::I, Tone::Flat, i == 'I')),
             |nucleus, _| {
                 nucleus.remove(0);
@@ -117,7 +117,7 @@ impl BuildingSyllable {
     /// carried it.
     #[inline]
     fn remove_vowel(&mut self, vowel_index: usize, tone_placement: TonePlacement) -> bool {
-        let len = self.nucleus.len();
+        let len = self.toneless_nucleus.len();
 
         debug_assert!(
             vowel_index < len,
@@ -132,7 +132,7 @@ impl BuildingSyllable {
         // Unreachable: When 2 or more vowels follow 'g', the leading 'i' is
         // canonicalized into the onset (`Onset::Gi`), so `nucleus[0]` can
         // never be `BaseVowel::I` when `len >= 2`.
-        // if len == 2 && self.onset_kind == Onset::G && self.nucleus[0].base() == BaseVowel::I {
+        // if len == 2 && self.onset_kind == Onset::G && self.toneless_nucleus[0].base() == BaseVowel::I {
         // }
 
         let tone_pos = if self.tone.is_some() {
@@ -141,7 +141,7 @@ impl BuildingSyllable {
             None
         };
 
-        if !self.try_update_nucleus(
+        if !self.try_update_toneless_nucleus(
             |nucleus| nucleus.remove(vowel_index),
             |nucleus, old| {
                 nucleus.insert(vowel_index, old);

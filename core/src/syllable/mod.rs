@@ -73,6 +73,11 @@ impl Syllable {
         }
     }
 
+    #[inline]
+    pub fn is_building(&self) -> bool {
+        matches!(self.phase, Phase::Building(_))
+    }
+
     /// Number of UTF-8 bytes the syllable renders to.
     #[inline]
     pub fn len_utf8(&self) -> usize {
@@ -130,9 +135,9 @@ impl Syllable {
 
     /// The nucleus vowels, `None` once dead.
     #[inline(always)]
-    pub fn nucleus(&self) -> Option<&[Vowel]> {
+    pub fn toneless_nucleus(&self) -> Option<&[Vowel]> {
         match &self.phase {
-            Phase::Building(builder) => Some(builder.nucleus()),
+            Phase::Building(builder) => Some(builder.toneless_nucleus()),
             Phase::Dead(_) => None,
         }
     }

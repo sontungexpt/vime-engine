@@ -213,7 +213,7 @@ pub fn check_syllable_eq(
     let matches = builder.onset_kind() == expected.onset_kind
         && builder.onset() == expected.onset
         && builder
-            .nucleus()
+            .toneless_nucleus()
             .iter()
             .map(vowel_pair)
             .eq(expected.vowels.iter().copied())
@@ -225,7 +225,7 @@ pub fn check_syllable_eq(
         return Ok(());
     }
 
-    let actual_vowels = builder.nucleus().iter().map(vowel_pair).collect::<Vec<_>>();
+    let actual_vowels = builder.toneless_nucleus().iter().map(vowel_pair).collect::<Vec<_>>();
     Err(format!(
         "input={input:?}\n  expected: {}\n  actual:   {}",
         describe(
